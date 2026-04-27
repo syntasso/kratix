@@ -101,20 +101,22 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return defaultRequeue, nil
 	}
 
-	// The PromiseController will trigger a reconciliation of all requests every time a new
-	// Promise version is installed, so this controller doesn't need to trigger a reconciliation
-	// when the ResourceBinding version is set to "latest"
-	if resourceBinding.Spec.Version == LatestVersion {
-		return ctrl.Result{}, nil
-	}
-
 	rrPromiseVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
 	if rrPromiseVersion == "" || rrPromiseVersion == UnversionedPromiseVersion {
 		logging.Info(logger, "promise has no version; skipping version check")
 		return ctrl.Result{}, nil
 	}
 
-	if rrPromiseVersion == resourceBinding.Spec.Version {
+	desiredVersion := resourceBinding.Spec.Version
+	if desiredVersion == LatestVersion {
+		provisionRevisionMarkedWithLatest, err := latestRevision(ctx, r.Client, promise)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to get latest provision revision for promise %s: %w", promiseNamespacedName.Name, err)
+		}
+		desiredVersion = provisionRevisionMarkedWithLatest.Spec.Version
+	}
+
+	if rrPromiseVersion == desiredVersion {
 		logging.Debug(logger, "resource request version is equal to the resource binding desired version", "resource binding version", resourceBinding.Spec.Version)
 		return ctrl.Result{}, nil
 	}

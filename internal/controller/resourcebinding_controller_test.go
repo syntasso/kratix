@@ -171,10 +171,12 @@ var _ = Describe("ResourceBinding Controller", func() {
 				Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal(""))
 			})
 
-			It("does not apply the manual reconciliation label when the binding tracks latest", func() {
+			It("does not apply the manual reconciliation label when the binding tracks latest and the RR is already on the latest revision", func() {
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
 				resourceBinding.Spec.Version = "latest"
 				Expect(fakeK8sClient.Update(ctx, &resourceBinding)).To(Succeed())
+
+				createPromiseRevision(fakeK8sClient, promise, "v0.0.1")
 
 				request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
 
@@ -187,6 +189,37 @@ var _ = Describe("ResourceBinding Controller", func() {
 					rr,
 				)
 				Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal(""))
+			})
+
+			It("applies the manual reconciliation label when the binding tracks latest but the RR is behind the latest revision", func() {
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
+				resourceBinding.Spec.Version = "latest"
+				Expect(fakeK8sClient.Update(ctx, &resourceBinding)).To(Succeed())
+
+				createPromiseRevision(fakeK8sClient, promise, "v0.0.2")
+
+				request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+				result, err := reconciler.Reconcile(ctx, request)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				fakeK8sClient.Get(ctx,
+					types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()},
+					rr,
+				)
+				Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+			})
+
+			It("returns an error when the binding tracks latest but no latest PromiseRevision exists", func() {
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
+				resourceBinding.Spec.Version = "latest"
+				Expect(fakeK8sClient.Update(ctx, &resourceBinding)).To(Succeed())
+
+				request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+				_, err := reconciler.Reconcile(ctx, request)
+				Expect(err).To(MatchError(ContainSubstring("failed to get latest provision revision for promise redis")))
 			})
 		})
 	})
