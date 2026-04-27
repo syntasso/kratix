@@ -1536,6 +1536,24 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(binding.GetLabels()).To(HaveKeyWithValue("kratix.io/promise-name", promise.GetName()))
 				Expect(binding.GetLabels()).To(HaveKeyWithValue("kratix.io/resource-name", resReq.GetName()))
 			})
+
+			It("does not propagate ephemeral trigger labels from the resource request to the binding", func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				labels := resReq.GetLabels()
+				labels[resourceutil.ManualReconciliationLabel] = "true"
+				labels[resourceutil.WorkflowRunFromStartLabel] = "true"
+				resReq.SetLabels(labels)
+				Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+				setReconcileConfigureWorkflowToReturnFinished()
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+				Expect(binding.GetLabels()).NotTo(HaveKey(resourceutil.ManualReconciliationLabel))
+				Expect(binding.GetLabels()).NotTo(HaveKey(resourceutil.WorkflowRunFromStartLabel))
+			})
 		})
 
 	})

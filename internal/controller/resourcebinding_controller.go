@@ -102,7 +102,12 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	rrPromiseVersion := resourceutil.GetStatus(rr, "promiseVersion")
-	if rrPromiseVersion == "" || rrPromiseVersion == resourceBinding.Spec.Version {
+	if rrPromiseVersion == "" || rrPromiseVersion == unversionedPromiseVersion {
+		logging.Info(logger, "promise has no version; skipping version check")
+		return ctrl.Result{}, nil
+	}
+
+	if rrPromiseVersion == resourceBinding.Spec.Version {
 		logging.Info(logger, "resource request version is equal to the resource binding desired version", "resource binding version", resourceBinding.Spec.Version)
 		return ctrl.Result{}, nil
 	}

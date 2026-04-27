@@ -61,6 +61,7 @@ const (
 	resourcePromiseVersionStatus      = "promiseVersion"
 	resourceBindingVersionStatus      = "resourceBindingVersion"
 	promiseRevisionLookupFailedReason = "FailedPromiseRevisionLookup"
+	unversionedPromiseVersion         = "not-set"
 )
 
 type DynamicResourceRequestController struct {
@@ -380,7 +381,7 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 		},
 	}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, resourceBinding, func() error {
-		resourceBinding.SetLabels(rr.GetLabels())
+		resourceBinding.SetLabels(rrLabelsWithoutEphemeralTriggers(rr.GetLabels()))
 		for k, v := range resourceBindingLabels(rr, promise) {
 			resourceBinding.Labels[k] = v
 		}
@@ -1064,6 +1065,24 @@ func getPromiseRevisionToUse(ctx context.Context, rr *unstructured.Unstructured,
 	}
 
 	return promiseRevisionToUse, bindingVersion, nil
+}
+
+// rrLabelsWithoutEphemeralTriggers returns the RR labels without one-shot trigger
+// labels. Propagating these to the ResourceBinding would cause the ResourceBinding
+// controller to re-trigger reconciliation in an infinite loop.
+func rrLabelsWithoutEphemeralTriggers(rrLabels map[string]string) map[string]string {
+	ephemeralLabels := []string{
+		resourceutil.ManualReconciliationLabel,
+		resourceutil.WorkflowRunFromStartLabel,
+	}
+	result := make(map[string]string, len(rrLabels))
+	for k, v := range rrLabels {
+		result[k] = v
+	}
+	for _, key := range ephemeralLabels {
+		delete(result, key)
+	}
+	return result
 }
 
 func resourceBindingLabels(rr *unstructured.Unstructured, promise *v1alpha1.Promise) map[string]string {

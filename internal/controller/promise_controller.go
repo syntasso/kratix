@@ -376,7 +376,7 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 	}
 
 	if promiseVersion == "" {
-		promiseVersion = "not-set"
+		promiseVersion = unversionedPromiseVersion
 	}
 
 	revision := v1alpha1.NewPromiseRevision(promise, promiseVersion)

@@ -148,6 +148,28 @@ var _ = Describe("ResourceBinding Controller", func() {
 				)
 				Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal(""))
 			})
+
+			It("does not apply the manual reconciliation label when the promise has no version", func() {
+				fakeK8sClient.Get(ctx,
+					types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()},
+					rr,
+				)
+
+				resourceutil.SetStatus(rr, logr.Discard(), "promiseVersion", "not-set")
+				Expect(fakeK8sClient.Status().Update(ctx, rr)).To(Succeed())
+
+				request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+				result, err := reconciler.Reconcile(ctx, request)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				fakeK8sClient.Get(ctx,
+					types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()},
+					rr,
+				)
+				Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal(""))
+			})
 		})
 	})
 })
