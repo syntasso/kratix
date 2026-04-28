@@ -101,10 +101,32 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return defaultRequeue, nil
 	}
 
-	rrPromiseVersion := resourceutil.GetStatus(rr, "promiseVersion")
-	if rrPromiseVersion == "" || rrPromiseVersion == resourceBinding.Spec.Version {
+	rrPromiseVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
+	if rrPromiseVersion == "" || rrPromiseVersion == UnversionedPromiseVersion {
+		logging.Info(logger, "promise has no version; skipping version check")
 		return ctrl.Result{}, nil
 	}
+
+	desiredVersion := resourceBinding.Spec.Version
+	if desiredVersion == LatestVersion {
+		provisionRevisionMarkedWithLatest, err := latestRevision(ctx, r.Client, promise)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to get latest provision revision for promise %s: %w", promiseNamespacedName.Name, err)
+		}
+		desiredVersion = provisionRevisionMarkedWithLatest.Spec.Version
+	}
+
+	if rrPromiseVersion == desiredVersion {
+		logging.Debug(logger, "resource request version is equal to the resource binding desired version", "resource binding version", resourceBinding.Spec.Version)
+		return ctrl.Result{}, nil
+	}
+
+	logging.Info(
+		logger,
+		"resource request version mismatch to the resource binding desired version, triggering manual reconciliation",
+		"resource request version", rrPromiseVersion,
+		"resource binding version", resourceBinding.Spec.Version,
+	)
 
 	labels := rr.GetLabels()
 	if labels == nil {
@@ -115,7 +137,6 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if err := r.Client.Update(ctx, rr); err != nil {
 		return ctrl.Result{}, err
 	}
-
 	return ctrl.Result{}, nil
 }
 

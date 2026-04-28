@@ -151,6 +151,9 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastAppliedVersion:
+                description: Reference to the Resource Request version
+                type: string
             type: object
         required:
         - spec

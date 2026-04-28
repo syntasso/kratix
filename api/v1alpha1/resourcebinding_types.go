@@ -64,6 +64,9 @@ type ResourceBindingStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// Reference to the Resource Request version
+	// +optional
+	LastAppliedVersion string `json:"lastAppliedVersion,omitempty"`
 }
 
 // +kubebuilder:object:root=true
