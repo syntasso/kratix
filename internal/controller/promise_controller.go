@@ -379,7 +379,14 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 		promiseVersion = UnversionedPromiseVersion
 	}
 
-	revision := v1alpha1.NewPromiseRevision(promise, promiseVersion)
+	revision, found, err := r.getPreviousRevision(ctx, promise, promiseVersion)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if !found {
+		revision = v1alpha1.NewPromiseRevision(promise, promiseVersion)
+	}
 
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, revision, func() error {
 		revision.Spec.PromiseRef = v1alpha1.PromiseRef{Name: promise.Name}
@@ -2093,4 +2100,23 @@ func (r *PromiseReconciler) restartOnReconciliationInterval(
 	}
 
 	return false, nil
+}
+
+// getPreviousRevision returns the previous revision for a promise, if it exists
+// This is used to support backwards compatibility for promise revisions with the old name format
+// <promise-name>-<version>
+// Since labels can have characters that are not valid in a DNS-1123 subdomain
+// This function checks for the existence of a revision with the old name format and returns it if it exists
+// Otherwise, it returns nil
+func (r *PromiseReconciler) getPreviousRevision(ctx context.Context, promise *v1alpha1.Promise, promiseVersion string) (*v1alpha1.PromiseRevision, bool, error) {
+	previousRevisionName := fmt.Sprintf("%s-%s", promise.Name, promiseVersion)
+	previousRevision := &v1alpha1.PromiseRevision{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: previousRevisionName}, previousRevision); err != nil {
+		if !apierrors.IsNotFound(err) {
+			logging.Error(r.Log, err, "failed to get previous revision", "previousRevisionName", previousRevisionName)
+			return nil, false, err
+		}
+		return nil, false, nil
+	}
+	return previousRevision, true, nil
 }

@@ -1943,6 +1943,7 @@ var _ = Describe("PromiseController", func() {
 		BeforeEach(func() {
 			reconciler.PromiseUpgrade = true
 		})
+
 		When("the Promise has a version label", func() {
 			var revision *v1alpha1.PromiseRevision
 			var revisionRef types.NamespacedName
@@ -2126,6 +2127,52 @@ var _ = Describe("PromiseController", func() {
 				Expect(revisionList.Items).To(HaveLen(1))
 				Expect(revisionList.Items[0].Spec.Version).To(Equal(promiseVersion))
 				Expect(revisionList.Items[0].GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
+			})
+		})
+
+		// Backwards compatibility test
+		// Promise Revision Name was migrated from promise-<version> to promise-<hash>
+		//   since labels can have characters that are not valid in a DNS-1123 subdomain
+		// This test ensures that, if old revisions exist, kratix still works
+		When("the promise revision exists with the old name format", func() {
+			BeforeEach(func() {
+				version := "v1.0.0"
+				promise = createPromise(promisePath)
+
+				promiseRevision := v1alpha1.NewPromiseRevision(promise, version)
+				promiseRevision.SetName(promise.GetName() + "-" + version)
+				Expect(fakeK8sClient.Create(ctx, promiseRevision)).To(Succeed())
+
+				promise.Labels[v1alpha1.PromiseVersionLabel] = version
+				Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+			})
+
+			When("the promise is updated without a version change", func() {
+				It("updates the existing revision", func() {
+					promise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{{
+						MatchLabels: map[string]string{"label-new": "label-value"},
+					}}
+					Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+					Expect(err).NotTo(HaveOccurred())
+
+					revisionList := &v1alpha1.PromiseRevisionList{}
+					Expect(fakeK8sClient.List(ctx, revisionList, &client.ListOptions{})).To(Succeed())
+					Expect(revisionList.Items).To(HaveLen(1))
+					Expect(revisionList.Items[0].Spec.Version).To(Equal("v1.0.0"))
+					Expect(revisionList.Items[0].Spec.PromiseSpec.DestinationSelectors).To(Equal(promise.Spec.DestinationSelectors))
+				})
 			})
 		})
 	})
