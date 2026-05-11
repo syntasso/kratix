@@ -21,6 +21,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// SkipResourceRequestCleanupOnDeleteAnnotation is set on a PromiseRevision that is being removed
+// only to replace its object (for example legacy DNS name → deterministic name) while keeping the
+// same promise version. When present, the PromiseRevision controller must not delete ResourceRequests
+// for this revision and must only drop its resource-request cleanup finalizer.
+const SkipResourceRequestCleanupOnDeleteAnnotation = KratixPrefix + "skip-resource-request-cleanup-on-delete"
+
+// LatestRevisionLabel marks the PromiseRevision that is currently latest for the promise (at most
+// one revision per promise should carry this label).
+const LatestRevisionLabel = KratixPrefix + "latest-revision"
+
+// MetadataBoolTrue is the conventional string value for boolean Kubernetes labels and annotations.
+const MetadataBoolTrue = "true"
+
 // PromiseRevisionSpec defines the desired state of PromiseRevision
 type PromiseRevisionSpec struct {
 	// PromiseRef is the reference to the Promise this revision is based on.
@@ -84,6 +97,48 @@ func init() {
 
 func (pr *PromiseRevision) GetPromiseName() string {
 	return pr.Spec.PromiseRef.Name
+}
+
+// SetSkipResourceRequestCleanupOnDelete sets SkipResourceRequestCleanupOnDeleteAnnotation so
+// deletion of this object does not trigger ResourceRequest cleanup (name migration only).
+func (pr *PromiseRevision) SetSkipResourceRequestCleanupOnDelete() {
+	ann := pr.GetAnnotations()
+	if ann == nil {
+		pr.SetAnnotations(map[string]string{
+			SkipResourceRequestCleanupOnDeleteAnnotation: MetadataBoolTrue,
+		})
+		return
+	}
+	ann[SkipResourceRequestCleanupOnDeleteAnnotation] = MetadataBoolTrue
+}
+
+// SkipResourceRequestCleanupOnDelete reports whether ResourceRequest cleanup must be skipped on delete.
+func (pr *PromiseRevision) SkipResourceRequestCleanupOnDelete() bool {
+	return pr.GetAnnotations()[SkipResourceRequestCleanupOnDeleteAnnotation] == MetadataBoolTrue
+}
+
+// HasLatestRevisionLabel reports whether this revision carries the latest-revision label.
+func (pr *PromiseRevision) HasLatestRevisionLabel() bool {
+	return pr.GetLabels()[LatestRevisionLabel] == MetadataBoolTrue
+}
+
+// SetLatestRevisionLabel sets LatestRevisionLabel on metadata (value MetadataBoolTrue).
+func (pr *PromiseRevision) SetLatestRevisionLabel() {
+	l := pr.GetLabels()
+	if l == nil {
+		pr.SetLabels(map[string]string{LatestRevisionLabel: MetadataBoolTrue})
+		return
+	}
+	l[LatestRevisionLabel] = MetadataBoolTrue
+}
+
+// ClearLatestRevisionLabel removes LatestRevisionLabel from metadata labels if present.
+func (pr *PromiseRevision) ClearLatestRevisionLabel() {
+	l := pr.GetLabels()
+	if l == nil {
+		return
+	}
+	delete(l, LatestRevisionLabel)
 }
 
 func NewPromiseRevision(promise *Promise, version string) *PromiseRevision {

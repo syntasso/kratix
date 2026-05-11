@@ -1985,7 +1985,7 @@ var _ = Describe("PromiseController", func() {
 				Expect(revision.Spec.Version).To(Equal("v1.0.0"))
 				Expect(revision.Spec.PromiseSpec).To(Equal(promise.Spec))
 				Expect(revision.Spec.PromiseRef.Name).To(Equal(promise.GetName()))
-				Expect(revision.GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
+				Expect(revision.HasLatestRevisionLabel()).To(BeTrue())
 			})
 
 			It("emits an event", func() {
@@ -2039,7 +2039,7 @@ var _ = Describe("PromiseController", func() {
 					Expect(revisionList.Items).To(HaveLen(2))
 					Expect(revisionList.Items[0].Spec.Version).To(Equal("v1.0.0"))
 					Expect(revisionList.Items[1].Spec.Version).To(Equal("v1.0.1"))
-					Expect(revisionList.Items[1].GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
+					Expect(revisionList.Items[1].HasLatestRevisionLabel()).To(BeTrue())
 				})
 			})
 
@@ -2100,7 +2100,7 @@ var _ = Describe("PromiseController", func() {
 				})).To(Succeed())
 				Expect(revisionList.Items).To(HaveLen(1))
 				Expect(revisionList.Items[0].Spec.Version).To(Equal("not-set"))
-				Expect(revisionList.Items[0].GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
+				Expect(revisionList.Items[0].HasLatestRevisionLabel()).To(BeTrue())
 			})
 		})
 
@@ -2126,7 +2126,7 @@ var _ = Describe("PromiseController", func() {
 				})).To(Succeed())
 				Expect(revisionList.Items).To(HaveLen(1))
 				Expect(revisionList.Items[0].Spec.Version).To(Equal(promiseVersion))
-				Expect(revisionList.Items[0].GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
+				Expect(revisionList.Items[0].HasLatestRevisionLabel()).To(BeTrue())
 			})
 		})
 

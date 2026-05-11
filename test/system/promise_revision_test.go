@@ -9,6 +9,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/test/kubeutils"
 )
 
@@ -58,7 +59,7 @@ var _ = Describe("Promise Revisions", func() {
 
 			Eventually(func() string {
 				return platform.KubectlAllowFail("get", "promiserevisions",
-					"-l", fmt.Sprintf("kratix.io/promise-name=%s,kratix.io/latest-revision=true", promiseName),
+					"-l", fmt.Sprintf("%s=%s,%s=%s", platformv1alpha1.PromiseNameLabel, promiseName, platformv1alpha1.LatestRevisionLabel, platformv1alpha1.MetadataBoolTrue),
 				)
 			}).Should(SatisfyAll(
 				ContainSubstring("NAME"), ContainSubstring(promiseName),
@@ -168,7 +169,7 @@ var _ = Describe("Promise Revisions", func() {
 		By("moving the latest revision label to the new promise version", func() {
 			Eventually(func() string {
 				return platform.Kubectl("get", "promiserevisions",
-					"-l", fmt.Sprintf("kratix.io/promise-name=%s,kratix.io/latest-revision!=true", promiseName),
+					"-l", fmt.Sprintf("%s=%s,%s!=%s", platformv1alpha1.PromiseNameLabel, promiseName, platformv1alpha1.LatestRevisionLabel, platformv1alpha1.MetadataBoolTrue),
 				)
 			}).Should(SatisfyAll(
 				ContainSubstring(initialPromiseVersion),
@@ -177,7 +178,7 @@ var _ = Describe("Promise Revisions", func() {
 
 			Eventually(func() string {
 				return platform.Kubectl("get", "promiserevisions",
-					"-l", fmt.Sprintf("kratix.io/promise-name=%s,kratix.io/latest-revision=true", promiseName),
+					"-l", fmt.Sprintf("%s=%s,%s=%s", platformv1alpha1.PromiseNameLabel, promiseName, platformv1alpha1.LatestRevisionLabel, platformv1alpha1.MetadataBoolTrue),
 				)
 			}).Should(SatisfyAll(
 				ContainSubstring(updatedPromiseVersion),

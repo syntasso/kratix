@@ -379,23 +379,18 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 		promiseVersion = UnversionedPromiseVersion
 	}
 
-	revision, found, err := r.getPreviousRevision(ctx, promise, promiseVersion)
-	if err != nil {
+	if err := r.cleanupOldRevisions(ctx, promise, promiseVersion); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if !found {
-		revision = v1alpha1.NewPromiseRevision(promise, promiseVersion)
-	}
-
+	revision := v1alpha1.NewPromiseRevision(promise, promiseVersion)
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, revision, func() error {
 		revision.Spec.PromiseRef = v1alpha1.PromiseRef{Name: promise.Name}
 		revision.Spec.PromiseSpec = promise.Spec
 		revision.Spec.Version = promiseVersion
 		l := revision.GetLabels()
-		revision.SetLabels(labels.Merge(l, labels.Merge(promise.GenerateSharedLabels(), map[string]string{
-			"kratix.io/latest-revision": "true",
-		})))
+		revision.SetLabels(labels.Merge(l, promise.GenerateSharedLabels()))
+		revision.SetLatestRevisionLabel()
 
 		return controllerutil.SetControllerReference(promise, revision, scheme.Scheme)
 	})
@@ -2100,6 +2095,35 @@ func (r *PromiseReconciler) restartOnReconciliationInterval(
 	}
 
 	return false, nil
+}
+
+// cleanupOldRevisions removes a legacy-named PromiseRevision (see getPreviousRevision) when the
+// promise is using the new deterministic revision name. It is not for the validating webhook:
+// that checks status.latest; stripping LatestRevisionLabel avoids two revisions carrying
+// that label while the legacy object can still be terminating before the new revision is written.
+func (r *PromiseReconciler) cleanupOldRevisions(ctx context.Context, promise *v1alpha1.Promise, promiseVersion string) error {
+	previousRevision, found, err := r.getPreviousRevision(ctx, promise, promiseVersion)
+	if err != nil || !found {
+		return err
+	}
+
+	logging.Debug(r.Log, "found previous revision", "previousRevision", previousRevision.Name)
+	previousRevision.SetSkipResourceRequestCleanupOnDelete()
+	previousRevision.ClearLatestRevisionLabel()
+	if err := r.Client.Update(ctx, previousRevision); err != nil {
+		return err
+	}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: previousRevision.Name}, previousRevision); err != nil {
+		return err
+	}
+	logging.Debug(r.Log, "deleting previous revision", "previousRevision", previousRevision.Name)
+	if err := r.Client.Delete(ctx, previousRevision); err != nil {
+		logging.Error(r.Log, err, "failed to delete previous revision", "previousRevision", previousRevision.Name)
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 // getPreviousRevision returns the previous revision for a promise, if it exists
