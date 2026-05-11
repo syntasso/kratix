@@ -1474,6 +1474,18 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				})
 
 			})
+
+			When("there are multiple PromiseRevisions for the same PromiseVersion", func() {
+				It("errors with a reconciliation error", func() {
+					resourceutil.SetStatus(resReq, l, "promiseVersion", "v1.1.0")
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+					createResourceBinding(fakeK8sClient, promise, resReq, "v1.1.0")
+					createPromiseRevision(fakeK8sClient, promise, "v1.1.0", promise.GetName()+"-random")
+
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).To(MatchError(ContainSubstring("multiple PromiseRevisions for Promise %s with version v1.1.0", promise.GetName())))
+				})
+			})
 		})
 
 		When("updating the resource binding version status", func() {
@@ -1597,33 +1609,35 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	})
 })
 
-func createPromiseRevision(fakeK8sClient client.Client, promise *v1alpha1.Promise, version string) {
+func createPromiseRevision(fakeK8sClient client.Client, promise *v1alpha1.Promise, version string, names ...string) {
 	GinkgoHelper()
 
 	revisionList := v1alpha1.PromiseRevisionList{}
 	Expect(fakeK8sClient.List(ctx, &revisionList, &client.ListOptions{
 		LabelSelector: labels.SelectorFromSet(map[string]string{
-			"kratix.io/promise-name":    promise.GetName(),
-			"kratix.io/latest-revision": "true",
+			v1alpha1.PromiseNameLabel:    promise.GetName(),
+			v1alpha1.LatestRevisionLabel: v1alpha1.MetadataBoolTrue,
 		}),
 	})).To(Succeed())
 
-	for _, revision := range revisionList.Items {
-		revisionLabels := revision.GetLabels()
-		delete(revisionLabels, "kratix.io/latest-revision")
-		revision.SetLabels(revisionLabels)
-		Expect(fakeK8sClient.Update(ctx, &revision)).To(Succeed())
+	for i := range revisionList.Items {
+		rev := &revisionList.Items[i]
+		rev.ClearLatestRevisionLabel()
+		Expect(fakeK8sClient.Update(ctx, rev)).To(Succeed())
 
-		revision.Status.Latest = false
-		Expect(fakeK8sClient.Status().Update(ctx, &revision)).To(Succeed())
+		rev.Status.Latest = false
+		Expect(fakeK8sClient.Status().Update(ctx, rev)).To(Succeed())
 	}
 
+	name := fmt.Sprintf("%s-%s", promise.GetName(), version)
+	if len(names) > 0 {
+		name = names[0]
+	}
 	promiseRevision := &v1alpha1.PromiseRevision{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: fmt.Sprintf("%s-%s", promise.GetName(), version),
+			Name: name,
 			Labels: map[string]string{
-				"kratix.io/promise-name":    promise.GetName(),
-				"kratix.io/latest-revision": "true",
+				v1alpha1.PromiseNameLabel: promise.GetName(),
 			},
 		},
 		Spec: v1alpha1.PromiseRevisionSpec{
@@ -1637,6 +1651,7 @@ func createPromiseRevision(fakeK8sClient client.Client, promise *v1alpha1.Promis
 			Latest: true,
 		},
 	}
+	promiseRevision.SetLatestRevisionLabel()
 	Expect(fakeK8sClient.Create(ctx, promiseRevision)).To(Succeed())
 	Expect(fakeK8sClient.Status().Update(ctx, promiseRevision)).To(Succeed())
 }

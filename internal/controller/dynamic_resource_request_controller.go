@@ -1128,15 +1128,23 @@ func fetchRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promi
 		return nil, err
 	}
 
+	revisions := []v1alpha1.PromiseRevision{}
 	for i := range revisionList.Items {
 		revision := &revisionList.Items[i]
 		if revision.Spec.Version == desiredVersion {
-			return revision, nil
+			revisions = append(revisions, *revision)
 		}
 	}
 
-	return nil, fmt.Errorf("cannot find a PromiseRevision for Promise %s with version %s",
-		promise.GetName(), desiredVersion)
+	if len(revisions) == 0 {
+		return nil, fmt.Errorf("cannot find a PromiseRevision for Promise %s with version %s",
+			promise.GetName(), desiredVersion)
+	}
+	if len(revisions) > 1 {
+		return nil, fmt.Errorf("multiple PromiseRevisions for Promise %s with version %s",
+			promise.GetName(), desiredVersion)
+	}
+	return &revisions[0], nil
 }
 
 func updateObservedGeneration(

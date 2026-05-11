@@ -33,4 +33,44 @@ var _ = Describe("PromiseRevision", func() {
 			Expect(revision.Spec.Version).To(Equal("v1.0.0"))
 		})
 	})
+
+	Describe("Label and annotation helpers", func() {
+		It("sets and reads skip-resource-request-cleanup-on-delete", func() {
+			revision := &platformv1alpha1.PromiseRevision{}
+			Expect(revision.SkipResourceRequestCleanupOnDelete()).To(BeFalse())
+			revision.SetSkipResourceRequestCleanupOnDelete()
+			Expect(revision.SkipResourceRequestCleanupOnDelete()).To(BeTrue())
+			Expect(revision.Annotations[platformv1alpha1.SkipResourceRequestCleanupOnDeleteAnnotation]).To(Equal(platformv1alpha1.MetadataBoolTrue))
+		})
+
+		It("sets skip annotation when annotations already exist", func() {
+			revision := &platformv1alpha1.PromiseRevision{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"other": "x"},
+				},
+			}
+			revision.SetSkipResourceRequestCleanupOnDelete()
+			Expect(revision.Annotations["other"]).To(Equal("x"))
+			Expect(revision.SkipResourceRequestCleanupOnDelete()).To(BeTrue())
+		})
+
+		It("sets and clears the latest revision label", func() {
+			revision := &platformv1alpha1.PromiseRevision{}
+			revision.SetLatestRevisionLabel()
+			Expect(revision.HasLatestRevisionLabel()).To(BeTrue())
+			revision.ClearLatestRevisionLabel()
+			Expect(revision.HasLatestRevisionLabel()).To(BeFalse())
+		})
+
+		It("sets latest revision label when other labels already exist", func() {
+			revision := &platformv1alpha1.PromiseRevision{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{platformv1alpha1.PromiseNameLabel: "redis"},
+				},
+			}
+			revision.SetLatestRevisionLabel()
+			Expect(revision.Labels[platformv1alpha1.PromiseNameLabel]).To(Equal("redis"))
+			Expect(revision.HasLatestRevisionLabel()).To(BeTrue())
+		})
+	})
 })

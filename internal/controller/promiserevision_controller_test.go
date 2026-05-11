@@ -66,9 +66,6 @@ var _ = Describe("PromiseRevisionController", func() {
 				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-revision",
-					Labels: map[string]string{
-						"kratix.io/latest-revision": "true",
-					},
 				},
 				Spec: v1alpha1.PromiseRevisionSpec{
 					Version: promiseVersion,
@@ -77,6 +74,7 @@ var _ = Describe("PromiseRevisionController", func() {
 					},
 				},
 			}
+			revision.SetLatestRevisionLabel()
 			Expect(fakeK8sClient.Create(ctx, revision)).To(Succeed())
 
 			previousRevision = &v1alpha1.PromiseRevision{
@@ -87,8 +85,7 @@ var _ = Describe("PromiseRevisionController", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "previous-latest-revision",
 					Labels: map[string]string{
-						"kratix.io/latest-revision": "true",
-						v1alpha1.PromiseNameLabel:   "redis",
+						v1alpha1.PromiseNameLabel: "redis",
 					},
 				},
 				Spec: v1alpha1.PromiseRevisionSpec{
@@ -98,6 +95,7 @@ var _ = Describe("PromiseRevisionController", func() {
 					},
 				},
 			}
+			previousRevision.SetLatestRevisionLabel()
 			Expect(fakeK8sClient.Create(ctx, previousRevision)).To(Succeed())
 			Expect(fakeK8sClient.Status().Update(ctx, previousRevision)).To(Succeed())
 		})
@@ -109,7 +107,7 @@ var _ = Describe("PromiseRevisionController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: revision.Name}, revision)).To(Succeed())
-				Expect(revision.GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
+				Expect(revision.HasLatestRevisionLabel()).To(BeTrue())
 				Expect(revision.Status.Latest).To(BeTrue())
 				By("setting the expected finalizers", func() {
 					Expect(revision.Finalizers).To(ConsistOf("kratix.io/resource-request-cleanup"))
@@ -122,7 +120,7 @@ var _ = Describe("PromiseRevisionController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: previousRevision.Name}, previousRevision)).To(Succeed())
-				Expect(previousRevision.GetLabels()).ToNot(HaveKey("kratix.io/latest-revision"))
+				Expect(previousRevision.HasLatestRevisionLabel()).To(BeFalse())
 			})
 		})
 
@@ -157,7 +155,7 @@ var _ = Describe("PromiseRevisionController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: nonLatestRevision.Name}, nonLatestRevision)).To(Succeed())
-				Expect(nonLatestRevision.GetLabels()).ToNot(HaveKey("kratix.io/latest-revision"))
+				Expect(nonLatestRevision.HasLatestRevisionLabel()).To(BeFalse())
 				Expect(nonLatestRevision.Status.Latest).To(BeFalse())
 			})
 		})
@@ -280,6 +278,20 @@ var _ = Describe("PromiseRevisionController", func() {
 				By("not deleting the other request", func() {
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rro.GetName(), Namespace: rro.GetNamespace()}, rro)).To(Succeed())
 				})
+			})
+
+			It("does not delete the resource request when skip annotation is set", func() {
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: revision.Name}, revision)).To(Succeed())
+				revCopy := revision.DeepCopy()
+				revCopy.SetSkipResourceRequestCleanupOnDelete()
+				Expect(fakeK8sClient.Update(ctx, revCopy)).To(Succeed())
+
+				Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
+				result, err := t.reconcileUntilCompletion(reconciler, revision)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()}, rr)).To(Succeed())
 			})
 		})
 	})

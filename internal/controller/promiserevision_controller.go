@@ -74,7 +74,7 @@ func (r *PromiseRevisionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.deleteResourceRequests(ctx, *revision)
 	}
 
-	if resourceutil.FinalizersAreMissing(revision, []string{resourceRequestCleanupFinalizer}) {
+	if !revision.SkipResourceRequestCleanupOnDelete() && resourceutil.FinalizersAreMissing(revision, []string{resourceRequestCleanupFinalizer}) {
 		controllerutil.AddFinalizer(revision, resourceRequestCleanupFinalizer)
 		if err := r.Update(ctx, revision); err != nil {
 			if apierrors.IsConflict(err) {
@@ -110,7 +110,7 @@ func (r *PromiseRevisionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
-	isLatest := revision.GetLabels()["kratix.io/latest-revision"] == "true"
+	isLatest := revision.HasLatestRevisionLabel()
 	if !isLatest {
 		if revision.Status.Latest {
 			revision.Status.Latest = false
@@ -177,22 +177,33 @@ func (r *PromiseRevisionReconciler) UnsetPreviousLatestRevision(
 		return err
 	}
 	logging.Debug(logger, "found previous latest revisions", "count", len(revisionList.Items))
-	for _, previousRevision := range revisionList.Items {
-		if previousRevision.Name != revision.Name {
-			l := previousRevision.GetLabels()
-			delete(l, "kratix.io/latest-revision")
-			previousRevision.SetLabels(l)
-			logging.Debug(logger, "removing latest revision label from previous revision", "previousRevision", previousRevision.Name)
-			if err := r.Update(ctx, &previousRevision); err != nil {
-				logging.Error(logger, err, "failed to update promise revision status")
-				return err
-			}
+	for i := range revisionList.Items {
+		previousRevision := &revisionList.Items[i]
+		if previousRevision.Name == revision.Name {
+			continue
+		}
+		previousRevision.ClearLatestRevisionLabel()
+		logging.Debug(logger, "removing latest revision label from previous revision", "previousRevision", previousRevision.Name)
+		if err := r.Update(ctx, previousRevision); err != nil {
+			logging.Error(logger, err, "failed to update promise revision status")
+			return err
 		}
 	}
 	return nil
 }
 
 func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, revision v1alpha1.PromiseRevision) (ctrl.Result, error) {
+	if revision.SkipResourceRequestCleanupOnDelete() {
+		controllerutil.RemoveFinalizer(&revision, resourceRequestCleanupFinalizer)
+		if err := r.Update(ctx, &revision); err != nil {
+			if apierrors.IsConflict(err) {
+				return fastRequeue, nil
+			}
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
 	promise := &v1alpha1.Promise{}
 	if err := r.Get(
 		ctx,
