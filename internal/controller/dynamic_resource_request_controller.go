@@ -205,9 +205,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
-	if resourceutil.FinalizersAreMissing(
-		rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer},
-	) {
+	if resourceutil.FinalizersAreMissing(rr, r.getRRFinalizers()) {
 		err := addFinalizers(opts, rr, r.getRRFinalizers())
 		if apierrors.IsConflict(err) {
 			return fastRequeue, nil
@@ -768,6 +766,11 @@ func ensureRRKratixWorkflowStatusIsSetup(rr *unstructured.Unstructured, pipeline
 
 func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured) (ctrl.Result, error) {
 	if resourceutil.FinalizersAreDeleted(resourceRequest, r.getRRFinalizers()) {
+		if r.PromiseUpgradeFeatFlag {
+			if err := r.ensureResourceBindingRemoved(o, resourceRequest, promise); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -833,6 +836,27 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	}
 
 	return fastRequeue, nil
+}
+
+// ensureResourceBindingRemoved deletes the ResourceBinding for this resource request if it exists.
+// It is used when the RR never had resourceBindingFinalizer (e.g. upgrade flag enabled after creation)
+// and at the end of delete reconciliation once all RR finalizers are cleared.
+func (r *DynamicResourceRequestController) ensureResourceBindingRemoved(o opts, rr *unstructured.Unstructured, promise *v1alpha1.Promise) error {
+	resourceBinding := &v1alpha1.ResourceBinding{}
+	namespacedName := types.NamespacedName{
+		Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
+		Namespace: rr.GetNamespace(),
+	}
+	if err := r.Client.Get(o.ctx, namespacedName, resourceBinding); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if err := r.Client.Delete(o.ctx, resourceBinding); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
 }
 
 func (r *DynamicResourceRequestController) deleteResourceBinding(o opts, rr *unstructured.Unstructured, promise *v1alpha1.Promise, finalizer string) error {

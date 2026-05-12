@@ -27,6 +27,7 @@ import (
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"go.opentelemetry.io/otel/attribute"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -205,14 +206,18 @@ func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, 
 	}
 
 	promise := &v1alpha1.Promise{}
-	if err := r.Get(
-		ctx,
-		types.NamespacedName{
-			Name: revision.Spec.PromiseRef.Name,
-		},
-		promise,
-	); err != nil {
-		return ctrl.Result{}, err
+	promiseKey := types.NamespacedName{Name: revision.Spec.PromiseRef.Name}
+	if err := r.Get(ctx, promiseKey, promise); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Promise may already be gone from the API while the revision is still terminating.
+			// PromiseRevision carries a copy of PromiseSpec sufficient to resolve the RR GVK.
+			promise = &v1alpha1.Promise{
+				ObjectMeta: metav1.ObjectMeta{Name: revision.Spec.PromiseRef.Name},
+				Spec:       revision.Spec.PromiseSpec,
+			}
+		} else {
+			return ctrl.Result{}, err
+		}
 	}
 	_, gvk, err := generateCRDAndGVK(promise, r.Log)
 	if err != nil {
@@ -247,7 +252,8 @@ func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, 
 
 func (r *PromiseRevisionReconciler) ensureResourceRequestsAreDeleted(ctx context.Context, bindingsForPromise []v1alpha1.ResourceBinding, gvk *schema.GroupVersionKind) (requeue bool, err error) {
 	var fastRequeue bool
-	for _, binding := range bindingsForPromise {
+	for i := range bindingsForPromise {
+		binding := &bindingsForPromise[i]
 		rr := &unstructured.Unstructured{}
 		rr.SetGroupVersionKind(*gvk)
 
@@ -260,6 +266,12 @@ func (r *PromiseRevisionReconciler) ensureResourceRequestsAreDeleted(ctx context
 		); err != nil {
 			r.Log.Info("error getting resource request", "error", err.Error())
 			if apierrors.IsNotFound(err) {
+				// Resource request was already removed (e.g. promise-level cleanup) but the binding
+				// can still exist; remove it so the revision finalizer can be dropped.
+				if err := r.Delete(ctx, binding); err != nil && !apierrors.IsNotFound(err) {
+					return false, err
+				}
+				fastRequeue = true
 				continue
 			}
 

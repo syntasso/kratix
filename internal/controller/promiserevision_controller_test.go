@@ -248,10 +248,16 @@ var _ = Describe("PromiseRevisionController", func() {
 					Expect(err).To(MatchError(ContainSubstring("not found")))
 				})
 
-				By("removing the resourceBinding", func() {
-					Expect(fakeK8sClient.Delete(ctx, resourceBinding)).To(Succeed())
-					_, err := t.reconcileUntilCompletion(reconciler, revision)
-					Expect(err).ToNot(HaveOccurred())
+				By("deleting the resourceBinding as part of revision teardown", func() {
+					err = fakeK8sClient.Get(
+						ctx,
+						types.NamespacedName{
+							Name:      resourceBinding.Name,
+							Namespace: resourceBinding.Namespace,
+						},
+						resourceBinding,
+					)
+					Expect(err).To(MatchError(ContainSubstring("not found")))
 				})
 
 				err = fakeK8sClient.Get(
@@ -262,6 +268,27 @@ var _ = Describe("PromiseRevisionController", func() {
 					},
 					revision,
 				)
+				Expect(err).To(MatchError(ContainSubstring("not found")))
+			})
+
+			It("deletes an orphan resourceBinding when the resource request was already removed", func() {
+				Expect(fakeK8sClient.Delete(ctx, rr)).To(Succeed())
+				Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
+				result, err := t.reconcileUntilCompletion(reconciler, revision)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				err = fakeK8sClient.Get(
+					ctx,
+					types.NamespacedName{
+						Name:      resourceBinding.Name,
+						Namespace: resourceBinding.Namespace,
+					},
+					resourceBinding,
+				)
+				Expect(err).To(MatchError(ContainSubstring("not found")))
+
+				err = fakeK8sClient.Get(ctx, types.NamespacedName{Name: revision.GetName()}, revision)
 				Expect(err).To(MatchError(ContainSubstring("not found")))
 			})
 
