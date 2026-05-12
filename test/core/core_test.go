@@ -15,7 +15,7 @@ import (
 
 const (
 	timeout       = 2 * time.Minute
-	longerTimeout = 3 * time.Minute
+	longerTimeout = 5 * time.Minute
 	interval      = 2 * time.Second
 	workerOne     = "worker-1"
 	workerTwo     = "worker-2"

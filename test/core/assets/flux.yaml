@@ -5,7 +5,7 @@ metadata:
   namespace: flux-system
 spec:
   force: false
-  interval: 8s
+  interval: 30s
   path: ./worker-2/dependencies
   prune: true
   sourceRef:
