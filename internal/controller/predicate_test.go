@@ -1,3 +1,4 @@
+//nolint:testpackage // unit-tests the unexported dynamicRRNoOpWriteFilter
 package controller
 
 import (

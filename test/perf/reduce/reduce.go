@@ -83,7 +83,7 @@ func reconcilesPerRR(logPath, rrPattern string) ([]int, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	counts := map[string]int{}
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 16*1024*1024)
@@ -139,7 +139,7 @@ func (s *Summary) scanSnapshot(path string, isFirst, isLast bool) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 16*1024*1024)
 	for scanner.Scan() {
@@ -199,9 +199,9 @@ func (s *Summary) write(runDir string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	w := bufio.NewWriter(f)
-	defer w.Flush()
+	defer w.Flush() //nolint:errcheck
 
 	fmt.Fprintf(w, "# Perf run: %s\n\n", s.Meta.Name)
 	fmt.Fprintf(w, "- N (resource requests): %d\n", s.Meta.N)
@@ -241,9 +241,7 @@ func percentiles(xs []int) (p50, p95, p99, mx int) {
 	// xs is already sorted ascending in reconcilesPerRR
 	pick := func(p float64) int {
 		idx := int(math.Ceil(p*float64(len(xs)))) - 1
-		if idx < 0 {
-			idx = 0
-		}
+		idx = max(idx, 0)
 		if idx >= len(xs) {
 			idx = len(xs) - 1
 		}

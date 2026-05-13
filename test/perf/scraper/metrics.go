@@ -43,7 +43,6 @@ type Scraper struct {
 	client    *http.Client
 
 	mu       sync.Mutex
-	stopped  bool
 	stopOnce sync.Once
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
@@ -74,14 +73,14 @@ func NewSecure(kubeContext, namespace, deployment string, targetPort int, output
 }
 
 func (s *Scraper) Start(ctx context.Context) error {
-	if err := os.MkdirAll(s.OutputDir, 0o755); err != nil {
+	if err := os.MkdirAll(s.OutputDir, 0o750); err != nil {
 		return fmt.Errorf("mkdir output: %w", err)
 	}
 
 	s.client = &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: s.Scheme == "https"},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: s.Scheme == "https"}, //nolint:gosec // perf rig scrapes self-signed kind cluster metrics
 		},
 	}
 
@@ -92,7 +91,7 @@ func (s *Scraper) Start(ctx context.Context) error {
 	s.localPort = port
 
 	s.pfDone = make(chan struct{})
-	s.pf = exec.Command("kubectl",
+	s.pf = exec.Command("kubectl", //nolint:gosec // perf rig only; caller controls all inputs
 		"--context="+s.Context,
 		"-n", s.Namespace,
 		"port-forward",
@@ -119,7 +118,7 @@ func (s *Scraper) Start(ctx context.Context) error {
 		return fmt.Errorf("port-forward not ready: %w", err)
 	}
 
-	pollCtx, cancel := context.WithCancel(ctx)
+	pollCtx, cancel := context.WithCancel(ctx) //nolint:gosec // cancel stored on Scraper and invoked by Stop()
 	s.cancel = cancel
 	s.startedAt = time.Now()
 	s.wg.Add(1)
@@ -160,7 +159,7 @@ func (s *Scraper) scrape(ctx context.Context) {
 	elapsed := int(time.Since(s.startedAt).Seconds())
 	path := filepath.Join(s.OutputDir, fmt.Sprintf("metrics-T+%05ds.prom", elapsed))
 
-	req, err := http.NewRequestWithContext(ctx, "GET", s.metricsURL(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.metricsURL(), nil)
 	if err != nil {
 		s.recordErr(err)
 		return
@@ -173,7 +172,7 @@ func (s *Scraper) scrape(ctx context.Context) {
 		s.recordErr(err)
 		return
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
 		s.recordErr(fmt.Errorf("metrics %s: %s", path, resp.Status))
 		return
@@ -184,7 +183,7 @@ func (s *Scraper) scrape(ctx context.Context) {
 		s.recordErr(err)
 		return
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		s.recordErr(err)
 	}
@@ -224,7 +223,7 @@ func (s *Scraper) waitForReady(ctx context.Context, timeout time.Duration) error
 			return fmt.Errorf("port-forward exited before becoming ready (see port-forward.log)")
 		default:
 		}
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return err
 		}
@@ -233,8 +232,8 @@ func (s *Scraper) waitForReady(ctx context.Context, timeout time.Duration) error
 		}
 		resp, err := s.client.Do(req)
 		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == 200 {
+			resp.Body.Close() //nolint:errcheck,gosec
+			if resp.StatusCode == http.StatusOK {
 				return nil
 			}
 		}
@@ -248,6 +247,6 @@ func pickLocalPort() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer l.Close()
+	defer l.Close() //nolint:errcheck
 	return l.Addr().(*net.TCPAddr).Port, nil
 }

@@ -43,4 +43,4 @@ spec:
             containers:
               - name: noop
                 image: busybox:1.36
-                command: ["true"]
+                command: ["sh", "-c", "exit 0"]
