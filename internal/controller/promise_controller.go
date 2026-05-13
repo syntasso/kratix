@@ -28,7 +28,9 @@ import (
 	"github.com/syntasso/kratix/lib/objectutil"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -81,6 +83,10 @@ type PromiseReconciler struct {
 	ReconciliationInterval    time.Duration
 	EventRecorder             record.EventRecorder
 	PromiseUpgrade            bool
+	// DynamicRRMaxConcurrentReconciles caps the number of in-flight reconciles
+	// per spawned dynamic resource-request controller. 0 means use
+	// controller-runtime's default of 1 (no parallelism).
+	DynamicRRMaxConcurrentReconciles int
 }
 
 const (
@@ -1176,8 +1182,14 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(*rrGVK)
 
-	dynamicController, err := ctrl.NewControllerManagedBy(r.Manager).
-		For(unstructuredCRD).
+	dynamicControllerBuilder := ctrl.NewControllerManagedBy(r.Manager).
+		For(unstructuredCRD)
+	if r.DynamicRRMaxConcurrentReconciles > 0 {
+		dynamicControllerBuilder = dynamicControllerBuilder.WithOptions(controller.Options{
+			MaxConcurrentReconciles: r.DynamicRRMaxConcurrentReconciles,
+		})
+	}
+	dynamicController, err := dynamicControllerBuilder.
 		Watches(
 			&batchv1.Job{},
 			handler.EnqueueRequestsFromMapFunc(r.jobEventHandler(promise)),
@@ -2143,4 +2155,54 @@ func (r *PromiseReconciler) getPreviousRevision(ctx context.Context, promise *v1
 		return nil, false, nil
 	}
 	return previousRevision, true, nil
+}
+
+// resourceRequestReconcilePredicate filters events on the dynamic RR
+// self-watch so that status-only updates do not re-enqueue the RR. Without
+// it, every Status().Update() inside one Reconcile pass triggers another
+// Reconcile pass — the source of the ~20 reconciles-per-RR storm.
+//
+// Status().Update() only mutates the .status subresource (and ResourceVersion).
+// A normal Update() mutates spec/metadata/labels/annotations/finalizers, all
+// of which are load-bearing for the reconcile state machine. The predicate
+// passes through any event where something other than .status changed.
+//
+// Specifically, the controller's own writes that must re-enqueue:
+//   - setPromiseLabels       → labels
+//   - updateManualReconcileToTrue → labels
+//   - addFinalizers          → finalizers
+//   - workflow-suspended toggles → labels
+//   - any spec edit by a user → generation
+//   - any deletion request → deletionTimestamp
+//
+// Anything purely under .status is filtered.
+func resourceRequestReconcilePredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return true },
+		DeleteFunc:  func(event.DeleteEvent) bool { return true },
+		GenericFunc: func(event.GenericEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return true
+			}
+			if e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() {
+				return true
+			}
+			if !reflect.DeepEqual(e.ObjectOld.GetFinalizers(), e.ObjectNew.GetFinalizers()) {
+				return true
+			}
+			if !reflect.DeepEqual(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels()) {
+				return true
+			}
+			if !reflect.DeepEqual(e.ObjectOld.GetAnnotations(), e.ObjectNew.GetAnnotations()) {
+				return true
+			}
+			oldDel := e.ObjectOld.GetDeletionTimestamp()
+			newDel := e.ObjectNew.GetDeletionTimestamp()
+			if (oldDel == nil) != (newDel == nil) {
+				return true
+			}
+			return false
+		},
+	}
 }

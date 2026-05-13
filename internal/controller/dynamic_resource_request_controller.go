@@ -282,8 +282,22 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
+	// terminalStatusDirty tracks in-memory status mutations that aren't yet
+	// persisted, so we can coalesce them into a single Status().Update at the
+	// end of Reconcile instead of writing once per mutation. Each write fires
+	// the RR self-watch and re-enqueues this reconcile, so coalescing
+	// directly reduces reconciles-per-RR.
+	//
+	// Note: B17 (observedGeneration) is *not* coalesced into this — its
+	// write-and-return is part of the controller's external contract (clients
+	// rely on the reconcile that bumps observedGeneration returning ctrl.Result{}
+	// rather than the longer-tail nextReconciliation result). Changing it
+	// breaks `dynamic_resource_request_controller_test.go:406`.
+	terminalStatusDirty := false
+
 	if rr.GetGeneration() != resourceutil.GetObservedGeneration(rr) {
-		return ctrl.Result{}, updateObservedGeneration(rr, opts, logger)
+		markObservedGeneration(rr, logger)
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
@@ -295,6 +309,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 	if statusUpdated {
+		// ensureResourceStatus already wrote rr (with any prior in-memory marks
+		// folded in). Nothing left to persist.
 		return ctrl.Result{}, nil
 	}
 
@@ -308,20 +324,28 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if workflowsCompletedSuccessfully(workflowCompletedCondition) {
 		if shouldUpdateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr) {
-			if err := updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts); err != nil {
+			if err := markLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts); err != nil {
 				return ctrl.Result{}, err
 			}
-			return ctrl.Result{}, nil
+			terminalStatusDirty = true
+			// Fall through to the terminal write below; do not return.
 		}
-		return r.nextReconciliation(logger), nil
+		if !terminalStatusDirty {
+			return r.nextReconciliation(logger), nil
+		}
+		// terminalStatusDirty == true: fall through to terminal write, then
+		// the caller's controller-runtime backoff handles re-entry.
 	}
 
-	if r.PromiseUpgradeFeatFlag {
-		if r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevisionUsed) {
-			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
-		}
-	}
+	// Note: a previous version of this controller also called
+	// updatePromiseVersionStatus here and wrote status if it returned true.
+	// That call was a duplicate of the same sub-mutator invoked inside
+	// generateResourceStatus (see ensureResourceStatus above), running twice
+	// per reconcile on the same inputs. The B19 aggregator covers it.
 
+	if terminalStatusDirty {
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -1171,11 +1195,11 @@ func fetchRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promi
 	return &revisions[0], nil
 }
 
-func updateObservedGeneration(
-	rr *unstructured.Unstructured, opts opts, logger logr.Logger,
-) error {
+// markObservedGeneration sets the observedGeneration field on rr in memory.
+// The actual API write is deferred to the single terminal Status().Update
+// at the end of Reconcile so callers can coalesce it with other status mutations.
+func markObservedGeneration(rr *unstructured.Unstructured, logger logr.Logger) {
 	resourceutil.SetStatus(rr, logger, "observedGeneration", rr.GetGeneration())
-	return opts.client.Status().Update(opts.ctx, rr)
 }
 
 func shouldForcePipelineRun(completedCond *clusterv1.Condition, reconciliationInterval time.Duration) bool {
@@ -1221,13 +1245,13 @@ func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 	return lastTransitionTime != lastSuccessfulLegacy || lastTransitionTime != lastSuccessfulKratix
 }
 
-func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts) error {
+// markLastSuccessfulConfigureWorkflowTime sets the success-timestamp fields on
+// rr in memory. The actual API write is deferred to the single terminal
+// Status().Update at the end of Reconcile.
+func markLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts) error {
 	lastTransitionTime := workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339)
 	resourceutil.SetStatus(rr, opts.logger, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime)
-	if err := resourceutil.SetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime); err != nil {
-		return err
-	}
-	return opts.client.Status().Update(opts.ctx, rr)
+	return resourceutil.SetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime)
 }
 
 func nextRetryAtForResource(rr *unstructured.Unstructured) (time.Time, error) {
