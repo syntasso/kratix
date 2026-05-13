@@ -127,12 +127,6 @@ var kubeAPIBurst int
 // applyKubeAPIRateLimits overrides client-go's default QPS/Burst on the
 // supplied rest.Config. Pass-through when the corresponding flag is 0 so the
 // upstream defaults (20/30) remain in force.
-//
-// Bumping these matters once the controller's reconcile workload issues more
-// than ~20 writes/sec sustained — at which point each worker stalls in the
-// client-side token bucket and adding MaxConcurrentReconciles workers buys
-// nothing. See `docs/perf-rig-findings.md` for an empirical demonstration
-// at N=2500 resource requests.
 func applyKubeAPIRateLimits(cfg *rest.Config) {
 	if kubeAPIQPS > 0 {
 		cfg.QPS = float32(kubeAPIQPS)
