@@ -118,6 +118,7 @@ var secureMetrics bool
 var pprofAddr string
 var enableLeaderElection bool
 var dynamicRRMaxConcurrentReconciles int
+var dynamicRRFilterNoOpWrites bool
 var kubeAPIQPS float64
 var kubeAPIBurst int
 
@@ -170,6 +171,11 @@ func main() {
 		"MaxConcurrentReconciles for each spawned dynamic resource-request controller. "+
 			"0 means use controller-runtime's default (1). Set higher to parallelise reconciles "+
 			"of resource requests for the same Promise.")
+	flag.BoolVar(&dynamicRRFilterNoOpWrites, "dynamic-rr-filter-noop-writes", false,
+		"Filter Update events on the dynamic resource-request self-watch when the old and new "+
+			"objects are semantically identical (same generation, finalizers, labels, annotations, "+
+			"deletionTimestamp, and full status block). Reduces self-watch churn from status writes "+
+			"that re-assert an already-current state. Opt-in; off by default.")
 	flag.Float64Var(&kubeAPIQPS, "kube-api-qps", 0,
 		"Sustained queries-per-second for outbound Kubernetes API calls. "+
 			"0 means use client-go's default (20). Raise for clusters with many resource requests "+
@@ -318,6 +324,7 @@ func main() {
 		EventRecorder:                    mgr.GetEventRecorderFor("PromiseController"),
 		PromiseUpgrade:                   promiseUpgradeEnabled(kratixConfig),
 		DynamicRRMaxConcurrentReconciles: dynamicRRMaxConcurrentReconciles,
+		DynamicRRFilterNoOpWrites:        dynamicRRFilterNoOpWrites,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
 		os.Exit(1)
