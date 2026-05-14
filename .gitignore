@@ -54,3 +54,6 @@ config/manager/pipeline-adapter-config.properties
 
 # Perf rig run artefacts
 /test/perf/results/*/
+
+# Local git worktrees
+.worktrees/
