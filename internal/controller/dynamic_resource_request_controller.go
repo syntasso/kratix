@@ -83,6 +83,10 @@ type DynamicResourceRequestController struct {
 	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
 	PromiseUpgradeFeatFlag      bool
+	// SharedResourceCache deduplicates Apply operations for pipeline-shared
+	// resources (ServiceAccount, RBAC, scheduling ConfigMap) across reconciles
+	// of different resource requests under the same Promise.
+	SharedResourceCache *workflow.SharedResourceCache
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
@@ -206,11 +210,12 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if resourceutil.FinalizersAreMissing(rr, r.getRRFinalizers()) {
-		err := addFinalizers(opts, rr, r.getRRFinalizers())
-		if apierrors.IsConflict(err) {
-			return fastRequeue, nil
+		if err := addFinalizers(opts, rr, r.getRRFinalizers()); err != nil {
+			if apierrors.IsConflict(err) {
+				return fastRequeue, nil
+			}
+			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, err
 	}
 
 	if r.PromiseUpgradeFeatFlag {
@@ -272,6 +277,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		r.NumberOfJobsToKeep,
 		namespace,
 	)
+	jobOpts.SharedResourceCache = r.SharedResourceCache
 
 	passiveRequeue, err := reconcileConfigure(jobOpts)
 	if err != nil {
@@ -810,6 +816,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		}
 
 		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
+		jobOpts.SharedResourceCache = r.SharedResourceCache
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
 			if errors.Is(err, workflow.ErrDeletePipelineFailed) {

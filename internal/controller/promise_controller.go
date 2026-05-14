@@ -1185,6 +1185,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		ReconciliationInterval:      r.ReconciliationInterval,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
 		PromiseUpgradeFeatFlag:      r.PromiseUpgrade,
+		SharedResourceCache:         workflow.NewSharedResourceCache(),
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}

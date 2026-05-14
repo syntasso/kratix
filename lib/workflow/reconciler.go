@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/client-go/tools/record"
@@ -37,6 +38,48 @@ type Opts struct {
 
 	// Set by other controllers that use the Workflow engine
 	SkipConditions bool
+
+	// SharedResourceCache, if non-nil, deduplicates apply operations for
+	// pipeline resources whose names are deterministic per Promise+Pipeline
+	// (ServiceAccount, RBAC, scheduling ConfigMap). The cache is consulted
+	// before each Create, and updated after a successful apply.
+	SharedResourceCache *SharedResourceCache
+}
+
+// SharedResourceCache tracks which pipeline-shared resources the controller has
+// already successfully applied during its lifetime, so concurrent reconciles
+// across many resource requests don't repeatedly Create-then-Update the same
+// ServiceAccount / Role / RoleBinding / ConfigMap.
+type SharedResourceCache struct {
+	applied sync.Map
+}
+
+// NewSharedResourceCache returns an empty cache.
+func NewSharedResourceCache() *SharedResourceCache {
+	return &SharedResourceCache{}
+}
+
+// Applied reports whether the given resource has already been applied in this
+// controller's lifetime.
+func (c *SharedResourceCache) Applied(obj client.Object) bool {
+	if c == nil {
+		return false
+	}
+	_, ok := c.applied.Load(sharedResourceKey(obj))
+	return ok
+}
+
+// MarkApplied records that the given resource has been successfully applied.
+func (c *SharedResourceCache) MarkApplied(obj client.Object) {
+	if c == nil {
+		return
+	}
+	c.applied.Store(sharedResourceKey(obj), struct{}{})
+}
+
+func sharedResourceKey(obj client.Object) string {
+	gvk := obj.GetObjectKind().GroupVersionKind()
+	return fmt.Sprintf("%s/%s/%s", gvk.GroupKind().String(), obj.GetNamespace(), obj.GetName())
 }
 
 func (o *Opts) SetParentObject(parentObj *unstructured.Unstructured) {
@@ -748,6 +791,12 @@ func applyResources(opts Opts, resources ...client.Object) {
 	for _, resource := range resources {
 		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", resource.GetObjectKind().GroupVersionKind().String(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
 
+		cacheable := isCacheableSharedResource(resource)
+		if cacheable && opts.SharedResourceCache.Applied(resource) {
+			logging.Debug(logger, "shared resource already applied this run; skipping")
+			continue
+		}
+
 		logging.Debug(logger, "reconciling resource")
 		if err := opts.client.Create(opts.ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
@@ -766,6 +815,9 @@ func applyResources(opts Opts, resources ...client.Object) {
 				}
 				logging.Debug(logger, "resource already exists; updating")
 				if err = opts.client.Update(opts.ctx, resource); err == nil {
+					if cacheable {
+						opts.SharedResourceCache.MarkApplied(resource)
+					}
 					continue
 				}
 			}
@@ -775,7 +827,23 @@ func applyResources(opts Opts, resources ...client.Object) {
 			logging.Error(logger, err, string(y))
 		} else {
 			logging.Debug(logger, "resource created")
+			if cacheable {
+				opts.SharedResourceCache.MarkApplied(resource)
+			}
 		}
+	}
+}
+
+// isCacheableSharedResource returns true for pipeline resources whose name is
+// deterministic per Promise+Pipeline (and therefore identical across resource
+// requests of the same Promise) and which can be safely deduplicated by the
+// SharedResourceCache. Per-RR objects like the pipeline Job are excluded.
+func isCacheableSharedResource(obj client.Object) bool {
+	switch obj.GetObjectKind().GroupVersionKind().Kind {
+	case rbacv1.ServiceAccountKind, "ConfigMap", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding":
+		return true
+	default:
+		return false
 	}
 }
 

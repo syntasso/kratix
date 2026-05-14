@@ -400,12 +400,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(resourceutil.GetObservedGeneration(resReq)).To(Equal(observedGeneration + 1))
 			})
 
-			By("running the configure workflows successfully", func() {
-				result, err = reconciler.Reconcile(ctx, request)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
-			})
-
 			By("requeuing on the Default Reconciliation Schedule", func() {
 				result, err = reconciler.Reconcile(ctx, request)
 				Expect(err).ToNot(HaveOccurred())
