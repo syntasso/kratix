@@ -248,14 +248,15 @@ run-system-test: fmt vet
 	PATH="$(PROJECT_DIR)/bin:${PATH}" PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} -v ${GINKGO_FLAGS} -r --coverprofile cover.out -p --output-interceptor-mode=none ./test/system/
 
 .PHONY: perf-test
-perf-test: fmt vet ## Run the controller perf rig against an existing kind-platform cluster (PERF_N=2500 PERF_RUN=baseline-2500 make perf-test)
+perf-test: fmt vet ## Run the controller perf rig against an existing kind-platform cluster (PERF_N=2500 PERF_RUN=baseline-2500 make perf-test; PERF_KEEP=true to leave promise+RRs in place)
 	PERF_N=$${PERF_N:-500} PERF_RUN=$${PERF_RUN:-run-$$(date +%s)} \
 	go test -tags=perf -timeout=60m ./test/perf/... \
 		-args -perf.n=$${PERF_N} -perf.run=$${PERF_RUN} \
 		-perf.context=$${PERF_CONTEXT:-kind-platform} \
 		-perf.namespace=$${PERF_NAMESPACE:-default} \
 		-perf.timeout=$${PERF_TIMEOUT:-30m} \
-		-perf.basename=$${PERF_BASENAME:-perftest}
+		-perf.basename=$${PERF_BASENAME:-perftest} \
+		-perf.keep=$${PERF_KEEP:-false}
 
 .PHONY: run-git-integration-test
 run-git-integration-test: fmt vet ## Runs the integration test suite for the Git client

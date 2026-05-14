@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crcontroller "sigs.k8s.io/controller-runtime/pkg/controller"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -210,12 +211,15 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if resourceutil.FinalizersAreMissing(rr, r.getRRFinalizers()) {
-		if err := addFinalizers(opts, rr, r.getRRFinalizers()); err != nil {
-			if apierrors.IsConflict(err) {
-				return fastRequeue, nil
-			}
-			return ctrl.Result{}, err
+		finCtx, finSpan := otel.Tracer("kratix/dynamicRR").Start(ctx, "rr.addFinalizers")
+		opts.ctx = finCtx
+		err := addFinalizers(opts, rr, r.getRRFinalizers())
+		finSpan.End()
+		opts.ctx = ctx
+		if apierrors.IsConflict(err) {
+			return fastRequeue, nil
 		}
+		return ctrl.Result{}, err
 	}
 
 	if r.PromiseUpgradeFeatFlag {
@@ -250,8 +254,14 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	if updated, err := r.ensureConfigureWorkflowStatus(ctx, logger, rr, pipelineResources); updated || err != nil {
-		return ctrl.Result{}, err
+	ensureCtx, ensureSpan := otel.Tracer("kratix/dynamicRR").Start(ctx, "rr.ensureConfigureWorkflowStatus")
+	_, ensureErr := r.ensureConfigureWorkflowStatus(ensureCtx, logger, rr, pipelineResources)
+	ensureSpan.End()
+	if ensureErr != nil {
+		if apierrors.IsConflict(ensureErr) {
+			return fastRequeue, nil
+		}
+		return ctrl.Result{}, ensureErr
 	}
 
 	if passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(ctx, logger, rr,

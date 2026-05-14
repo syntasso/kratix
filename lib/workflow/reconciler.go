@@ -14,6 +14,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/resourceutil"
+	"go.opentelemetry.io/otel"
 	"gopkg.in/yaml.v2"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -84,6 +85,14 @@ func sharedResourceKey(obj client.Object) string {
 
 func (o *Opts) SetParentObject(parentObj *unstructured.Unstructured) {
 	o.parentObject = parentObj
+}
+
+// withCtx returns a shallow copy of opts with ctx replaced. Used during
+// diagnostic tracing to push a child span context down without mutating the
+// caller's Opts.
+func withCtx(opts Opts, ctx context.Context) Opts {
+	opts.ctx = ctx
+	return opts
 }
 
 var ErrDeletePipelineFailed = fmt.Errorf("delete Pipeline Failed")
@@ -193,6 +202,10 @@ type workflowState struct {
 // resources are updated (for example workflow Jobs or the parent object status),
 // rather than by issuing an explicit direct requeue from this function.
 func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
+	ctx, span := otel.Tracer("kratix/workflow").Start(opts.ctx, "workflow.ReconcileConfigure")
+	defer span.End()
+	opts.ctx = ctx
+
 	if len(opts.Resources) == 0 {
 		logging.Debug(opts.logger, "no pipeline resources to reconcile")
 		return false, nil
@@ -224,12 +237,20 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 }
 
 func determineWorkflowState(opts Opts) (*workflowState, error) {
-	allJobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
+	ctx, span := otel.Tracer("kratix/workflow").Start(opts.ctx, "workflow.determineWorkflowState")
+	defer span.End()
+	opts.ctx = ctx
+
+	listCtx, listSpan := otel.Tracer("kratix/workflow").Start(opts.ctx, "workflow.listJobs.current")
+	allJobs, err := getJobsWithLabels(withCtx(opts, listCtx), labelsForJobs(opts), opts.namespace)
+	listSpan.End()
 	if err != nil {
 		logging.Error(opts.logger, err, "failed to list jobs")
 		return nil, err
 	}
-	allLegacyJobs, err := getJobsWithLabels(opts, legacyLabelsForJobs(opts), opts.namespace)
+	listLegacyCtx, listLegacySpan := otel.Tracer("kratix/workflow").Start(opts.ctx, "workflow.listJobs.legacy")
+	allLegacyJobs, err := getJobsWithLabels(withCtx(opts, listLegacyCtx), legacyLabelsForJobs(opts), opts.namespace)
+	listLegacySpan.End()
 	if err != nil {
 		logging.Error(opts.logger, err, "failed to list jobs")
 		return nil, err
@@ -637,6 +658,10 @@ func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
 }
 
 func createConfigurePipeline(opts Opts, state *workflowState, resources v1alpha1.PipelineJobResources) (passiveRequeue bool, err error) {
+	ctx, span := otel.Tracer("kratix/workflow").Start(opts.ctx, "workflow.createConfigurePipeline")
+	defer span.End()
+	opts.ctx = ctx
+
 	logging.Info(opts.logger, "triggering pipeline", "workflowAction", resources.WorkflowAction)
 	var objectToDelete []client.Object
 	if objectToDelete, err = getObjectsToDelete(opts, resources); err != nil {
@@ -655,8 +680,13 @@ func createConfigurePipeline(opts Opts, state *workflowState, resources v1alpha1
 		}
 	}
 
-	deleteResources(opts, objectToDelete...)
-	applyResources(opts, append(resources.GetObjects(), resources.Job)...)
+	delCtx, delSpan := otel.Tracer("kratix/workflow").Start(opts.ctx, "workflow.deleteResources")
+	deleteResources(withCtx(opts, delCtx), objectToDelete...)
+	delSpan.End()
+
+	applyCtx, applySpan := otel.Tracer("kratix/workflow").Start(opts.ctx, "workflow.applyResources")
+	applyResources(withCtx(opts, applyCtx), append(resources.GetObjects(), resources.Job)...)
+	applySpan.End()
 
 	opts.eventRecorder.Eventf(opts.parentObject, "Normal", "PipelineStarted", "Configure Pipeline started: %s", resources.Name)
 

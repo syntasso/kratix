@@ -66,16 +66,22 @@ var _ = Describe("perf rig", func() {
 		By("applying no-op Promise")
 		_, err = driver.ApplyPromise(ctx, c, *flagPromise)
 		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(func() {
-			cleanupCtx, cancelClean := context.WithTimeout(context.Background(), 10*time.Minute)
-			defer cancelClean()
-			_ = driver.DeleteAll(cleanupCtx, c, driver.RequestSpec{
-				GVK:       rrGVK,
-				Namespace: *flagNamespace,
-				Parallel:  100,
+		if !*flagKeep {
+			DeferCleanup(func() {
+				cleanupCtx, cancelClean := context.WithTimeout(context.Background(), 10*time.Minute)
+				defer cancelClean()
+				_ = driver.DeleteAll(cleanupCtx, c, driver.RequestSpec{
+					GVK:       rrGVK,
+					Namespace: *flagNamespace,
+					Parallel:  100,
+				})
+				_ = driver.DeletePromise(cleanupCtx, c, *flagPromiseName, 10*time.Minute)
 			})
-			_ = driver.DeletePromise(cleanupCtx, c, *flagPromiseName, 10*time.Minute)
-		})
+		} else {
+			DeferCleanup(func() {
+				_, _ = fmt.Fprintf(GinkgoWriter, "--perf.keep=true: leaving Promise %q and resource requests in place\n", *flagPromiseName)
+			})
+		}
 
 		Expect(driver.EnsureNamespace(ctx, c, *flagNamespace)).To(Succeed())
 
