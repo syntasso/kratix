@@ -1161,6 +1161,17 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.PromiseUpgradeFeatFlag = r.PromiseUpgrade
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
+		newParams, warnings := ResolveBreakerParams(promise, r.BreakerDefaults)
+		emitBreakerWarnings(r.Manager.GetEventRecorderFor("PromiseController"), logger, promise, warnings)
+		if newParams != dynamicController.LastBreakerParams {
+			logging.Info(logger, "updating breaker params",
+				"promise", promise.GetName(),
+				"old", dynamicController.LastBreakerParams,
+				"new", newParams)
+			dynamicController.Breaker.UpdateParams(newParams)
+			dynamicController.LastBreakerParams = newParams
+		}
+
 		if dynamicController.WatchStopped {
 			logging.Debug(logger, "restarting dynamic controller watch", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
 			if err := r.restartDynamicControllerWatch(dynamicController); err != nil {
@@ -1195,6 +1206,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		PromiseUpgradeFeatFlag:      r.PromiseUpgrade,
 		SharedResourceCache:         workflow.NewSharedResourceCache(),
 		Breaker:                     breaker,
+		LastBreakerParams:           breakerParams,
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}

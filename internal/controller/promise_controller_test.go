@@ -1168,6 +1168,36 @@ var _ = Describe("PromiseController", func() {
 					Expect(reusedController.UID).To(Equal(string(reinstalledPromise.GetUID())[:5]))
 					Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
 				})
+
+				When("a Promise's circuit-breaker annotations are updated", func() {
+					It("calls UpdateParams on the running breaker without restarting the controller", func() {
+						controllerName := promise.GetDynamicControllerName(logr.Logger{})
+						existingController := reconciler.StartedDynamicControllers[controllerName]
+						Expect(existingController).NotTo(BeNil())
+						originalBurst := existingController.LastBreakerParams.Burst
+
+						By("annotating the Promise with a new burst")
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						ann := promise.GetAnnotations()
+						if ann == nil {
+							ann = map[string]string{}
+						}
+						ann[controller.AnnotationCircuitBreakerBurst] = "250"
+						promise.SetAnnotations(ann)
+						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+						By("reconciling the Promise so the reuse branch applies the new params")
+						_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+						})
+						Expect(err).NotTo(HaveOccurred())
+
+						reusedController := reconciler.StartedDynamicControllers[controllerName]
+						Expect(reusedController).To(BeIdenticalTo(existingController))
+						Expect(reusedController.LastBreakerParams.Burst).To(Equal(float64(250)))
+						Expect(reusedController.LastBreakerParams.Burst).NotTo(Equal(originalBurst))
+					})
+				})
 			})
 
 			When("the Promise has a delete workflow", func() {

@@ -85,7 +85,11 @@ type DynamicResourceRequestController struct {
 	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
 	Breaker                     circuit.Breaker
-	PromiseUpgradeFeatFlag      bool
+	// LastBreakerParams is the most recently applied set of breaker params.
+	// Compared against the resolved params on every Promise reconcile so we
+	// only call UpdateParams when something actually changed.
+	LastBreakerParams      circuit.BreakerParams
+	PromiseUpgradeFeatFlag bool
 	// SharedResourceCache deduplicates Apply operations for pipeline-shared
 	// resources (ServiceAccount, RBAC, scheduling ConfigMap) across reconciles
 	// of different resource requests under the same Promise.
