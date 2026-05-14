@@ -161,8 +161,10 @@ defer r.Breaker.Observe(req.NamespacedName, err == nil)
 | Change | Live update? | Action |
 |---|---|---|
 | `circuit-breaker-*` | Yes | `breaker.UpdateParams(...)`; per-resource state preserved |
-| `max-concurrent-reconciles` | No | Stop + rebuild controller (existing `restartDynamicControllerWatch`) |
-| `rate-limit-*` | No | Stop + rebuild controller |
+| `max-concurrent-reconciles` | No | Log + emit Warning Event on the Promise: "change takes effect on next operator restart". Stored snapshot updated so the next *operator* restart picks it up. |
+| `rate-limit-*` | No | Same as above. |
+
+Rationale: controller-runtime locks `MaxConcurrentReconciles` and `RateLimiter` at `Build()` time, and the existing `restartDynamicControllerWatch` path only re-adds the primary watch — it does not rebuild the controller. Building a full teardown/rebuild path is out of scope for this design (would require evicting the controller from the manager's runnables, which controller-runtime doesn't expose cleanly). Operator restart is acceptable because (a) these are tuning knobs, not feature flags, and (b) Promise additions/deletions already require a controller-runtime-managed restart in some failure modes.
 
 Annotation parse errors → log + Event on the Promise; fall back to previous valid options. A typo must not brick a 5000-resource controller.
 
