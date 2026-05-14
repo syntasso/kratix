@@ -144,18 +144,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
-		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation for this resource request",
-			pauseReconciliationLabel)
-		logging.Info(logger, msg)
-		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, rr, msg)
-	}
-
-	if v, ok := rr.GetLabels()[pauseReconciliationLabel]; ok && v == "true" {
-		msg := fmt.Sprintf("'%s' label set to 'true' for this resource request; pausing reconciliation",
-			pauseReconciliationLabel)
-		logging.Info(logger, msg)
-		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, rr, msg)
+	if paused, err := r.reconcileIfPaused(ctx, promise, rr, logger); paused || err != nil {
+		return ctrl.Result{}, err
 	}
 
 	resourceLabels := getResourceLabels(rr)
@@ -168,31 +158,9 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
 
-	var (
-		promiseRevisionUsed *v1alpha1.PromiseRevision
-		binding             *v1alpha1.ResourceBinding
-		bindingVersion      string
-	)
-	if r.PromiseUpgradeFeatFlag {
-		logging.Trace(baseLogger,
-			"PromiseUpgrade feature flag set to true; will reconcile with a PromiseRevision.")
-
-		var err error
-		if !rr.GetDeletionTimestamp().IsZero() {
-			promiseRevisionUsed, binding, err = getPromiseRevisionForDelete(ctx, rr, baseLogger, r, promise)
-		} else {
-			promiseRevisionUsed, binding, err = getPromiseRevisionForReconcile(ctx, rr, baseLogger, r, promise)
-		}
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		bindingVersion = binding.Spec.Version
-		promise.Spec = promiseRevisionUsed.Spec.PromiseSpec
-		logging.Debug(baseLogger,
-			"Found PromiseRevision from ResourceRequest", "revision name", promiseRevisionUsed.Name)
-		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ReconcileStarted",
-			fmt.Sprintf("reconciling resource request with promise revision %s", promiseRevisionUsed.Name))
+	promiseRevisionUsed, bindingVersion, err := r.resolvePromiseRevisionForRR(ctx, rr, promise, baseLogger)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if !rr.GetDeletionTimestamp().IsZero() {
@@ -329,6 +297,65 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *DynamicResourceRequestController) reconcileIfPaused(
+	ctx context.Context,
+	promise *v1alpha1.Promise,
+	rr *unstructured.Unstructured,
+	logger logr.Logger,
+) (bool, error) {
+	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
+		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation for this resource request",
+			pauseReconciliationLabel)
+		logging.Info(logger, msg)
+		return true, r.setPausedReconciliationStatusConditions(ctx, rr, msg)
+	}
+
+	if v, ok := rr.GetLabels()[pauseReconciliationLabel]; ok && v == "true" {
+		msg := fmt.Sprintf("'%s' label set to 'true' for this resource request; pausing reconciliation",
+			pauseReconciliationLabel)
+		logging.Info(logger, msg)
+		return true, r.setPausedReconciliationStatusConditions(ctx, rr, msg)
+	}
+
+	return false, nil
+}
+
+func (r *DynamicResourceRequestController) resolvePromiseRevisionForRR(
+	ctx context.Context,
+	rr *unstructured.Unstructured,
+	promise *v1alpha1.Promise,
+	baseLogger logr.Logger,
+) (*v1alpha1.PromiseRevision, string, error) {
+	if !r.PromiseUpgradeFeatFlag {
+		return nil, "", nil
+	}
+
+	logging.Trace(baseLogger,
+		"PromiseUpgrade feature flag set to true; will reconcile with a PromiseRevision.")
+
+	var (
+		promiseRevisionUsed *v1alpha1.PromiseRevision
+		binding             *v1alpha1.ResourceBinding
+		err                 error
+	)
+	if !rr.GetDeletionTimestamp().IsZero() {
+		promiseRevisionUsed, binding, err = getPromiseRevisionForDelete(ctx, rr, baseLogger, r, promise)
+	} else {
+		promiseRevisionUsed, binding, err = getPromiseRevisionForReconcile(ctx, rr, baseLogger, r, promise)
+	}
+	if err != nil {
+		return nil, "", err
+	}
+
+	promise.Spec = promiseRevisionUsed.Spec.PromiseSpec
+	logging.Debug(baseLogger,
+		"Found PromiseRevision from ResourceRequest", "revision name", promiseRevisionUsed.Name)
+	r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ReconcileStarted",
+		fmt.Sprintf("reconciling resource request with promise revision %s", promiseRevisionUsed.Name))
+
+	return promiseRevisionUsed, binding.Spec.Version, nil
 }
 
 func (r *DynamicResourceRequestController) ensureResourceStatus(
