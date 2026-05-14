@@ -3,6 +3,8 @@ kind: Promise
 metadata:
   name: namespaced-promise
 spec:
+  clusterRolesLabels:
+    rbac.authorization.k8s.io/aggregate-to-kratix-for-test: "true"
   api:
     apiVersion: apiextensions.k8s.io/v1
     kind: CustomResourceDefinition

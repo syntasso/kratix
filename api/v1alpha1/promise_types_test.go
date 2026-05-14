@@ -165,6 +165,34 @@ var _ = Describe("Promise", func() {
 			})
 		})
 	})
+
+	Describe("GenerateLabelsForClusterRole", func() {
+		It("returns an empty map when cluster role labels are not set", func() {
+			promise := &platformv1alpha1.Promise{}
+
+			labels := promise.GenerateLabelsForClusterRole()
+
+			Expect(labels).To(Equal(map[string]string{}))
+		})
+
+		It("returns cluster role labels from the promise spec", func() {
+			promise := &platformv1alpha1.Promise{
+				Spec: platformv1alpha1.PromiseSpec{
+					ClusterRolesLabels: platformv1alpha1.ClusterRolesLabels{
+						"rbac.authorization.k8s.io/aggregate-to-admin": "true",
+						"rbac.authorization.k8s.io/aggregate-to-edit":  "true",
+					},
+				},
+			}
+
+			labels := promise.GenerateLabelsForClusterRole()
+
+			Expect(labels).To(Equal(map[string]string{
+				"rbac.authorization.k8s.io/aggregate-to-admin": "true",
+				"rbac.authorization.k8s.io/aggregate-to-edit":  "true",
+			}))
+		})
+	})
 })
 
 func setPromiseAPI(p *platformv1alpha1.Promise, crd *apiextensionsv1.CustomResourceDefinition) {
