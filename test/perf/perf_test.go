@@ -4,6 +4,7 @@ package perf_test
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,10 +20,18 @@ import (
 	"github.com/syntasso/kratix/test/perf/scraper"
 )
 
-var rrGVK = schema.GroupVersionKind{
-	Group:   "perf.kratix.io",
-	Version: "v1alpha1",
-	Kind:    "PerfTest",
+var (
+	flagRRGroup   = flag.String("perf.rr.group", "perf.kratix.io", "API group of the resource request CRD")
+	flagRRVersion = flag.String("perf.rr.version", "v1alpha1", "API version of the resource request CRD")
+	flagRRKind    = flag.String("perf.rr.kind", "PerfTest", "Kind of the resource request CRD")
+)
+
+func rrGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   *flagRRGroup,
+		Version: *flagRRVersion,
+		Kind:    *flagRRKind,
+	}
 }
 
 var _ = Describe("perf rig", func() {
@@ -71,7 +80,7 @@ var _ = Describe("perf rig", func() {
 				cleanupCtx, cancelClean := context.WithTimeout(context.Background(), 10*time.Minute)
 				defer cancelClean()
 				_ = driver.DeleteAll(cleanupCtx, c, driver.RequestSpec{
-					GVK:       rrGVK,
+					GVK:       rrGVK(),
 					Namespace: *flagNamespace,
 					Parallel:  100,
 				})
@@ -86,7 +95,7 @@ var _ = Describe("perf rig", func() {
 		Expect(driver.EnsureNamespace(ctx, c, *flagNamespace)).To(Succeed())
 
 		spec := driver.RequestSpec{
-			GVK:       rrGVK,
+			GVK:       rrGVK(),
 			Namespace: *flagNamespace,
 			BaseName:  *flagBaseName,
 			Count:     *flagN,
@@ -101,7 +110,7 @@ var _ = Describe("perf rig", func() {
 
 		By("waiting for every RR to reach Reconciled=True")
 		convergeStart := time.Now()
-		err = driver.WaitForReconciled(ctx, c, rrGVK, spec.Namespace, names, timeout,
+		err = driver.WaitForReconciled(ctx, c, rrGVK(), spec.Namespace, names, timeout,
 			func(p driver.Progress) {
 				_, _ = fmt.Fprintf(GinkgoWriter, "  %s: %d/%d reconciled (elapsed %s)\n",
 					*flagRunName, p.Reconciled, p.Total, p.Elapsed.Truncate(time.Second))

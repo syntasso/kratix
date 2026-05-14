@@ -1243,7 +1243,8 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 						Name:      rrName,
 					},
 				}}
-			})).
+			}),
+			builder.WithPredicates(dynamicRRResourceBindingPredicate())).
 		Build(dynamicResourceRequestController)
 	if err != nil {
 		return err
@@ -2222,6 +2223,39 @@ func dynamicRRNoOpWriteFilter() predicate.Predicate {
 				return true
 			}
 			if !reflect.DeepEqual(oldU.Object["status"], newU.Object["status"]) {
+				return true
+			}
+			return false
+		},
+	}
+}
+
+// dynamicRRResourceBindingPredicate filters ResourceBinding events that trigger
+// a resource request reconcile. The RR controller only reads ResourceBinding
+// when the PromiseUpgrade feature flag is enabled — and even then only
+// Spec.Version and Status.LastAppliedVersion. Other writes (label updates,
+// metadata churn) re-enqueue the RR for no useful work.
+func dynamicRRResourceBindingPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return true },
+		DeleteFunc:  func(event.DeleteEvent) bool { return true },
+		GenericFunc: func(event.GenericEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldRB, oldOK := e.ObjectOld.(*v1alpha1.ResourceBinding)
+			newRB, newOK := e.ObjectNew.(*v1alpha1.ResourceBinding)
+			if !oldOK || !newOK {
+				return true
+			}
+			if oldRB.GetGeneration() != newRB.GetGeneration() {
+				return true
+			}
+			if (oldRB.GetDeletionTimestamp() == nil) != (newRB.GetDeletionTimestamp() == nil) {
+				return true
+			}
+			if oldRB.Spec.Version != newRB.Spec.Version {
+				return true
+			}
+			if oldRB.Status.LastAppliedVersion != newRB.Status.LastAppliedVersion {
 				return true
 			}
 			return false

@@ -45,6 +45,11 @@ type Opts struct {
 	// (ServiceAccount, RBAC, scheduling ConfigMap). The cache is consulted
 	// before each Create, and updated after a successful apply.
 	SharedResourceCache *SharedResourceCache
+
+	// SharedResourceScope namespaces cache entries so that a Promise being
+	// deleted and recreated (same name, different UID) cannot reuse the old
+	// Promise's "Applied" markers. Callers should pass the owning Promise UID.
+	SharedResourceScope string
 }
 
 // SharedResourceCache tracks which pipeline-shared resources the controller has
@@ -61,26 +66,30 @@ func NewSharedResourceCache() *SharedResourceCache {
 }
 
 // Applied reports whether the given resource has already been applied in this
-// controller's lifetime.
-func (c *SharedResourceCache) Applied(obj client.Object) bool {
+// controller's lifetime, under the supplied scope. Scope is typically the
+// owning Promise UID — when a Promise is deleted and recreated, the new UID
+// produces a fresh cache namespace, so stale entries for the old Promise can
+// never be hit by the new Promise's reconciles.
+func (c *SharedResourceCache) Applied(scope string, obj client.Object) bool {
 	if c == nil {
 		return false
 	}
-	_, ok := c.applied.Load(sharedResourceKey(obj))
+	_, ok := c.applied.Load(sharedResourceKey(scope, obj))
 	return ok
 }
 
-// MarkApplied records that the given resource has been successfully applied.
-func (c *SharedResourceCache) MarkApplied(obj client.Object) {
+// MarkApplied records that the given resource has been successfully applied
+// under the supplied scope.
+func (c *SharedResourceCache) MarkApplied(scope string, obj client.Object) {
 	if c == nil {
 		return
 	}
-	c.applied.Store(sharedResourceKey(obj), struct{}{})
+	c.applied.Store(sharedResourceKey(scope, obj), struct{}{})
 }
 
-func sharedResourceKey(obj client.Object) string {
+func sharedResourceKey(scope string, obj client.Object) string {
 	gvk := obj.GetObjectKind().GroupVersionKind()
-	return fmt.Sprintf("%s/%s/%s", gvk.GroupKind().String(), obj.GetNamespace(), obj.GetName())
+	return fmt.Sprintf("%s|%s/%s/%s", scope, gvk.GroupKind().String(), obj.GetNamespace(), obj.GetName())
 }
 
 func (o *Opts) SetParentObject(parentObj *unstructured.Unstructured) {
@@ -223,10 +232,8 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 	}
 
 	if !opts.SkipConditions {
-		if requeue, err := reconcileWorkflowStatus(opts, state); err != nil {
-			return requeue, err
-		} else if requeue && !state.restartFromStart && !state.manualReconcile {
-			return requeue, err
+		if _, err := reconcileWorkflowStatus(opts, state); err != nil {
+			return false, err
 		}
 	}
 
@@ -822,7 +829,7 @@ func applyResources(opts Opts, resources ...client.Object) {
 		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", resource.GetObjectKind().GroupVersionKind().String(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
 
 		cacheable := isCacheableSharedResource(resource)
-		if cacheable && opts.SharedResourceCache.Applied(resource) {
+		if cacheable && opts.SharedResourceCache.Applied(opts.SharedResourceScope, resource) {
 			logging.Debug(logger, "shared resource already applied this run; skipping")
 			continue
 		}
@@ -846,7 +853,7 @@ func applyResources(opts Opts, resources ...client.Object) {
 				logging.Debug(logger, "resource already exists; updating")
 				if err = opts.client.Update(opts.ctx, resource); err == nil {
 					if cacheable {
-						opts.SharedResourceCache.MarkApplied(resource)
+						opts.SharedResourceCache.MarkApplied(opts.SharedResourceScope, resource)
 					}
 					continue
 				}
@@ -858,7 +865,7 @@ func applyResources(opts Opts, resources ...client.Object) {
 		} else {
 			logging.Debug(logger, "resource created")
 			if cacheable {
-				opts.SharedResourceCache.MarkApplied(resource)
+				opts.SharedResourceCache.MarkApplied(opts.SharedResourceScope, resource)
 			}
 		}
 	}
