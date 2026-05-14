@@ -95,6 +95,9 @@ type PromiseReconciler struct {
 	// re-assert an already-current state without affecting state-machine
 	// progress (which still observes meaningful status mutations).
 	DynamicRRFilterNoOpWrites bool
+	// BreakerDefaults are applied to every dynamic resource-request controller's
+	// per-resource circuit breaker. Per-Promise annotations override these.
+	BreakerDefaults BreakerDefaults
 }
 
 const (

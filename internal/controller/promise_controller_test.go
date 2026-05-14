@@ -2360,6 +2360,67 @@ func createAndUpdateWork(work *v1alpha1.Work, status metav1.ConditionStatus, mes
 	Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
 }
 
+var _ = Describe("ResolveBreakerParams", func() {
+	var (
+		defaults controller.BreakerDefaults
+		promise  *v1alpha1.Promise
+	)
+
+	BeforeEach(func() {
+		defaults = controller.BreakerDefaults{
+			Burst:                 100,
+			RefillRate:            1.0,
+			Cooldown:              5 * time.Minute,
+			HalfOpenProbeInterval: 30 * time.Second,
+			Enabled:               true,
+		}
+		promise = &v1alpha1.Promise{
+			ObjectMeta: metav1.ObjectMeta{Name: "p1"},
+		}
+	})
+
+	It("returns defaults when no annotations are set", func() {
+		params, warnings := controller.ResolveBreakerParams(promise, defaults)
+		Expect(warnings).To(BeEmpty())
+		Expect(params.Burst).To(Equal(float64(100)))
+		Expect(params.RefillRate).To(Equal(1.0))
+		Expect(params.Cooldown).To(Equal(5 * time.Minute))
+		Expect(params.Disabled).To(BeFalse())
+	})
+
+	It("applies all annotation overrides when valid", func() {
+		promise.SetAnnotations(map[string]string{
+			controller.AnnotationCircuitBreakerBurst:    "200",
+			controller.AnnotationCircuitBreakerRefill:   "2.5",
+			controller.AnnotationCircuitBreakerCooldown: "10m",
+			controller.AnnotationCircuitBreakerDisabled: "true",
+		})
+		params, warnings := controller.ResolveBreakerParams(promise, defaults)
+		Expect(warnings).To(BeEmpty())
+		Expect(params.Burst).To(Equal(float64(200)))
+		Expect(params.RefillRate).To(Equal(2.5))
+		Expect(params.Cooldown).To(Equal(10 * time.Minute))
+		Expect(params.Disabled).To(BeTrue())
+	})
+
+	It("falls back to defaults and reports warnings for invalid values", func() {
+		promise.SetAnnotations(map[string]string{
+			controller.AnnotationCircuitBreakerBurst:    "not-a-number",
+			controller.AnnotationCircuitBreakerCooldown: "10x",
+		})
+		params, warnings := controller.ResolveBreakerParams(promise, defaults)
+		Expect(warnings).To(HaveLen(2))
+		Expect(params.Burst).To(Equal(float64(100)))
+		Expect(params.Cooldown).To(Equal(5 * time.Minute))
+	})
+
+	It("treats Enabled=false as Disabled=true", func() {
+		defaults.Enabled = false
+		params, _ := controller.ResolveBreakerParams(promise, defaults)
+		Expect(params.Disabled).To(BeTrue())
+	})
+})
+
 // aggregate events from the event recorder channel
 // increase event limits if we are sending more than 20
 func aggregateEvents(events <-chan string) string {
