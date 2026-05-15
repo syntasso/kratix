@@ -1285,28 +1285,36 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 			metrics.DynamicRRWorkqueueDropsTotal.WithLabelValues(promiseName, "breaker_open").Inc()
 		}
 
-		// RR status condition + Events. Use a short-lived context for the API
-		// writes; the breaker doesn't have a ctx to pass us.
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		// RR status condition + Events. Hoisted to a goroutine so the API
+		// round-trips don't block the breaker mutex (b.mu) which serialises
+		// every Allow call for this Promise's breaker. The observer contract
+		// (circuit.StateObserver) explicitly says observers must not block —
+		// keep this true. Key/oldState/newState are passed explicitly as
+		// goroutine args to avoid Go closure-over-loop-var races.
+		go func(key types.NamespacedName, oldState, newState circuit.State) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 
-		open := newState != circuit.StateClosed
-		dynamicResourceRequestController.setWatchCircuitOpenCondition(ctx, key, open, transitionReason(oldState, newState))
+			open := newState != circuit.StateClosed
+			dynamicResourceRequestController.setWatchCircuitOpenCondition(ctx, key, open, transitionReason(oldState, newState))
 
-		if observerRecorder != nil {
+			if observerRecorder == nil {
+				return
+			}
 			rr := &unstructured.Unstructured{}
 			rr.SetGroupVersionKind(*rrGVK)
-			if err := r.Client.Get(ctx, key, rr); err == nil {
-				if oldState == circuit.StateClosed && newState == circuit.StateOpen {
-					observerRecorder.Event(rr, v1.EventTypeWarning, "CircuitBreakerOpen",
-						"Per-resource circuit breaker tripped; events for this resource are being dropped at enqueue.")
-				}
-				if newState == circuit.StateClosed && oldState != circuit.StateClosed {
-					observerRecorder.Event(rr, v1.EventTypeNormal, "CircuitBreakerClosed",
-						"Per-resource circuit breaker recovered; events for this resource are flowing again.")
-				}
+			if err := r.Client.Get(ctx, key, rr); err != nil {
+				return
 			}
-		}
+			if oldState == circuit.StateClosed && newState == circuit.StateOpen {
+				observerRecorder.Event(rr, v1.EventTypeWarning, "CircuitBreakerOpen",
+					"Per-resource circuit breaker tripped; events for this resource are being dropped at enqueue.")
+			}
+			if newState == circuit.StateClosed && oldState != circuit.StateClosed {
+				observerRecorder.Event(rr, v1.EventTypeNormal, "CircuitBreakerClosed",
+					"Per-resource circuit breaker recovered; events for this resource are flowing again.")
+			}
+		}(key, oldState, newState)
 	})
 	breaker.WithObserver(observer)
 
