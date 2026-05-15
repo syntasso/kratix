@@ -28,7 +28,9 @@ import (
 	"github.com/syntasso/kratix/lib/objectutil"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -81,6 +83,18 @@ type PromiseReconciler struct {
 	ReconciliationInterval    time.Duration
 	EventRecorder             record.EventRecorder
 	PromiseUpgrade            bool
+	// DynamicRRMaxConcurrentReconciles caps the number of in-flight reconciles
+	// per spawned dynamic resource-request controller. 0 means use
+	// controller-runtime's default of 1 (no parallelism).
+	DynamicRRMaxConcurrentReconciles int
+	// DynamicRRFilterNoOpWrites, when true, installs a predicate on the
+	// dynamic resource-request controller's self-watch that filters Update
+	// events whose old and new objects are semantically identical (same
+	// generation, finalizers, labels, annotations, deletionTimestamp, and
+	// full status block). Reduces self-watch churn from status writes that
+	// re-assert an already-current state without affecting state-machine
+	// progress (which still observes meaningful status mutations).
+	DynamicRRFilterNoOpWrites bool
 }
 
 const (
@@ -1176,8 +1190,20 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(*rrGVK)
 
-	dynamicController, err := ctrl.NewControllerManagedBy(r.Manager).
-		For(unstructuredCRD).
+	var dynamicControllerBuilder *builder.Builder
+	if r.DynamicRRFilterNoOpWrites {
+		dynamicControllerBuilder = ctrl.NewControllerManagedBy(r.Manager).
+			For(unstructuredCRD, builder.WithPredicates(dynamicRRNoOpWriteFilter()))
+	} else {
+		dynamicControllerBuilder = ctrl.NewControllerManagedBy(r.Manager).
+			For(unstructuredCRD)
+	}
+	if r.DynamicRRMaxConcurrentReconciles > 0 {
+		dynamicControllerBuilder = dynamicControllerBuilder.WithOptions(controller.Options{
+			MaxConcurrentReconciles: r.DynamicRRMaxConcurrentReconciles,
+		})
+	}
+	dynamicController, err := dynamicControllerBuilder.
 		Watches(
 			&batchv1.Job{},
 			handler.EnqueueRequestsFromMapFunc(r.jobEventHandler(promise)),
@@ -2143,4 +2169,64 @@ func (r *PromiseReconciler) getPreviousRevision(ctx context.Context, promise *v1
 		return nil, false, nil
 	}
 	return previousRevision, true, nil
+}
+
+// dynamicRRNoOpWriteFilter is a watch predicate for the dynamic resource-request
+// controller's self-watch. It filters Update events whose old and new objects
+// are semantically identical from the controller's perspective — i.e. nothing
+// the reconcile reacts to differs.
+//
+// Such events arise when something writes the resource without changing
+// anything meaningful — most commonly a Status().Update that re-asserts the
+// same conditions, or a metadata-only client side update that didn't actually
+// mutate anything. They re-enqueue the RR through the self-watch, the
+// reconcile re-runs, does a no-op, and exits — pure waste at scale.
+//
+// Important: this predicate is conservative about status changes. A status
+// mutation that only flips a condition's lastTransitionTime DOES propagate
+// (the timestamp differs → status DeepEqual is false → event passes). The win
+// comes from filtering writes that re-assert an already-current state, not
+// from optimising every transition. Earlier attempts that filtered all
+// status changes (only checking generation/finalizers/labels/annotations/
+// deletionTimestamp) broke the state machine because every legitimate state
+// transition is driven by a Status().Update that the next reconcile must
+// observe — see docs/perf-rig-findings.md for the empirical proof.
+//
+// Apply via `For(unstructuredCRD, builder.WithPredicates(...))` so it scopes
+// to the RR self-watch only. The Job/Work/ResourceBinding Watches must
+// continue firing unconditionally; this predicate does not affect them.
+func dynamicRRNoOpWriteFilter() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return true },
+		DeleteFunc:  func(event.DeleteEvent) bool { return true },
+		GenericFunc: func(event.GenericEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldU, oldOK := e.ObjectOld.(*unstructured.Unstructured)
+			newU, newOK := e.ObjectNew.(*unstructured.Unstructured)
+			if !oldOK || !newOK {
+				// Defensive: if the type isn't unstructured we cannot safely
+				// diff status, so let the event through.
+				return true
+			}
+			if oldU.GetGeneration() != newU.GetGeneration() {
+				return true
+			}
+			if !reflect.DeepEqual(oldU.GetFinalizers(), newU.GetFinalizers()) {
+				return true
+			}
+			if !reflect.DeepEqual(oldU.GetLabels(), newU.GetLabels()) {
+				return true
+			}
+			if !reflect.DeepEqual(oldU.GetAnnotations(), newU.GetAnnotations()) {
+				return true
+			}
+			if (oldU.GetDeletionTimestamp() == nil) != (newU.GetDeletionTimestamp() == nil) {
+				return true
+			}
+			if !reflect.DeepEqual(oldU.Object["status"], newU.Object["status"]) {
+				return true
+			}
+			return false
+		},
+	}
 }

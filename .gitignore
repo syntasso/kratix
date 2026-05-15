@@ -51,3 +51,6 @@ config/manager/pipeline-adapter-config.properties
 
 # cursor rules
 .cursor
+
+# Perf rig run artefacts
+/test/perf/results/*/
