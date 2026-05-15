@@ -1142,23 +1142,6 @@ func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.G
 	return nil
 }
 
-// transitionReason maps a breaker state transition to a short human-readable
-// reason string for use in Events and Status conditions.
-func transitionReason(oldState, newState circuit.State) string {
-	switch {
-	case oldState == circuit.StateClosed && newState == circuit.StateOpen:
-		return "Tripped"
-	case oldState == circuit.StateOpen && newState == circuit.StateHalfOpen:
-		return "Probing"
-	case oldState == circuit.StateHalfOpen && newState == circuit.StateClosed:
-		return "Recovered"
-	case oldState == circuit.StateHalfOpen && newState == circuit.StateOpen:
-		return "RecoveryFailed"
-	default:
-		return "Unknown"
-	}
-}
-
 func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK *schema.GroupVersionKind, canCreateResources *bool, logger logr.Logger) error {
 	controllerName := promise.GetDynamicControllerName(logger)
 
@@ -1259,11 +1242,13 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		LastRuntimeOptions:          runtimeOpts,
 	}
 
-	// Wire the per-Promise breaker observer. Emits metrics, RR status conditions,
-	// and Events on every breaker state transition. Captures pointers by closure
-	// so the observer can call into the controller after assignment.
+	// Wire the per-Promise breaker observer. Pure bookkeeping only — logs the
+	// transition and updates Prometheus metrics (lock-free atomics, safe under
+	// b.mu). RR Status condition writes and Events are emitted from
+	// DynamicResourceRequestController.Reconcile instead, so the API I/O
+	// happens on the reconciler's worker goroutine rather than blocking the
+	// breaker mutex. See circuit.StateObserver: "Observers must NOT block".
 	promiseName := promise.GetName()
-	observerRecorder := r.Manager.GetEventRecorderFor("ResourceRequestController")
 	observer := circuit.StateObserverFunc(func(key types.NamespacedName, oldState, newState circuit.State) {
 		logging.Info(r.Log.WithName(promiseName), "circuit breaker state transition",
 			"resource", key.String(),
@@ -1284,37 +1269,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 			metrics.CircuitBreakerTripsTotal.WithLabelValues(promiseName).Inc()
 			metrics.DynamicRRWorkqueueDropsTotal.WithLabelValues(promiseName, "breaker_open").Inc()
 		}
-
-		// RR status condition + Events. Hoisted to a goroutine so the API
-		// round-trips don't block the breaker mutex (b.mu) which serialises
-		// every Allow call for this Promise's breaker. The observer contract
-		// (circuit.StateObserver) explicitly says observers must not block —
-		// keep this true. Key/oldState/newState are passed explicitly as
-		// goroutine args to avoid Go closure-over-loop-var races.
-		go func(key types.NamespacedName, oldState, newState circuit.State) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-
-			open := newState != circuit.StateClosed
-			dynamicResourceRequestController.setWatchCircuitOpenCondition(ctx, key, open, transitionReason(oldState, newState))
-
-			if observerRecorder == nil {
-				return
-			}
-			rr := &unstructured.Unstructured{}
-			rr.SetGroupVersionKind(*rrGVK)
-			if err := r.Client.Get(ctx, key, rr); err != nil {
-				return
-			}
-			if oldState == circuit.StateClosed && newState == circuit.StateOpen {
-				observerRecorder.Event(rr, v1.EventTypeWarning, "CircuitBreakerOpen",
-					"Per-resource circuit breaker tripped; events for this resource are being dropped at enqueue.")
-			}
-			if newState == circuit.StateClosed && oldState != circuit.StateClosed {
-				observerRecorder.Event(rr, v1.EventTypeNormal, "CircuitBreakerClosed",
-					"Per-resource circuit breaker recovered; events for this resource are flowing again.")
-			}
-		}(key, oldState, newState)
 	})
 	breaker.WithObserver(observer)
 

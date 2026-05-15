@@ -112,6 +112,20 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		}
 	}()
 
+	// Reconcile the WatchCircuitOpen condition + transition Events on the
+	// reconciler's worker goroutine. The breaker observer is now pure
+	// bookkeeping (log + metrics) so condition/Event writes need an idiomatic
+	// home: doing them here gets natural retry/backpressure, serialised
+	// per-RR ordering, and standard error surfaces. Runs after the breaker
+	// Observe defer above (deferred LIFO) so any state change triggered by
+	// this reconcile is reflected.
+	defer func() {
+		if r.Breaker == nil {
+			return
+		}
+		r.reconcileWatchCircuitCondition(ctx, req.NamespacedName)
+	}()
+
 	if r.WatchStopped {
 		// WatchStopped means the controller's informer no longer watches the CRD.
 		// This effectively shuts down the controller because it is no longer
@@ -1361,6 +1375,87 @@ func (r *DynamicResourceRequestController) setWatchCircuitOpenCondition(ctx cont
 	if err := r.Client.Status().Update(ctx, rr); err != nil {
 		logging.Debug(logger, "failed to update RR status with WatchCircuitOpen", "error", err.Error())
 	}
+}
+
+// reconcileWatchCircuitCondition reads the current breaker state for req and
+// reconciles the RR's WatchCircuitOpen condition + emits Events on transitions.
+// Called at the end of every Reconcile, so condition/event writes happen on
+// the reconciler's worker goroutine — not on the breaker's mutex-holding
+// goroutine. This is the idiomatic place for these API writes: errors retry
+// via controller-runtime's normal mechanism, ordering is serialized per RR,
+// and tests can exercise this exactly like any other reconcile-side effect.
+func (r *DynamicResourceRequestController) reconcileWatchCircuitCondition(ctx context.Context, key types.NamespacedName) {
+	logger := r.Log.WithValues("rr", key.String())
+
+	state := r.Breaker.State(key)
+	desiredOpen := state != circuit.StateClosed
+	desiredReason := breakerStateReason(state)
+
+	// Read current condition from the RR.
+	rr := &unstructured.Unstructured{}
+	rr.SetGroupVersionKind(*r.GVK)
+	if err := r.Client.Get(ctx, key, rr); err != nil {
+		// RR may not exist yet (e.g. transition fired before RR was visible);
+		// skip silently.
+		logging.Debug(logger, "skipping WatchCircuitOpen reconcile; RR not found", "error", err.Error())
+		return
+	}
+
+	currentStatus, currentReason := readWatchCircuitCondition(rr)
+	desiredStatus := "False"
+	if desiredOpen {
+		desiredStatus = "True"
+	}
+	if currentStatus == desiredStatus && currentReason == desiredReason {
+		// No transition since last reconcile; nothing to do.
+		return
+	}
+
+	// Transition detected — update the condition and emit an Event.
+	r.setWatchCircuitOpenCondition(ctx, key, desiredOpen, desiredReason)
+
+	if r.EventRecorder == nil {
+		return
+	}
+	// Only emit transition Events on the closed-edge transitions to avoid
+	// spamming every Probing tick.
+	switch {
+	case currentStatus != "True" && desiredStatus == "True" && state == circuit.StateOpen:
+		r.EventRecorder.Event(rr, v1.EventTypeWarning, "CircuitBreakerOpen",
+			"Per-resource circuit breaker tripped; events for this resource are being dropped at enqueue.")
+	case currentStatus == "True" && desiredStatus == "False":
+		r.EventRecorder.Event(rr, v1.EventTypeNormal, "CircuitBreakerClosed",
+			"Per-resource circuit breaker recovered; events for this resource are flowing again.")
+	}
+}
+
+// breakerStateReason maps a breaker state to the Reason field for the
+// WatchCircuitOpen condition.
+func breakerStateReason(state circuit.State) string {
+	switch state {
+	case circuit.StateOpen:
+		return "Tripped"
+	case circuit.StateHalfOpen:
+		return "Probing"
+	default:
+		return "Closed"
+	}
+}
+
+// readWatchCircuitCondition returns the current Status and Reason of the
+// WatchCircuitOpen condition on rr. Returns ("", "") if the condition is absent.
+func readWatchCircuitCondition(rr *unstructured.Unstructured) (status, reason string) {
+	conds, _, _ := unstructured.NestedSlice(rr.Object, "status", "conditions")
+	for _, raw := range conds {
+		cm, ok := raw.(map[string]interface{})
+		if !ok || cm["type"] != "WatchCircuitOpen" {
+			continue
+		}
+		s, _ := cm["status"].(string)
+		rsn, _ := cm["reason"].(string)
+		return s, rsn
+	}
+	return "", ""
 }
 
 // mergeWatchCircuitCondition upserts the WatchCircuitOpen condition into an
