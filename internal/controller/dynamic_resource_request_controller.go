@@ -32,6 +32,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/circuit"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"github.com/syntasso/kratix/lib/resourceutil"
@@ -83,7 +84,18 @@ type DynamicResourceRequestController struct {
 	NumberOfJobsToKeep          int
 	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
-	PromiseUpgradeFeatFlag      bool
+	Breaker                     circuit.Breaker
+	// LastRuntimeOptions is the most recently applied PromiseRuntimeOptions
+	// snapshot. The reuse branch compares the next resolved set against this
+	// to decide which kinds of changes are live-updatable (breaker only) vs.
+	// restart-required (rate-limit, MCR).
+	LastRuntimeOptions PromiseRuntimeOptions
+	// RestartRequiredWarned is set once the reuse branch has emitted a
+	// RuntimeOptionsRestartRequired warning event for the current in-memory
+	// controller. Prevents per-reconcile event spam while the user is in the
+	// "annotated but not yet restarted" state. Resets on operator restart.
+	RestartRequiredWarned  bool
+	PromiseUpgradeFeatFlag bool
 	// SharedResourceCache deduplicates Apply operations for pipeline-shared
 	// resources (ServiceAccount, RBAC, scheduling ConfigMap) across reconciles
 	// of different resource requests under the same Promise.
@@ -94,6 +106,12 @@ type DynamicResourceRequestController struct {
 
 // Reconcile reconciles a Dynamically Generated Resource object.
 func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	defer func() {
+		if r.Breaker != nil {
+			r.Breaker.Observe(req.NamespacedName, retErr == nil)
+		}
+	}()
+
 	if r.WatchStopped {
 		// WatchStopped means the controller's informer no longer watches the CRD.
 		// This effectively shuts down the controller because it is no longer

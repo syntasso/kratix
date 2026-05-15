@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/syntasso/kratix/internal/circuit"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -95,6 +96,9 @@ type PromiseReconciler struct {
 	// re-assert an already-current state without affecting state-machine
 	// progress (which still observes meaningful status mutations).
 	DynamicRRFilterNoOpWrites bool
+	// PromiseRuntimeDefaults are applied to every dynamic resource-request
+	// controller. Per-Promise annotations override individual fields.
+	PromiseRuntimeDefaults PromiseRuntimeDefaults
 }
 
 const (
@@ -1157,6 +1161,45 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.PromiseUpgradeFeatFlag = r.PromiseUpgrade
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
+		newOpts, warnings := ResolvePromiseRuntimeOptions(promise, r.PromiseRuntimeDefaults)
+		recorder := r.Manager.GetEventRecorderFor("PromiseController")
+		emitBreakerWarnings(recorder, logger, promise, warnings)
+
+		old := dynamicController.LastRuntimeOptions
+
+		// Breaker params are live-updatable.
+		if newOpts.Breaker != old.Breaker {
+			logging.Info(logger, "updating breaker params",
+				"promise", promise.GetName(),
+				"old", old.Breaker,
+				"new", newOpts.Breaker)
+			dynamicController.Breaker.UpdateParams(newOpts.Breaker)
+		}
+
+		// Rate-limit + MCR changes require an operator restart.
+		// RateLimitQPS is parsed from the same annotation string on every reconcile so
+		// exact float equality is safe.
+		if newOpts.MaxConcurrentReconciles != old.MaxConcurrentReconciles ||
+			newOpts.RateLimitQPS != old.RateLimitQPS ||
+			newOpts.RateLimitBurst != old.RateLimitBurst {
+			if !dynamicController.RestartRequiredWarned {
+				msg := "rate-limit or max-concurrent-reconciles annotation changed; takes effect on next operator restart"
+				logging.Info(logger, msg, "promise", promise.GetName(),
+					"oldMCR", old.MaxConcurrentReconciles, "newMCR", newOpts.MaxConcurrentReconciles,
+					"oldQPS", old.RateLimitQPS, "newQPS", newOpts.RateLimitQPS,
+					"oldBurst", old.RateLimitBurst, "newBurst", newOpts.RateLimitBurst)
+				if recorder != nil {
+					recorder.Event(promise, v1.EventTypeWarning, "RuntimeOptionsRestartRequired", msg)
+				}
+				dynamicController.RestartRequiredWarned = true
+			}
+		}
+
+		// Always refresh the snapshot so an operator restart picks up the latest values.
+		// The warned flag is independent of the snapshot — it lives only in memory and
+		// resets when the operator restarts (since DynamicResourceRequestController is rebuilt).
+		dynamicController.LastRuntimeOptions = newOpts
+
 		if dynamicController.WatchStopped {
 			logging.Debug(logger, "restarting dynamic controller watch", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
 			if err := r.restartDynamicControllerWatch(dynamicController); err != nil {
@@ -1167,6 +1210,11 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		return nil
 	}
 	logging.Info(logger, "starting dynamic controller")
+
+	runtimeOpts, warnings := ResolvePromiseRuntimeOptions(promise, r.PromiseRuntimeDefaults)
+	emitBreakerWarnings(r.Manager.GetEventRecorderFor("PromiseController"), logger, promise, warnings)
+	breaker := circuit.NewTokenBucketBreaker(runtimeOpts.Breaker, nil)
+	rateLimiter := BuildPromiseRateLimiter(runtimeOpts.RateLimitQPS, runtimeOpts.RateLimitBurst)
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
@@ -1186,33 +1234,36 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
 		PromiseUpgradeFeatFlag:      r.PromiseUpgrade,
 		SharedResourceCache:         workflow.NewSharedResourceCache(),
+		Breaker:                     breaker,
+		LastRuntimeOptions:          runtimeOpts,
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(*rrGVK)
 
-	var dynamicControllerBuilder *builder.Builder
+	primaryPredicates := []predicate.Predicate{circuit.Predicate(breaker)}
 	if r.DynamicRRFilterNoOpWrites {
-		dynamicControllerBuilder = ctrl.NewControllerManagedBy(r.Manager).
-			For(unstructuredCRD, builder.WithPredicates(dynamicRRNoOpWriteFilter()))
-	} else {
-		dynamicControllerBuilder = ctrl.NewControllerManagedBy(r.Manager).
-			For(unstructuredCRD)
+		primaryPredicates = append(primaryPredicates, dynamicRRNoOpWriteFilter())
 	}
-	if r.DynamicRRMaxConcurrentReconciles > 0 {
-		dynamicControllerBuilder = dynamicControllerBuilder.WithOptions(controller.Options{
-			MaxConcurrentReconciles: r.DynamicRRMaxConcurrentReconciles,
-		})
+	dynamicControllerBuilder := ctrl.NewControllerManagedBy(r.Manager).
+		For(unstructuredCRD, builder.WithPredicates(primaryPredicates...))
+	mcr := runtimeOpts.MaxConcurrentReconciles
+	if mcr <= 0 {
+		mcr = 1 // controller-runtime's default
 	}
+	dynamicControllerBuilder = dynamicControllerBuilder.WithOptions(controller.Options{
+		MaxConcurrentReconciles: mcr,
+		RateLimiter:             rateLimiter,
+	})
 	dynamicController, err := dynamicControllerBuilder.
 		Watches(
 			&batchv1.Job{},
-			handler.EnqueueRequestsFromMapFunc(r.jobEventHandler(promise)),
+			handler.EnqueueRequestsFromMapFunc(circuit.MapFunc(r.jobEventHandler(promise), breaker)),
 			builder.WithPredicates(kratixManagedJobPredicate()),
 		).
 		Watches(
 			&v1alpha1.Work{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+			handler.EnqueueRequestsFromMapFunc(circuit.MapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				work := obj.(*v1alpha1.Work)
 				rrName, labelExists := work.Labels[v1alpha1.ResourceNameLabel]
 				if !labelExists || work.Labels[v1alpha1.PromiseNameLabel] != promise.GetName() {
@@ -1225,12 +1276,12 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 						Name:      rrName,
 					},
 				}}
-			}),
+			}, breaker)),
 			builder.WithPredicates(dynamicRRWorkPredicate()),
 		).
 		Watches(
 			&v1alpha1.ResourceBinding{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+			handler.EnqueueRequestsFromMapFunc(circuit.MapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				resourceBinding := obj.(*v1alpha1.ResourceBinding)
 				rrName, labelExists := resourceBinding.Labels[v1alpha1.ResourceNameLabel]
 				if !labelExists || resourceBinding.Labels[v1alpha1.PromiseNameLabel] != promise.GetName() {
@@ -1243,7 +1294,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 						Name:      rrName,
 					},
 				}}
-			}),
+			}, breaker)),
 			builder.WithPredicates(dynamicRRResourceBindingPredicate())).
 		Build(dynamicResourceRequestController)
 	if err != nil {
@@ -1283,6 +1334,9 @@ func (r *PromiseReconciler) stopDynamicControllerForDeletedPromise(ctx context.C
 		}
 	}
 
+	if dynamicController.Breaker != nil {
+		logging.Debug(logger, "releasing per-promise breaker", "promise", promise.GetName())
+	}
 	dynamicController.WatchStopped = true
 	logging.Debug(logger, "dynamic controller watch stopped", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
 	return nil

@@ -119,8 +119,17 @@ var pprofAddr string
 var enableLeaderElection bool
 var dynamicRRMaxConcurrentReconciles int
 var dynamicRRFilterNoOpWrites bool
+var dynamicRRQPS float64
+var dynamicRRBurst int
 var kubeAPIQPS float64
 var kubeAPIBurst int
+
+var (
+	circuitBreakerBurst      float64
+	circuitBreakerRefillRate float64
+	circuitBreakerCooldown   time.Duration
+	circuitBreakerEnabled    bool
+)
 
 // wrapConfigWithOTel wraps the Kubernetes REST config's HTTP transport with OpenTelemetry
 // instrumentation to automatically trace all Kubernetes API calls.
@@ -165,6 +174,14 @@ func main() {
 		"MaxConcurrentReconciles for each spawned dynamic resource-request controller. "+
 			"0 means use controller-runtime's default (1). Set higher to parallelise reconciles "+
 			"of resource requests for the same Promise.")
+	flag.Float64Var(&dynamicRRQPS, "dynamic-rr-qps", 0,
+		"Default workqueue QPS budget per dynamic resource-request controller. "+
+			"0 disables the token-bucket overlay (exponential failure limiter only). "+
+			"Overridable per Promise via kratix.io/rate-limit-qps.")
+	flag.IntVar(&dynamicRRBurst, "dynamic-rr-burst", 0,
+		"Default workqueue burst per dynamic RR controller. "+
+			"Ignored when --dynamic-rr-qps=0. Defaults to 10× QPS when unset. "+
+			"Overridable per Promise via kratix.io/rate-limit-burst.")
 	flag.BoolVar(&dynamicRRFilterNoOpWrites, "dynamic-rr-filter-noop-writes", false,
 		"Filter Update events on the dynamic resource-request self-watch when the old and new "+
 			"objects are semantically identical (same generation, finalizers, labels, annotations, "+
@@ -177,6 +194,17 @@ func main() {
 	flag.IntVar(&kubeAPIBurst, "kube-api-burst", 0,
 		"Burst capacity for outbound Kubernetes API calls. "+
 			"0 means use client-go's default (30). Should be at least 2x kube-api-qps.")
+	flag.Float64Var(&circuitBreakerBurst, "circuit-breaker-burst", 100,
+		"Default token-bucket burst for per-resource circuit breakers. "+
+			"Overridable per Promise via the kratix.io/circuit-breaker-burst annotation.")
+	flag.Float64Var(&circuitBreakerRefillRate, "circuit-breaker-refill-rate", 1.0,
+		"Default token-bucket refill rate (tokens per second). "+
+			"Overridable per Promise via the kratix.io/circuit-breaker-refill annotation.")
+	flag.DurationVar(&circuitBreakerCooldown, "circuit-breaker-cooldown", 5*time.Minute,
+		"Default cooldown after a circuit breaker opens. "+
+			"Overridable per Promise via the kratix.io/circuit-breaker-cooldown annotation.")
+	flag.BoolVar(&circuitBreakerEnabled, "circuit-breaker-enabled", true,
+		"Global kill switch for per-resource circuit breakers. When false, breakers are constructed but always Allow.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -319,6 +347,18 @@ func main() {
 		PromiseUpgrade:                   promiseUpgradeEnabled(kratixConfig),
 		DynamicRRMaxConcurrentReconciles: dynamicRRMaxConcurrentReconciles,
 		DynamicRRFilterNoOpWrites:        dynamicRRFilterNoOpWrites,
+		PromiseRuntimeDefaults: controller.PromiseRuntimeDefaults{
+			MaxConcurrentReconciles: dynamicRRMaxConcurrentReconciles,
+			RateLimitQPS:            float32(dynamicRRQPS),
+			RateLimitBurst:          dynamicRRBurst,
+			Breaker: controller.BreakerDefaults{
+				Burst:                 circuitBreakerBurst,
+				RefillRate:            circuitBreakerRefillRate,
+				Cooldown:              circuitBreakerCooldown,
+				HalfOpenProbeInterval: 30 * time.Second,
+				Enabled:               circuitBreakerEnabled,
+			},
+		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
 		os.Exit(1)
