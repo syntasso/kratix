@@ -21,6 +21,8 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -127,6 +129,20 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		"resource request version", rrPromiseVersion,
 		"resource binding version", resourceBinding.Spec.Version,
 	)
+
+	existing := apiMeta.FindStatusCondition(resourceBinding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+	if existing == nil || existing.Status != metav1.ConditionUnknown || existing.Reason != v1alpha1.UpgradeInProgressReason {
+		apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
+			Type:               v1alpha1.UpgradeSucceededCondition,
+			Status:             metav1.ConditionUnknown,
+			Reason:             v1alpha1.UpgradeInProgressReason,
+			Message:            fmt.Sprintf("Upgrade to version %s is in progress", desiredVersion),
+			LastTransitionTime: metav1.Now(),
+		})
+		if err := r.Client.Status().Update(ctx, resourceBinding); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 
 	labels := rr.GetLabels()
 	if labels == nil {

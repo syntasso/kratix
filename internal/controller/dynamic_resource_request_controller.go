@@ -359,13 +359,54 @@ func (r *DynamicResourceRequestController) updateResourceBindingVersionStatus(ct
 		return fmt.Errorf("failed to get resourceBinding: %w", err)
 	}
 
-	desiredVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
-	if resourceBinding.Status.LastAppliedVersion == desiredVersion {
+	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
+	succeeded := workflowsCompletedSuccessfully(workflowCompleted)
+	failed := workflowCompleted != nil &&
+		workflowCompleted.Status == v1.ConditionFalse &&
+		workflowCompleted.Reason == resourceutil.ConfigureWorkflowCompletedFailedReason
+
+	var newCondStatus metav1.ConditionStatus
+	var newCondReason, newCondMessage string
+
+	switch {
+	case succeeded:
+		newCondStatus = metav1.ConditionTrue
+		newCondReason = v1alpha1.UpgradeCompleteReason
+	case failed:
+		newCondStatus = metav1.ConditionFalse
+		newCondReason = v1alpha1.UpgradeFailedReason
+		newCondMessage = workflowCompleted.Message
+	default:
 		return nil
 	}
 
-	logging.Info(logger, "updating resource binding Status.LastAppliedVersion", "oldVersion", resourceBinding.Status.LastAppliedVersion, "newVersion", desiredVersion)
-	resourceBinding.Status.LastAppliedVersion = desiredVersion
+	desiredVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
+	needsVersionUpdate := succeeded && resourceBinding.Status.LastAppliedVersion != desiredVersion
+
+	existing := apiMeta.FindStatusCondition(resourceBinding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+	conditionChanged := existing == nil || string(existing.Status) != string(newCondStatus) || existing.Reason != newCondReason
+
+	if !needsVersionUpdate && !conditionChanged {
+		return nil
+	}
+
+	if needsVersionUpdate {
+		logging.Info(logger, "updating resource binding Status.LastAppliedVersion", "oldVersion", resourceBinding.Status.LastAppliedVersion, "newVersion", desiredVersion)
+		resourceBinding.Status.LastAppliedVersion = desiredVersion
+	}
+
+	if succeeded {
+		newCondMessage = fmt.Sprintf("Resource is at version %s", desiredVersion)
+	}
+
+	apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
+		Type:               v1alpha1.UpgradeSucceededCondition,
+		Status:             newCondStatus,
+		Reason:             newCondReason,
+		Message:            newCondMessage,
+		LastTransitionTime: metav1.Now(),
+	})
+
 	if err := r.Client.Status().Update(ctx, resourceBinding); err != nil {
 		return fmt.Errorf("failed to update resource binding status: %w", err)
 	}

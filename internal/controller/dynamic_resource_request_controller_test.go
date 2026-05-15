@@ -16,6 +16,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -1496,15 +1497,20 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			When("the resource binding Status.LastAppliedVersion does not yet reflect the current promise version", func() {
-				It("updates Status.LastAppliedVersion to track the current promise version", func() {
+				It("updates Status.LastAppliedVersion and sets UpgradeSucceeded=True", func() {
 					setReconcileConfigureWorkflowToReturnFinished()
-					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
 
 					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Spec.Version).To(Equal("latest"))
 					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).NotTo(BeNil())
+					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionTrue)))
+					Expect(cond.Reason).To(Equal(v1alpha1.UpgradeCompleteReason))
 				})
 			})
 
@@ -1513,15 +1519,20 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
 				})
 
-				It("updates Status.LastAppliedVersion to reflect the current promise version", func() {
+				It("updates Status.LastAppliedVersion and sets UpgradeSucceeded=True", func() {
 					setReconcileConfigureWorkflowToReturnFinished()
-					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
 
 					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Spec.Version).To(Equal(promiseVersion))
 					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).NotTo(BeNil())
+					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionTrue)))
+					Expect(cond.Reason).To(Equal(v1alpha1.UpgradeCompleteReason))
 				})
 			})
 		})
