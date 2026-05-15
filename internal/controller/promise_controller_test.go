@@ -2469,6 +2469,73 @@ var _ = Describe("ResolveBreakerParams", func() {
 	})
 })
 
+var _ = Describe("ResolvePromiseRuntimeOptions", func() {
+	var (
+		defaults controller.PromiseRuntimeDefaults
+		promise  *v1alpha1.Promise
+	)
+
+	BeforeEach(func() {
+		defaults = controller.PromiseRuntimeDefaults{
+			MaxConcurrentReconciles: 10,
+			RateLimitQPS:            0,
+			RateLimitBurst:          0,
+			Breaker: controller.BreakerDefaults{
+				Burst:                 100,
+				RefillRate:            1.0,
+				Cooldown:              5 * time.Minute,
+				HalfOpenProbeInterval: 30 * time.Second,
+				Enabled:               true,
+			},
+		}
+		promise = &v1alpha1.Promise{ObjectMeta: metav1.ObjectMeta{Name: "p1"}}
+	})
+
+	It("falls back to defaults when no annotations are set", func() {
+		opts, warnings := controller.ResolvePromiseRuntimeOptions(promise, defaults)
+		Expect(warnings).To(BeEmpty())
+		Expect(opts.MaxConcurrentReconciles).To(Equal(10))
+		Expect(opts.RateLimitQPS).To(Equal(float32(0)))
+		Expect(opts.RateLimitBurst).To(Equal(0))
+		Expect(opts.Breaker.Burst).To(Equal(float64(100)))
+	})
+
+	It("applies all annotation overrides when valid", func() {
+		promise.SetAnnotations(map[string]string{
+			controller.AnnotationMaxConcurrentReconciles: "20",
+			controller.AnnotationRateLimitQPS:            "50",
+			controller.AnnotationRateLimitBurst:          "100",
+			controller.AnnotationCircuitBreakerBurst:     "250",
+		})
+		opts, warnings := controller.ResolvePromiseRuntimeOptions(promise, defaults)
+		Expect(warnings).To(BeEmpty())
+		Expect(opts.MaxConcurrentReconciles).To(Equal(20))
+		Expect(opts.RateLimitQPS).To(Equal(float32(50)))
+		Expect(opts.RateLimitBurst).To(Equal(100))
+		Expect(opts.Breaker.Burst).To(Equal(float64(250)))
+	})
+
+	It("reports warnings for invalid values and keeps defaults", func() {
+		promise.SetAnnotations(map[string]string{
+			controller.AnnotationMaxConcurrentReconciles: "negative-one",
+			controller.AnnotationRateLimitQPS:            "-5",
+		})
+		opts, warnings := controller.ResolvePromiseRuntimeOptions(promise, defaults)
+		Expect(warnings).To(HaveLen(2))
+		Expect(opts.MaxConcurrentReconciles).To(Equal(10))
+		Expect(opts.RateLimitQPS).To(Equal(float32(0)))
+	})
+
+	It("merges breaker warnings with rate-limit warnings", func() {
+		promise.SetAnnotations(map[string]string{
+			controller.AnnotationCircuitBreakerBurst: "nope",
+			controller.AnnotationRateLimitQPS:        "nope",
+		})
+		_, warnings := controller.ResolvePromiseRuntimeOptions(promise, defaults)
+		Expect(warnings).To(HaveLen(2))
+	})
+})
+
 // aggregate events from the event recorder channel
 // increase event limits if we are sending more than 20
 func aggregateEvents(events <-chan string) string {
