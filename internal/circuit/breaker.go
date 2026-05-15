@@ -49,16 +49,39 @@ type Breaker interface {
 	UpdateParams(params BreakerParams)
 }
 
-// NewTokenBucketBreaker constructs a Breaker. clk may be nil to use a real clock.
-func NewTokenBucketBreaker(params BreakerParams, clk clock.Clock) Breaker {
+// NewTokenBucketBreaker constructs an ObservableBreaker. Call WithObserver
+// on the result to attach state-transition observability; if not called, the
+// breaker uses a no-op observer.
+func NewTokenBucketBreaker(params BreakerParams, clk clock.Clock) ObservableBreaker {
 	if clk == nil {
 		clk = clock.RealClock{}
 	}
 	return &tokenBucketBreaker{
-		params: params,
-		clock:  clk,
-		keys:   map[types.NamespacedName]*bucketState{},
+		params:   params,
+		clock:    clk,
+		keys:     map[types.NamespacedName]*bucketState{},
+		observer: noopObserver{},
 	}
+}
+
+func (b *tokenBucketBreaker) WithObserver(o StateObserver) ObservableBreaker {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if o == nil {
+		b.observer = noopObserver{}
+		return b
+	}
+	b.observer = o
+	return b
+}
+
+// emitTransition is called under b.mu. Observers must not block or re-enter
+// Breaker methods (they would deadlock).
+func (b *tokenBucketBreaker) emitTransition(key types.NamespacedName, old, new State) {
+	if b.observer == nil || old == new {
+		return
+	}
+	b.observer.OnTransition(key, old, new)
 }
 
 type bucketState struct {
@@ -71,10 +94,11 @@ type bucketState struct {
 }
 
 type tokenBucketBreaker struct {
-	mu     sync.Mutex
-	params BreakerParams
-	clock  clock.Clock
-	keys   map[types.NamespacedName]*bucketState
+	mu       sync.Mutex
+	params   BreakerParams
+	clock    clock.Clock
+	keys     map[types.NamespacedName]*bucketState
+	observer StateObserver
 }
 
 func (b *tokenBucketBreaker) Allow(key types.NamespacedName) bool {
@@ -110,6 +134,7 @@ func (b *tokenBucketBreaker) Allow(key types.NamespacedName) bool {
 		}
 		// Cooldown elapsed → move to half-open. Mark the probe as in-flight so
 		// a slow Reconcile cannot trigger overlapping probes before Observe lands.
+		b.emitTransition(key, StateOpen, StateHalfOpen)
 		st.state = StateHalfOpen
 		st.lastProbe = now
 		st.inFlightProbe = true
@@ -129,6 +154,7 @@ func (b *tokenBucketBreaker) Allow(key types.NamespacedName) bool {
 	}
 
 	if st.tokens < 1 {
+		b.emitTransition(key, StateClosed, StateOpen)
 		st.state = StateOpen
 		st.openedAt = now
 		return false
@@ -158,9 +184,11 @@ func (b *tokenBucketBreaker) Observe(key types.NamespacedName, success bool) {
 		// Drop the key entirely on recovery. A fresh Allow recreates the bucket
 		// with full burst — semantically identical to "reset to closed" but
 		// bounds the map to "currently misbehaving" keys for long-running operators.
+		b.emitTransition(key, StateHalfOpen, StateClosed)
 		delete(b.keys, key)
 		return
 	}
+	b.emitTransition(key, StateHalfOpen, StateOpen)
 	st.state = StateOpen
 	st.openedAt = b.clock.Now()
 }
