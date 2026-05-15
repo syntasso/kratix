@@ -12,13 +12,13 @@ import (
 )
 
 var (
-	flagN          = flag.Int("perf.n", 500, "number of resource requests to drive")
-	flagRunName    = flag.String("perf.run", "run", "subdirectory under test/perf/results/ for this run's artefacts")
-	flagContext    = flag.String("perf.context", "kind-platform", "kube context targeting the platform cluster")
-	flagNamespace  = flag.String("perf.namespace", "default", "namespace to create RRs in")
-	flagTimeout    = flag.String("perf.timeout", "30m", "convergence timeout, e.g. 30m")
-	flagBaseName   = flag.String("perf.basename", "perftest", "base name for created RRs (suffixed -NNNNN)")
-	flagPromise    = flag.String("perf.promise", "assets/noop-promise.yaml", "path to Promise yaml")
+	flagN           = flag.Int("perf.n", 500, "number of resource requests to drive")
+	flagRunName     = flag.String("perf.run", "run", "subdirectory under test/perf/results/ for this run's artefacts")
+	flagContext     = flag.String("perf.context", "kind-platform", "kube context targeting the platform cluster")
+	flagNamespace   = flag.String("perf.namespace", "default", "namespace to create RRs in")
+	flagTimeout     = flag.String("perf.timeout", "30m", "convergence timeout, e.g. 30m")
+	flagBaseName    = flag.String("perf.basename", "perftest", "base name for created RRs (suffixed -NNNNN)")
+	flagPromise     = flag.String("perf.promise", "assets/noop-promise.yaml", "path to Promise yaml")
 	flagPromiseName = flag.String("perf.promise.name", "perftest", "name of the Promise object")
 )
 
