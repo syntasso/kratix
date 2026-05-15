@@ -1328,6 +1328,78 @@ func nextRetryAtForResource(rr *unstructured.Unstructured) (time.Time, error) {
 	return time.Time{}, nil
 }
 
+// setWatchCircuitOpenCondition writes a WatchCircuitOpen condition onto the
+// underlying resource-request CR. Called from the per-Promise breaker observer
+// when a resource's breaker state changes. Errors are logged at Debug; failure
+// to write the condition must not block the breaker state machine.
+func (r *DynamicResourceRequestController) setWatchCircuitOpenCondition(ctx context.Context, key types.NamespacedName, open bool, reason string) {
+	logger := r.Log.WithValues("rr", key.String())
+
+	rr := &unstructured.Unstructured{}
+	rr.SetGroupVersionKind(*r.GVK)
+	if err := r.Client.Get(ctx, key, rr); err != nil {
+		logging.Debug(logger, "skipping WatchCircuitOpen update; RR not found", "error", err.Error())
+		return
+	}
+
+	status := metav1.ConditionFalse
+	msg := "Circuit breaker is closed"
+	if open {
+		status = metav1.ConditionTrue
+		msg = "Circuit breaker is open; events for this resource are being dropped at the enqueue layer"
+	}
+
+	conds, _, _ := unstructured.NestedSlice(rr.Object, "status", "conditions")
+	updated, changed := mergeWatchCircuitCondition(conds, string(status), reason, msg)
+	if !changed {
+		return
+	}
+	if err := unstructured.SetNestedSlice(rr.Object, updated, "status", "conditions"); err != nil {
+		logging.Debug(logger, "failed to set conditions slice", "error", err.Error())
+		return
+	}
+	if err := r.Client.Status().Update(ctx, rr); err != nil {
+		logging.Debug(logger, "failed to update RR status with WatchCircuitOpen", "error", err.Error())
+	}
+}
+
+// mergeWatchCircuitCondition upserts the WatchCircuitOpen condition into an
+// unstructured conditions slice. Returns (slice, true) if the merge changed
+// anything (status/reason/message diff); (slice, false) if not.
+func mergeWatchCircuitCondition(conds []interface{}, status, reason, msg string) ([]interface{}, bool) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	for i, raw := range conds {
+		cm, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if cm["type"] != "WatchCircuitOpen" {
+			continue
+		}
+		oldStatus, _ := cm["status"].(string)
+		oldReason, _ := cm["reason"].(string)
+		oldMsg, _ := cm["message"].(string)
+		if oldStatus == status && oldReason == reason && oldMsg == msg {
+			return conds, false
+		}
+		cm["status"] = status
+		cm["reason"] = reason
+		cm["message"] = msg
+		if oldStatus != status {
+			cm["lastTransitionTime"] = now
+		}
+		conds[i] = cm
+		return conds, true
+	}
+	return append(conds, map[string]interface{}{
+		"type":               "WatchCircuitOpen",
+		"status":             status,
+		"reason":             reason,
+		"message":            msg,
+		"lastTransitionTime": now,
+	}), true
+}
+
 func addDynamicResourceRequestSpanAttributes(traceCtx *reconcileTrace, promise *v1alpha1.Promise, rr *unstructured.Unstructured) {
 	traceCtx.AddAttributes(
 		attribute.String("kratix.promise.name", promise.GetName()),

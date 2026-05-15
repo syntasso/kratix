@@ -10,8 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
+	"github.com/syntasso/kratix/internal/metrics"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	controllerConfig "sigs.k8s.io/controller-runtime/pkg/config"
 
@@ -1170,6 +1173,44 @@ var _ = Describe("PromiseController", func() {
 					Expect(reusedController.WatchStopped).To(BeFalse())
 					Expect(reusedController.UID).To(Equal(string(reinstalledPromise.GetUID())[:5]))
 					Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
+				})
+
+				It("sets WatchCircuitOpen=True on the RR and emits CircuitBreakerState=1 when the breaker trips", func() {
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName()}, promise)).To(Succeed())
+					ann := promise.GetAnnotations()
+					if ann == nil {
+						ann = map[string]string{}
+					}
+					ann[controller.AnnotationCircuitBreakerBurst] = "2"
+					ann[controller.AnnotationCircuitBreakerRefill] = "0.001"
+					ann[controller.AnnotationCircuitBreakerDisabled] = "false"
+					promise.SetAnnotations(ann)
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+
+					dc, ok := reconciler.StartedDynamicControllers[promise.GetDynamicControllerName(logr.Logger{})]
+					Expect(ok).To(BeTrue())
+
+					key := types.NamespacedName{Namespace: "default", Name: "rr-observer"}
+					Expect(dc.Breaker.Allow(key)).To(BeTrue())
+					Expect(dc.Breaker.Allow(key)).To(BeTrue())
+					Expect(dc.Breaker.Allow(key)).To(BeFalse())
+
+					Eventually(func(g Gomega) {
+						got := promtestutil.ToFloat64(metrics.CircuitBreakerState.With(prometheus.Labels{
+							"promise":  promise.GetName(),
+							"resource": key.String(),
+						}))
+						g.Expect(got).To(Equal(float64(1)), "kratix_circuit_breaker_state should be 1 (open)")
+					}, "5s", "100ms").Should(Succeed())
+
+					Eventually(func(g Gomega) {
+						got := promtestutil.ToFloat64(metrics.CircuitBreakerTripsTotal.WithLabelValues(promise.GetName()))
+						g.Expect(got).To(BeNumerically(">=", 1))
+					}, "5s", "100ms").Should(Succeed())
 				})
 
 				When("a Promise's circuit-breaker annotations are updated", func() {

@@ -5,6 +5,7 @@ import (
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/circuit"
+	"github.com/syntasso/kratix/internal/metrics"
 )
 
 const (
@@ -72,4 +73,21 @@ func ResolvePromiseRuntimeOptions(promise *v1alpha1.Promise, defaults PromiseRun
 	}
 
 	return opts, warnings
+}
+
+// EmitMetric writes the rate-limit + breaker subset of these options to
+// kratix_promise_runtime_options. MaxConcurrentReconciles is intentionally
+// omitted — controller-runtime's stock controller_runtime_max_concurrent_reconciles
+// already covers it.
+func (o PromiseRuntimeOptions) EmitMetric(promiseName string) {
+	metrics.PromiseRuntimeOptions.WithLabelValues(promiseName, "rate_limit_qps").Set(float64(o.RateLimitQPS))
+	metrics.PromiseRuntimeOptions.WithLabelValues(promiseName, "rate_limit_burst").Set(float64(o.RateLimitBurst))
+	metrics.PromiseRuntimeOptions.WithLabelValues(promiseName, "circuit_breaker_burst").Set(o.Breaker.Burst)
+	metrics.PromiseRuntimeOptions.WithLabelValues(promiseName, "circuit_breaker_refill_rate").Set(o.Breaker.RefillRate)
+	metrics.PromiseRuntimeOptions.WithLabelValues(promiseName, "circuit_breaker_cooldown_seconds").Set(o.Breaker.Cooldown.Seconds())
+	disabled := 0.0
+	if o.Breaker.Disabled {
+		disabled = 1
+	}
+	metrics.PromiseRuntimeOptions.WithLabelValues(promiseName, "circuit_breaker_disabled").Set(disabled)
 }

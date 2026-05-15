@@ -25,7 +25,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/syntasso/kratix/internal/circuit"
+	"github.com/syntasso/kratix/internal/metrics"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -1140,6 +1142,23 @@ func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.G
 	return nil
 }
 
+// transitionReason maps a breaker state transition to a short human-readable
+// reason string for use in Events and Status conditions.
+func transitionReason(oldState, newState circuit.State) string {
+	switch {
+	case oldState == circuit.StateClosed && newState == circuit.StateOpen:
+		return "Tripped"
+	case oldState == circuit.StateOpen && newState == circuit.StateHalfOpen:
+		return "Probing"
+	case oldState == circuit.StateHalfOpen && newState == circuit.StateClosed:
+		return "Recovered"
+	case oldState == circuit.StateHalfOpen && newState == circuit.StateOpen:
+		return "RecoveryFailed"
+	default:
+		return "Unknown"
+	}
+}
+
 func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK *schema.GroupVersionKind, canCreateResources *bool, logger logr.Logger) error {
 	controllerName := promise.GetDynamicControllerName(logger)
 
@@ -1199,6 +1218,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		// The warned flag is independent of the snapshot — it lives only in memory and
 		// resets when the operator restarts (since DynamicResourceRequestController is rebuilt).
 		dynamicController.LastRuntimeOptions = newOpts
+		newOpts.EmitMetric(promise.GetName())
 
 		if dynamicController.WatchStopped {
 			logging.Debug(logger, "restarting dynamic controller watch", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
@@ -1213,6 +1233,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 
 	runtimeOpts, warnings := ResolvePromiseRuntimeOptions(promise, r.PromiseRuntimeDefaults)
 	emitBreakerWarnings(r.Manager.GetEventRecorderFor("PromiseController"), logger, promise, warnings)
+	runtimeOpts.EmitMetric(promise.GetName())
 	breaker := circuit.NewTokenBucketBreaker(runtimeOpts.Breaker, nil)
 	rateLimiter := BuildPromiseRateLimiter(runtimeOpts.RateLimitQPS, runtimeOpts.RateLimitBurst)
 
@@ -1237,6 +1258,57 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		Breaker:                     breaker,
 		LastRuntimeOptions:          runtimeOpts,
 	}
+
+	// Wire the per-Promise breaker observer. Emits metrics, RR status conditions,
+	// and Events on every breaker state transition. Captures pointers by closure
+	// so the observer can call into the controller after assignment.
+	promiseName := promise.GetName()
+	observerRecorder := r.Manager.GetEventRecorderFor("ResourceRequestController")
+	observer := circuit.StateObserverFunc(func(key types.NamespacedName, oldState, newState circuit.State) {
+		logging.Info(r.Log.WithName(promiseName), "circuit breaker state transition",
+			"resource", key.String(),
+			"oldState", oldState.String(),
+			"newState", newState.String(),
+		)
+
+		resourceLabel := key.Namespace + "/" + key.Name
+		switch newState {
+		case circuit.StateClosed:
+			metrics.CircuitBreakerState.Delete(prometheus.Labels{"promise": promiseName, "resource": resourceLabel})
+		case circuit.StateOpen:
+			metrics.CircuitBreakerState.With(prometheus.Labels{"promise": promiseName, "resource": resourceLabel}).Set(1)
+		case circuit.StateHalfOpen:
+			metrics.CircuitBreakerState.With(prometheus.Labels{"promise": promiseName, "resource": resourceLabel}).Set(2)
+		}
+		if oldState == circuit.StateClosed && newState == circuit.StateOpen {
+			metrics.CircuitBreakerTripsTotal.WithLabelValues(promiseName).Inc()
+			metrics.DynamicRRWorkqueueDropsTotal.WithLabelValues(promiseName, "breaker_open").Inc()
+		}
+
+		// RR status condition + Events. Use a short-lived context for the API
+		// writes; the breaker doesn't have a ctx to pass us.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		open := newState != circuit.StateClosed
+		dynamicResourceRequestController.setWatchCircuitOpenCondition(ctx, key, open, transitionReason(oldState, newState))
+
+		if observerRecorder != nil {
+			rr := &unstructured.Unstructured{}
+			rr.SetGroupVersionKind(*rrGVK)
+			if err := r.Client.Get(ctx, key, rr); err == nil {
+				if oldState == circuit.StateClosed && newState == circuit.StateOpen {
+					observerRecorder.Event(rr, v1.EventTypeWarning, "CircuitBreakerOpen",
+						"Per-resource circuit breaker tripped; events for this resource are being dropped at enqueue.")
+				}
+				if newState == circuit.StateClosed && oldState != circuit.StateClosed {
+					observerRecorder.Event(rr, v1.EventTypeNormal, "CircuitBreakerClosed",
+						"Per-resource circuit breaker recovered; events for this resource are flowing again.")
+				}
+			}
+		}
+	})
+	breaker.WithObserver(observer)
 
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(*rrGVK)
