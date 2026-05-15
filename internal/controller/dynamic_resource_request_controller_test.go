@@ -1535,6 +1535,24 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(cond.Reason).To(Equal(v1alpha1.UpgradeCompleteReason))
 				})
 			})
+
+			When("the configure workflow failed", func() {
+				It("sets UpgradeSucceeded=False and does not update LastAppliedVersion", func() {
+					setReconcileConfigureWorkflowToReturnFinished()
+					setConfigureWorkflowAsFailed(resReq, "pipeline-abc")
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Status.LastAppliedVersion).To(BeEmpty())
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).NotTo(BeNil())
+					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionFalse)))
+					Expect(cond.Reason).To(Equal(v1alpha1.UpgradeFailedReason))
+					Expect(cond.Message).To(ContainSubstring("pipeline-abc"))
+				})
+			})
 		})
 
 		When("creating the resource binding", func() {
@@ -1721,6 +1739,20 @@ func setConfigureWorkflowAsRunning(resReq *unstructured.Unstructured) {
 		Status:             v1.ConditionFalse,
 		Message:            "Pipelines are still in progress",
 		Reason:             "PipelinesInProgress",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+}
+
+func setConfigureWorkflowAsFailed(resReq *unstructured.Unstructured, pipeline string) {
+	if resReq.Object["status"] == nil {
+		resReq.Object["status"] = map[string]interface{}{}
+	}
+	resourceutil.SetCondition(resReq, &clusterv1.Condition{
+		Type:               resourceutil.ConfigureWorkflowCompletedCondition,
+		Status:             v1.ConditionFalse,
+		Reason:             resourceutil.ConfigureWorkflowCompletedFailedReason,
+		Message:            fmt.Sprintf("A Configure Pipeline has failed: %s", pipeline),
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
