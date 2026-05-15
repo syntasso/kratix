@@ -176,19 +176,23 @@ Annotation parse errors → log + Event on the Promise; fall back to previous va
 
 ### Observability
 
-**Metrics** (Prometheus, registered against `controller-runtime`'s registry):
+**Metrics** (Prometheus, registered against `controller-runtime`'s registry).
+Workqueue depth/adds, reconcile counts, reconcile duration, active workers,
+and configured `MaxConcurrentReconciles` per dynamic controller are already
+exposed by controller-runtime under stock names (`workqueue_*`,
+`controller_runtime_*`, labelled by `controller=<promise>` or `name=<promise>`)
+and are not duplicated here.
 
 | Metric | Type | Labels |
 |---|---|---|
-| `kratix_dynamic_rr_workqueue_depth` | gauge | `promise` |
-| `kratix_dynamic_rr_workqueue_adds_total` | counter | `promise` |
-| `kratix_dynamic_rr_workqueue_drops_total` | counter | `promise`, `reason` |
-| `kratix_dynamic_rr_reconcile_duration_seconds` | histogram | `promise`, `result` |
 | `kratix_circuit_breaker_state` | gauge | `promise`, `resource` (only when open/half-open) |
 | `kratix_circuit_breaker_trips_total` | counter | `promise` |
-| `kratix_promise_runtime_options` | gauge | `promise`, `option` |
+| `kratix_dynamic_rr_workqueue_drops_total` | counter | `promise`, `reason` |
+| `kratix_promise_runtime_options` | gauge | `promise`, `option` (rate-limit + breaker fields; MCR via stock) |
 
-Cardinality note: `kratix_circuit_breaker_state` only emits per-resource labels when state is open or half-open. Steady-state healthy resources contribute nothing.
+Cardinality note: `kratix_circuit_breaker_state` only emits per-resource labels
+when state is open or half-open. Steady-state healthy resources contribute
+nothing — the per-resource series is deleted on recovery.
 
 **Logs & events.** Breaker state transitions logged at Info with old/new state and tokens remaining. Each trip emits a Warning Event on the underlying RR (`reason=CircuitBreakerOpen`); recovery emits Normal. Annotation parse failures emit Warning Events on the Promise.
 
