@@ -10,3 +10,29 @@ nodes:
     hostPort: 31340
   - containerPort: 31333
     hostPort: 31333
+  kubeadmConfigPatches:
+  # Kubelet tuning so the platform node can host the high pod density
+  # the kratix controller perf rig drives (1500+ workflow Jobs).
+  - |
+    kind: KubeletConfiguration
+    maxPods: 5000
+    podsPerCore: 0
+    # Don't churn images out during pod churn; we have plenty of disk in kind
+    imageGCHighThresholdPercent: 95
+    imageGCLowThresholdPercent: 90
+    # Looser eviction so the node doesn't oom-kill our controller under burst
+    evictionHard:
+      memory.available: "100Mi"
+      nodefs.available: "5%"
+      imagefs.available: "5%"
+    # Give the kubelet more lifecycle parallelism for pod creation/teardown
+    serializeImagePulls: false
+    maxParallelImagePulls: 10
+  # API server tuning: bigger inflight queue so cleanup bursts (1500 DELETE
+  # + WATCH events) don't bottleneck on the default 400/200 limits.
+  - |
+    kind: ClusterConfiguration
+    apiServer:
+      extraArgs:
+        max-requests-inflight: "800"
+        max-mutating-requests-inflight: "400"
