@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -83,8 +84,10 @@ func (t *PromiseTemplate) Materialise(index int) (*platformv1alpha1.Promise, *GV
 	crd.Spec.Names.Kind = newKind
 	crd.SetName(newPlural + "." + crd.Spec.Group)
 
-	// Re-encode and reattach to the Promise.
-	encoded, err := yaml.Marshal(crd)
+	// Re-encode and reattach to the Promise. Promise.Spec.API is a
+	// *runtime.RawExtension which the kube client serialises through JSON,
+	// so encode the CRD as JSON (not YAML).
+	encoded, err := json.Marshal(crd)
 	if err != nil {
 		return nil, nil, fmt.Errorf("re-marshal CRD: %w", err)
 	}
