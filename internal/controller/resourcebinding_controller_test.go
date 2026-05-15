@@ -27,6 +27,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/lib/resourceutil"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -125,6 +126,20 @@ var _ = Describe("ResourceBinding Controller", func() {
 					rr,
 				)
 				Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+			})
+
+			It("sets the UpgradeSucceeded condition to Unknown on the resource binding", func() {
+				request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+				_, err := reconciler.Reconcile(ctx, request)
+				Expect(err).ToNot(HaveOccurred())
+
+				var rb v1alpha1.ResourceBinding
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &rb)).To(Succeed())
+				cond := apiMeta.FindStatusCondition(rb.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+				Expect(cond).NotTo(BeNil())
+				Expect(string(cond.Status)).To(Equal(string(metav1.ConditionUnknown)))
+				Expect(cond.Reason).To(Equal(v1alpha1.UpgradeInProgressReason))
 			})
 
 			It("does not apply the manual reconciliation label when the versions match", func() {

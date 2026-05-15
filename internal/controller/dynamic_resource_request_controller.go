@@ -299,7 +299,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if r.PromiseUpgradeFeatFlag {
-		if err := r.updateResourceBindingVersionStatus(ctx, logger, promise.GetName(), rr); err != nil {
+		if err := r.syncResourceBindingUpgradeStatus(ctx, logger, promise.GetName(), rr); err != nil {
 			logging.Error(logger, err, "failed to update resource binding version status")
 			return ctrl.Result{}, err
 		}
@@ -351,7 +351,7 @@ func (r *DynamicResourceRequestController) ensureResourceStatus(
 	return false, nil
 }
 
-func (r *DynamicResourceRequestController) updateResourceBindingVersionStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured) error {
+func (r *DynamicResourceRequestController) syncResourceBindingUpgradeStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured) error {
 	resourceBindingName := objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promiseName))
 	resourceBinding := &v1alpha1.ResourceBinding{}
 	err := r.Client.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: rr.GetNamespace()}, resourceBinding)
@@ -359,13 +359,47 @@ func (r *DynamicResourceRequestController) updateResourceBindingVersionStatus(ct
 		return fmt.Errorf("failed to get resourceBinding: %w", err)
 	}
 
+	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	desiredVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
-	if resourceBinding.Status.LastAppliedVersion == desiredVersion {
+
+	var newCondStatus metav1.ConditionStatus
+	var newCondReason, newCondMessage string
+
+	switch {
+	case workflowsCompletedSuccessfully(workflowCompleted):
+		newCondStatus = metav1.ConditionTrue
+		newCondReason = v1alpha1.UpgradeCompleteReason
+		newCondMessage = fmt.Sprintf("Resource is at version %s", desiredVersion)
+	case workflowCompletedWithFailure(workflowCompleted):
+		newCondStatus = metav1.ConditionFalse
+		newCondReason = v1alpha1.UpgradeFailedReason
+		newCondMessage = workflowCompleted.Message
+	default:
 		return nil
 	}
 
-	logging.Info(logger, "updating resource binding Status.LastAppliedVersion", "oldVersion", resourceBinding.Status.LastAppliedVersion, "newVersion", desiredVersion)
-	resourceBinding.Status.LastAppliedVersion = desiredVersion
+	needsVersionUpdate := newCondStatus == metav1.ConditionTrue && resourceBinding.Status.LastAppliedVersion != desiredVersion
+
+	existing := apiMeta.FindStatusCondition(resourceBinding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+	conditionChanged := existing == nil || string(existing.Status) != string(newCondStatus) || existing.Reason != newCondReason
+
+	if !needsVersionUpdate && !conditionChanged {
+		return nil
+	}
+
+	if needsVersionUpdate {
+		logging.Info(logger, "updating resource binding Status.LastAppliedVersion", "oldVersion", resourceBinding.Status.LastAppliedVersion, "newVersion", desiredVersion)
+		resourceBinding.Status.LastAppliedVersion = desiredVersion
+	}
+
+	apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
+		Type:               v1alpha1.UpgradeSucceededCondition,
+		Status:             newCondStatus,
+		Reason:             newCondReason,
+		Message:            newCondMessage,
+		LastTransitionTime: metav1.Now(),
+	})
+
 	if err := r.Client.Status().Update(ctx, resourceBinding); err != nil {
 		return fmt.Errorf("failed to update resource binding status: %w", err)
 	}
@@ -966,6 +1000,12 @@ func workflowsCompletedSuccessfully(workflowCompletedCondition *clusterv1.Condit
 	return workflowCompletedCondition != nil &&
 		workflowCompletedCondition.Status == v1.ConditionTrue &&
 		workflowCompletedCondition.Reason == resourceutil.PipelinesExecutedSuccessfully
+}
+
+func workflowCompletedWithFailure(workflowCompletedCondition *clusterv1.Condition) bool {
+	return workflowCompletedCondition != nil &&
+		workflowCompletedCondition.Status == v1.ConditionFalse &&
+		workflowCompletedCondition.Reason == resourceutil.ConfigureWorkflowCompletedFailedReason
 }
 
 func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) ctrl.Result {

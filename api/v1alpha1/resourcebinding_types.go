@@ -20,6 +20,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	UpgradeSucceededCondition = "UpgradeSucceeded"
+	UpgradeInProgressReason   = "UpgradeInProgress"
+	UpgradeCompleteReason     = "UpgradeComplete"
+	UpgradeFailedReason       = "UpgradeFailed"
+)
+
 // ResourceBindingSpec defines the desired state of ResourceBinding
 type ResourceBindingSpec struct {
 	// Version is the version of the Promise that this ResourceRequest was last reconciled with.
@@ -40,6 +47,7 @@ type ResourceBindingSpec struct {
 // +kubebuilder:printcolumn:name="Resource",type=string,JSONPath=".spec.resourceRef.name",description="Resource using a Promise"
 // +kubebuilder:printcolumn:name="Promise",type=string,JSONPath=".spec.promiseRef.name",description="Promise being used by the Resource"
 // +kubebuilder:printcolumn:name="Version",type=string,JSONPath=".spec.version",description="Promise version used by the Resource"
+// +kubebuilder:printcolumn:name="Upgrade Succeeded",type=string,JSONPath=".status.conditions[?(@.type=='UpgradeSucceeded')].status",description="Whether the last upgrade succeeded"
 
 // ResourceBinding is the Schema for the resourcebindings API
 type ResourceBinding struct {
