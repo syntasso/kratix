@@ -1,8 +1,15 @@
 # Per-Promise Fairness for Dynamic Resource Request Controllers
 
-**Status:** Draft
+**Status:** Draft (Phase 1 / circuit-breaker content **Rejected** — see Phase 4 note at the end of this doc)
 **Author:** Phill Morton
 **Date:** 2026-05-15
+
+> **Phase 4 — Rejected** (2026-05-15): the per-resource circuit breaker described
+> in this spec (and the WatchCircuitOpen condition, CircuitBreakerOpen/Closed
+> Events, `kratix_circuit_breaker_*` metrics, and `--circuit-breaker-*` flags) has
+> been removed from the codebase. See the **Phase 4 design note** at the end of
+> this document. Phase 2 (per-Promise workqueue rate limiter + MCR) remains live;
+> only the breaker subset is rejected.
 
 ## Problem
 
@@ -17,6 +24,12 @@ In a cluster with 6 Promises and ~5000 resources each, this produces head-of-lin
 ## Goal
 
 Give each Promise its own bounded share of reconcile capacity, with optional per-Promise overrides via annotations, and add a defence against a single misbehaving resource starving the rest of its Promise.
+
+> **Phase 4 update:** the "defence against a single misbehaving resource" half of
+> this goal was withdrawn. The per-resource circuit breaker that Phase 1
+> introduced has been removed because dropping events at the enqueue layer breaks
+> at-least-once delivery semantics. Phase 2's per-Promise workqueue rate limiter
+> (which **defers** rather than **drops**) carries the rest of the goal.
 
 Non-goals:
 
@@ -238,3 +251,52 @@ nothing — the per-resource series is deleted on recovery.
 ## Open questions
 
 None as of design approval.
+
+## Phase 4 — Rejected (per-resource circuit breaker)
+
+After review, the per-resource circuit breaker was removed from the codebase.
+The breaker filtered chatter on the dynamic RR controller's enqueue path by
+**dropping** events that exceeded a token bucket. This was the wrong design:
+dropping events breaks the at-least-once delivery semantics that controllers
+depend on. Once an event is dropped, the state-change signal it carried is gone
+forever — the next informer resync delivers a snapshot of current state but not
+the transition.
+
+Controller-runtime's stock workqueue already provides:
+
+- **Per-item exponential backoff** (defers retries with growing intervals, doesn't drop)
+- **Bucket rate limiter** (caps aggregate retry rate)
+- **Workqueue dedup** (collapses identical reconcile requests)
+
+These solve the "spam protection" problem without losing data. Phase 2's
+per-Promise rate limiter (which **defers** failed reconciles via exponential
+backoff) is the correct mechanism.
+
+Removed in Phase 4:
+
+- `internal/circuit/` package
+- `internal/controller/promise_breaker.go`
+- `Breaker` field on `DynamicResourceRequestController` and `PromiseRuntimeOptions`
+- `WatchCircuitOpen` status condition + `reconcileWatchCircuitCondition`
+- `CircuitBreakerOpen` / `CircuitBreakerClosed` per-RR Events
+- `kratix_circuit_breaker_state`, `kratix_circuit_breaker_trips_total`,
+  `kratix_dynamic_rr_workqueue_drops_total` metrics
+- `circuit_breaker_*` keys on the `kratix_promise_runtime_options` gauge
+- `--circuit-breaker-burst`, `--circuit-breaker-refill-rate`,
+  `--circuit-breaker-cooldown`, `--circuit-breaker-enabled` CLI flags
+- `kratix.io/circuit-breaker-burst`, `kratix.io/circuit-breaker-refill`,
+  `kratix.io/circuit-breaker-cooldown`, `kratix.io/circuit-breaker-disabled`
+  annotations
+- The `StateObserver` wiring and all breaker tests
+
+Retained:
+
+- Phase 2's `BuildPromiseRateLimiter` (per-Promise exponential + bucket overlay)
+- Phase 2's per-Promise `MaxConcurrentReconciles`
+- `kratix.io/max-concurrent-reconciles`, `kratix.io/rate-limit-qps`,
+  `kratix.io/rate-limit-burst` annotations
+- `--dynamic-rr-qps`, `--dynamic-rr-burst`,
+  `--dynamic-rr-max-concurrent-reconciles` flags
+- `kratix_promise_runtime_options` gauge (rate-limit fields only)
+- `RuntimeOptionsRestartRequired` warning event for rate-limit/MCR annotation
+  changes

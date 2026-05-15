@@ -32,7 +32,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/internal/circuit"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"github.com/syntasso/kratix/lib/resourceutil"
@@ -84,11 +83,9 @@ type DynamicResourceRequestController struct {
 	NumberOfJobsToKeep          int
 	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
-	Breaker                     circuit.Breaker
 	// LastRuntimeOptions is the most recently applied PromiseRuntimeOptions
 	// snapshot. The reuse branch compares the next resolved set against this
-	// to decide which kinds of changes are live-updatable (breaker only) vs.
-	// restart-required (rate-limit, MCR).
+	// to decide which kinds of changes are restart-required (rate-limit, MCR).
 	LastRuntimeOptions PromiseRuntimeOptions
 	// RestartRequiredWarned is set once the reuse branch has emitted a
 	// RuntimeOptionsRestartRequired warning event for the current in-memory
@@ -106,26 +103,6 @@ type DynamicResourceRequestController struct {
 
 // Reconcile reconciles a Dynamically Generated Resource object.
 func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
-	defer func() {
-		if r.Breaker != nil {
-			r.Breaker.Observe(req.NamespacedName, retErr == nil)
-		}
-	}()
-
-	// Reconcile the WatchCircuitOpen condition + transition Events on the
-	// reconciler's worker goroutine. The breaker observer is now pure
-	// bookkeeping (log + metrics) so condition/Event writes need an idiomatic
-	// home: doing them here gets natural retry/backpressure, serialised
-	// per-RR ordering, and standard error surfaces. Runs after the breaker
-	// Observe defer above (deferred LIFO) so any state change triggered by
-	// this reconcile is reflected.
-	defer func() {
-		if r.Breaker == nil {
-			return
-		}
-		r.reconcileWatchCircuitCondition(ctx, req.NamespacedName)
-	}()
-
 	if r.WatchStopped {
 		// WatchStopped means the controller's informer no longer watches the CRD.
 		// This effectively shuts down the controller because it is no longer
@@ -1340,159 +1317,6 @@ func nextRetryAtForResource(rr *unstructured.Unstructured) (time.Time, error) {
 		}
 	}
 	return time.Time{}, nil
-}
-
-// setWatchCircuitOpenCondition writes a WatchCircuitOpen condition onto the
-// underlying resource-request CR. Called from the per-Promise breaker observer
-// when a resource's breaker state changes. Errors are logged at Debug; failure
-// to write the condition must not block the breaker state machine.
-func (r *DynamicResourceRequestController) setWatchCircuitOpenCondition(ctx context.Context, key types.NamespacedName, open bool, reason string) {
-	logger := r.Log.WithValues("rr", key.String())
-
-	rr := &unstructured.Unstructured{}
-	rr.SetGroupVersionKind(*r.GVK)
-	if err := r.Client.Get(ctx, key, rr); err != nil {
-		logging.Debug(logger, "skipping WatchCircuitOpen update; RR not found", "error", err.Error())
-		return
-	}
-
-	status := metav1.ConditionFalse
-	msg := "Circuit breaker is closed"
-	if open {
-		status = metav1.ConditionTrue
-		msg = "Circuit breaker is open; events for this resource are being dropped at the enqueue layer"
-	}
-
-	conds, _, _ := unstructured.NestedSlice(rr.Object, "status", "conditions")
-	updated, changed := mergeWatchCircuitCondition(conds, string(status), reason, msg)
-	if !changed {
-		return
-	}
-	if err := unstructured.SetNestedSlice(rr.Object, updated, "status", "conditions"); err != nil {
-		logging.Debug(logger, "failed to set conditions slice", "error", err.Error())
-		return
-	}
-	if err := r.Client.Status().Update(ctx, rr); err != nil {
-		logging.Debug(logger, "failed to update RR status with WatchCircuitOpen", "error", err.Error())
-	}
-}
-
-// reconcileWatchCircuitCondition reads the current breaker state for req and
-// reconciles the RR's WatchCircuitOpen condition + emits Events on transitions.
-// Called at the end of every Reconcile, so condition/event writes happen on
-// the reconciler's worker goroutine — not on the breaker's mutex-holding
-// goroutine. This is the idiomatic place for these API writes: errors retry
-// via controller-runtime's normal mechanism, ordering is serialized per RR,
-// and tests can exercise this exactly like any other reconcile-side effect.
-func (r *DynamicResourceRequestController) reconcileWatchCircuitCondition(ctx context.Context, key types.NamespacedName) {
-	logger := r.Log.WithValues("rr", key.String())
-
-	state := r.Breaker.State(key)
-	desiredOpen := state != circuit.StateClosed
-	desiredReason := breakerStateReason(state)
-
-	// Read current condition from the RR.
-	rr := &unstructured.Unstructured{}
-	rr.SetGroupVersionKind(*r.GVK)
-	if err := r.Client.Get(ctx, key, rr); err != nil {
-		// RR may not exist yet (e.g. transition fired before RR was visible);
-		// skip silently.
-		logging.Debug(logger, "skipping WatchCircuitOpen reconcile; RR not found", "error", err.Error())
-		return
-	}
-
-	currentStatus, currentReason := readWatchCircuitCondition(rr)
-	desiredStatus := "False"
-	if desiredOpen {
-		desiredStatus = "True"
-	}
-	if currentStatus == desiredStatus && currentReason == desiredReason {
-		// No transition since last reconcile; nothing to do.
-		return
-	}
-
-	// Transition detected — update the condition and emit an Event.
-	r.setWatchCircuitOpenCondition(ctx, key, desiredOpen, desiredReason)
-
-	if r.EventRecorder == nil {
-		return
-	}
-	// Only emit transition Events on the closed-edge transitions to avoid
-	// spamming every Probing tick.
-	switch {
-	case currentStatus != "True" && desiredStatus == "True" && state == circuit.StateOpen:
-		r.EventRecorder.Event(rr, v1.EventTypeWarning, "CircuitBreakerOpen",
-			"Per-resource circuit breaker tripped; events for this resource are being dropped at enqueue.")
-	case currentStatus == "True" && desiredStatus == "False":
-		r.EventRecorder.Event(rr, v1.EventTypeNormal, "CircuitBreakerClosed",
-			"Per-resource circuit breaker recovered; events for this resource are flowing again.")
-	}
-}
-
-// breakerStateReason maps a breaker state to the Reason field for the
-// WatchCircuitOpen condition.
-func breakerStateReason(state circuit.State) string {
-	switch state {
-	case circuit.StateOpen:
-		return "Tripped"
-	case circuit.StateHalfOpen:
-		return "Probing"
-	default:
-		return "Closed"
-	}
-}
-
-// readWatchCircuitCondition returns the current Status and Reason of the
-// WatchCircuitOpen condition on rr. Returns ("", "") if the condition is absent.
-func readWatchCircuitCondition(rr *unstructured.Unstructured) (status, reason string) {
-	conds, _, _ := unstructured.NestedSlice(rr.Object, "status", "conditions")
-	for _, raw := range conds {
-		cm, ok := raw.(map[string]interface{})
-		if !ok || cm["type"] != "WatchCircuitOpen" {
-			continue
-		}
-		s, _ := cm["status"].(string)
-		rsn, _ := cm["reason"].(string)
-		return s, rsn
-	}
-	return "", ""
-}
-
-// mergeWatchCircuitCondition upserts the WatchCircuitOpen condition into an
-// unstructured conditions slice. Returns (slice, true) if the merge changed
-// anything (status/reason/message diff); (slice, false) if not.
-func mergeWatchCircuitCondition(conds []interface{}, status, reason, msg string) ([]interface{}, bool) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	for i, raw := range conds {
-		cm, ok := raw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if cm["type"] != "WatchCircuitOpen" {
-			continue
-		}
-		oldStatus, _ := cm["status"].(string)
-		oldReason, _ := cm["reason"].(string)
-		oldMsg, _ := cm["message"].(string)
-		if oldStatus == status && oldReason == reason && oldMsg == msg {
-			return conds, false
-		}
-		cm["status"] = status
-		cm["reason"] = reason
-		cm["message"] = msg
-		if oldStatus != status {
-			cm["lastTransitionTime"] = now
-		}
-		conds[i] = cm
-		return conds, true
-	}
-	return append(conds, map[string]interface{}{
-		"type":               "WatchCircuitOpen",
-		"status":             status,
-		"reason":             reason,
-		"message":            msg,
-		"lastTransitionTime": now,
-	}), true
 }
 
 func addDynamicResourceRequestSpanAttributes(traceCtx *reconcileTrace, promise *v1alpha1.Promise, rr *unstructured.Unstructured) {

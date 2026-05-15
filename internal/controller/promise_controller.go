@@ -25,9 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/syntasso/kratix/internal/circuit"
-	"github.com/syntasso/kratix/internal/metrics"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -1165,18 +1162,9 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 
 		newOpts, warnings := ResolvePromiseRuntimeOptions(promise, r.PromiseRuntimeDefaults)
 		recorder := r.Manager.GetEventRecorderFor("PromiseController")
-		emitBreakerWarnings(recorder, logger, promise, warnings)
+		emitRuntimeOptionsWarnings(recorder, logger, promise, warnings)
 
 		old := dynamicController.LastRuntimeOptions
-
-		// Breaker params are live-updatable.
-		if newOpts.Breaker != old.Breaker {
-			logging.Info(logger, "updating breaker params",
-				"promise", promise.GetName(),
-				"old", old.Breaker,
-				"new", newOpts.Breaker)
-			dynamicController.Breaker.UpdateParams(newOpts.Breaker)
-		}
 
 		// Rate-limit + MCR changes require an operator restart.
 		// RateLimitQPS is parsed from the same annotation string on every reconcile so
@@ -1215,9 +1203,8 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	logging.Info(logger, "starting dynamic controller")
 
 	runtimeOpts, warnings := ResolvePromiseRuntimeOptions(promise, r.PromiseRuntimeDefaults)
-	emitBreakerWarnings(r.Manager.GetEventRecorderFor("PromiseController"), logger, promise, warnings)
+	emitRuntimeOptionsWarnings(r.Manager.GetEventRecorderFor("PromiseController"), logger, promise, warnings)
 	runtimeOpts.EmitMetric(promise.GetName())
-	breaker := circuit.NewTokenBucketBreaker(runtimeOpts.Breaker, nil)
 	rateLimiter := BuildPromiseRateLimiter(runtimeOpts.RateLimitQPS, runtimeOpts.RateLimitBurst)
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
@@ -1238,44 +1225,13 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
 		PromiseUpgradeFeatFlag:      r.PromiseUpgrade,
 		SharedResourceCache:         workflow.NewSharedResourceCache(),
-		Breaker:                     breaker,
 		LastRuntimeOptions:          runtimeOpts,
 	}
-
-	// Wire the per-Promise breaker observer. Pure bookkeeping only — logs the
-	// transition and updates Prometheus metrics (lock-free atomics, safe under
-	// b.mu). RR Status condition writes and Events are emitted from
-	// DynamicResourceRequestController.Reconcile instead, so the API I/O
-	// happens on the reconciler's worker goroutine rather than blocking the
-	// breaker mutex. See circuit.StateObserver: "Observers must NOT block".
-	promiseName := promise.GetName()
-	observer := circuit.StateObserverFunc(func(key types.NamespacedName, oldState, newState circuit.State) {
-		logging.Info(r.Log.WithName(promiseName), "circuit breaker state transition",
-			"resource", key.String(),
-			"oldState", oldState.String(),
-			"newState", newState.String(),
-		)
-
-		resourceLabel := key.Namespace + "/" + key.Name
-		switch newState {
-		case circuit.StateClosed:
-			metrics.CircuitBreakerState.Delete(prometheus.Labels{"promise": promiseName, "resource": resourceLabel})
-		case circuit.StateOpen:
-			metrics.CircuitBreakerState.With(prometheus.Labels{"promise": promiseName, "resource": resourceLabel}).Set(1)
-		case circuit.StateHalfOpen:
-			metrics.CircuitBreakerState.With(prometheus.Labels{"promise": promiseName, "resource": resourceLabel}).Set(2)
-		}
-		if oldState == circuit.StateClosed && newState == circuit.StateOpen {
-			metrics.CircuitBreakerTripsTotal.WithLabelValues(promiseName).Inc()
-			metrics.DynamicRRWorkqueueDropsTotal.WithLabelValues(promiseName, "breaker_open").Inc()
-		}
-	})
-	breaker.WithObserver(observer)
 
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(*rrGVK)
 
-	primaryPredicates := []predicate.Predicate{circuit.Predicate(breaker)}
+	var primaryPredicates []predicate.Predicate
 	if r.DynamicRRFilterNoOpWrites {
 		primaryPredicates = append(primaryPredicates, dynamicRRNoOpWriteFilter())
 	}
@@ -1289,15 +1245,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		MaxConcurrentReconciles: mcr,
 		RateLimiter:             rateLimiter,
 	})
-	// Note: Job, Work, and ResourceBinding watches do NOT route through the
-	// circuit breaker. The breaker's purpose is to filter chatter on the RR
-	// itself (e.g. hot-loop annotation updates, webhook flapping). Events
-	// from downstream resources (Job completed, Work scheduled, ResourceBinding
-	// created) are convergence-progress signals — the RR must see them to
-	// reach Reconciled=True even when the breaker has tripped on its own
-	// event stream. The per-event predicates (kratixManagedJobPredicate,
-	// dynamicRRWorkPredicate, dynamicRRResourceBindingPredicate) already
-	// filter no-op chatter at the watch layer.
 	dynamicController, err := dynamicControllerBuilder.
 		Watches(
 			&batchv1.Job{},
@@ -1377,9 +1324,6 @@ func (r *PromiseReconciler) stopDynamicControllerForDeletedPromise(ctx context.C
 		}
 	}
 
-	if dynamicController.Breaker != nil {
-		logging.Debug(logger, "releasing per-promise breaker", "promise", promise.GetName())
-	}
 	dynamicController.WatchStopped = true
 	logging.Debug(logger, "dynamic controller watch stopped", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
 	return nil

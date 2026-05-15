@@ -3,8 +3,12 @@ package controller
 import (
 	"strconv"
 
+	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/tools/record"
+
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/internal/circuit"
+	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/metrics"
 )
 
@@ -15,13 +19,11 @@ const (
 )
 
 // PromiseRuntimeOptions is the resolved set of per-Promise tuning knobs.
-// It is what eventually ends up applied to controller.Options and the
-// per-resource breaker.
+// It is what eventually ends up applied to controller.Options.
 type PromiseRuntimeOptions struct {
 	MaxConcurrentReconciles int
 	RateLimitQPS            float32
 	RateLimitBurst          int
-	Breaker                 circuit.BreakerParams
 }
 
 // PromiseRuntimeDefaults are the operator-level defaults sourced from CLI
@@ -30,7 +32,6 @@ type PromiseRuntimeDefaults struct {
 	MaxConcurrentReconciles int
 	RateLimitQPS            float32
 	RateLimitBurst          int
-	Breaker                 BreakerDefaults
 }
 
 // ResolvePromiseRuntimeOptions returns the effective options for a Promise.
@@ -42,8 +43,7 @@ func ResolvePromiseRuntimeOptions(promise *v1alpha1.Promise, defaults PromiseRun
 		RateLimitQPS:            defaults.RateLimitQPS,
 		RateLimitBurst:          defaults.RateLimitBurst,
 	}
-	breakerParams, warnings := ResolveBreakerParams(promise, defaults.Breaker)
-	opts.Breaker = breakerParams
+	var warnings []string
 
 	ann := promise.GetAnnotations()
 	if ann == nil {
@@ -75,19 +75,22 @@ func ResolvePromiseRuntimeOptions(promise *v1alpha1.Promise, defaults PromiseRun
 	return opts, warnings
 }
 
-// EmitMetric writes the rate-limit + breaker subset of these options to
+// emitRuntimeOptionsWarnings records each warning on the Promise as a Warning
+// Event and logs it. Safe to call with a nil recorder (logs only).
+func emitRuntimeOptionsWarnings(recorder record.EventRecorder, log logr.Logger, promise *v1alpha1.Promise, warnings []string) {
+	for _, w := range warnings {
+		logging.Info(log, "promise runtime options annotation warning", "promise", promise.GetName(), "warning", w)
+		if recorder != nil {
+			recorder.Event(promise, corev1.EventTypeWarning, "PromiseRuntimeOptionsAnnotationInvalid", w)
+		}
+	}
+}
+
+// EmitMetric writes the rate-limit subset of these options to
 // kratix_promise_runtime_options. MaxConcurrentReconciles is intentionally
 // omitted — controller-runtime's stock controller_runtime_max_concurrent_reconciles
 // already covers it.
 func (o PromiseRuntimeOptions) EmitMetric(promiseName string) {
 	metrics.PromiseRuntimeOptions.WithLabelValues(promiseName, "rate_limit_qps").Set(float64(o.RateLimitQPS))
 	metrics.PromiseRuntimeOptions.WithLabelValues(promiseName, "rate_limit_burst").Set(float64(o.RateLimitBurst))
-	metrics.PromiseRuntimeOptions.WithLabelValues(promiseName, "circuit_breaker_burst").Set(o.Breaker.Burst)
-	metrics.PromiseRuntimeOptions.WithLabelValues(promiseName, "circuit_breaker_refill_rate").Set(o.Breaker.RefillRate)
-	metrics.PromiseRuntimeOptions.WithLabelValues(promiseName, "circuit_breaker_cooldown_seconds").Set(o.Breaker.Cooldown.Seconds())
-	disabled := 0.0
-	if o.Breaker.Disabled {
-		disabled = 1
-	}
-	metrics.PromiseRuntimeOptions.WithLabelValues(promiseName, "circuit_breaker_disabled").Set(disabled)
 }

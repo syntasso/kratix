@@ -10,11 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
-	"github.com/syntasso/kratix/internal/metrics"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	controllerConfig "sigs.k8s.io/controller-runtime/pkg/config"
 
@@ -1175,74 +1172,6 @@ var _ = Describe("PromiseController", func() {
 					Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
 				})
 
-				It("sets WatchCircuitOpen=True on the RR and emits CircuitBreakerState=1 when the breaker trips", func() {
-					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName()}, promise)).To(Succeed())
-					ann := promise.GetAnnotations()
-					if ann == nil {
-						ann = map[string]string{}
-					}
-					ann[controller.AnnotationCircuitBreakerBurst] = "2"
-					ann[controller.AnnotationCircuitBreakerRefill] = "0.001"
-					ann[controller.AnnotationCircuitBreakerDisabled] = "false"
-					promise.SetAnnotations(ann)
-					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-					})
-					Expect(err).NotTo(HaveOccurred())
-
-					dc, ok := reconciler.StartedDynamicControllers[promise.GetDynamicControllerName(logr.Logger{})]
-					Expect(ok).To(BeTrue())
-
-					key := types.NamespacedName{Namespace: "default", Name: "rr-observer"}
-					Expect(dc.Breaker.Allow(key)).To(BeTrue())
-					Expect(dc.Breaker.Allow(key)).To(BeTrue())
-					Expect(dc.Breaker.Allow(key)).To(BeFalse())
-
-					Eventually(func(g Gomega) {
-						got := promtestutil.ToFloat64(metrics.CircuitBreakerState.With(prometheus.Labels{
-							"promise":  promise.GetName(),
-							"resource": key.String(),
-						}))
-						g.Expect(got).To(Equal(float64(1)), "kratix_circuit_breaker_state should be 1 (open)")
-					}, "5s", "100ms").Should(Succeed())
-
-					Eventually(func(g Gomega) {
-						got := promtestutil.ToFloat64(metrics.CircuitBreakerTripsTotal.WithLabelValues(promise.GetName()))
-						g.Expect(got).To(BeNumerically(">=", 1))
-					}, "5s", "100ms").Should(Succeed())
-				})
-
-				When("a Promise's circuit-breaker annotations are updated", func() {
-					It("calls UpdateParams on the running breaker without restarting the controller", func() {
-						controllerName := promise.GetDynamicControllerName(logr.Logger{})
-						existingController := reconciler.StartedDynamicControllers[controllerName]
-						Expect(existingController).NotTo(BeNil())
-						originalBurst := existingController.LastRuntimeOptions.Breaker.Burst
-
-						By("annotating the Promise with a new burst")
-						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-						ann := promise.GetAnnotations()
-						if ann == nil {
-							ann = map[string]string{}
-						}
-						ann[controller.AnnotationCircuitBreakerBurst] = "250"
-						promise.SetAnnotations(ann)
-						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-
-						By("reconciling the Promise so the reuse branch applies the new params")
-						_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-						})
-						Expect(err).NotTo(HaveOccurred())
-
-						reusedController := reconciler.StartedDynamicControllers[controllerName]
-						Expect(reusedController).To(BeIdenticalTo(existingController))
-						Expect(reusedController.LastRuntimeOptions.Breaker.Burst).To(Equal(float64(250)))
-						Expect(reusedController.LastRuntimeOptions.Breaker.Burst).NotTo(Equal(originalBurst))
-					})
-				})
-
 				When("a Promise's restart-required annotation (rate limit) is updated", func() {
 					It("emits a single RuntimeOptionsRestartRequired warning event and does not re-emit on subsequent reconciles", func() {
 						controllerName := promise.GetDynamicControllerName(logr.Logger{})
@@ -1319,23 +1248,6 @@ var _ = Describe("PromiseController", func() {
 					})
 				})
 
-				It("releases the breaker when the Promise is deleted", func() {
-					controllerName := promise.GetDynamicControllerName(logr.Logger{})
-					Expect(reconciler.StartedDynamicControllers).To(HaveKey(controllerName))
-
-					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
-					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{errorBudget: 5})
-					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
-
-					// The controller entry is retained for reuse on reinstall, but the watch
-					// is stopped — which is the effective "release" of the breaker from active use.
-					stoppedController := reconciler.StartedDynamicControllers[controllerName]
-					Expect(stoppedController).NotTo(BeNil())
-					Expect(stoppedController.WatchStopped).To(BeTrue())
-					// Breaker reference is preserved in the stopped controller (available for reuse).
-					Expect(stoppedController.Breaker).NotTo(BeNil())
-				})
 			})
 
 			When("the Promise has a delete workflow", func() {
@@ -2528,67 +2440,6 @@ func createAndUpdateWork(work *v1alpha1.Work, status metav1.ConditionStatus, mes
 	Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
 }
 
-var _ = Describe("ResolveBreakerParams", func() {
-	var (
-		defaults controller.BreakerDefaults
-		promise  *v1alpha1.Promise
-	)
-
-	BeforeEach(func() {
-		defaults = controller.BreakerDefaults{
-			Burst:                 100,
-			RefillRate:            1.0,
-			Cooldown:              5 * time.Minute,
-			HalfOpenProbeInterval: 30 * time.Second,
-			Enabled:               true,
-		}
-		promise = &v1alpha1.Promise{
-			ObjectMeta: metav1.ObjectMeta{Name: "p1"},
-		}
-	})
-
-	It("returns defaults when no annotations are set", func() {
-		params, warnings := controller.ResolveBreakerParams(promise, defaults)
-		Expect(warnings).To(BeEmpty())
-		Expect(params.Burst).To(Equal(float64(100)))
-		Expect(params.RefillRate).To(Equal(1.0))
-		Expect(params.Cooldown).To(Equal(5 * time.Minute))
-		Expect(params.Disabled).To(BeFalse())
-	})
-
-	It("applies all annotation overrides when valid", func() {
-		promise.SetAnnotations(map[string]string{
-			controller.AnnotationCircuitBreakerBurst:    "200",
-			controller.AnnotationCircuitBreakerRefill:   "2.5",
-			controller.AnnotationCircuitBreakerCooldown: "10m",
-			controller.AnnotationCircuitBreakerDisabled: "true",
-		})
-		params, warnings := controller.ResolveBreakerParams(promise, defaults)
-		Expect(warnings).To(BeEmpty())
-		Expect(params.Burst).To(Equal(float64(200)))
-		Expect(params.RefillRate).To(Equal(2.5))
-		Expect(params.Cooldown).To(Equal(10 * time.Minute))
-		Expect(params.Disabled).To(BeTrue())
-	})
-
-	It("falls back to defaults and reports warnings for invalid values", func() {
-		promise.SetAnnotations(map[string]string{
-			controller.AnnotationCircuitBreakerBurst:    "not-a-number",
-			controller.AnnotationCircuitBreakerCooldown: "10x",
-		})
-		params, warnings := controller.ResolveBreakerParams(promise, defaults)
-		Expect(warnings).To(HaveLen(2))
-		Expect(params.Burst).To(Equal(float64(100)))
-		Expect(params.Cooldown).To(Equal(5 * time.Minute))
-	})
-
-	It("treats Enabled=false as Disabled=true", func() {
-		defaults.Enabled = false
-		params, _ := controller.ResolveBreakerParams(promise, defaults)
-		Expect(params.Disabled).To(BeTrue())
-	})
-})
-
 var _ = Describe("ResolvePromiseRuntimeOptions", func() {
 	var (
 		defaults controller.PromiseRuntimeDefaults
@@ -2600,13 +2451,6 @@ var _ = Describe("ResolvePromiseRuntimeOptions", func() {
 			MaxConcurrentReconciles: 10,
 			RateLimitQPS:            0,
 			RateLimitBurst:          0,
-			Breaker: controller.BreakerDefaults{
-				Burst:                 100,
-				RefillRate:            1.0,
-				Cooldown:              5 * time.Minute,
-				HalfOpenProbeInterval: 30 * time.Second,
-				Enabled:               true,
-			},
 		}
 		promise = &v1alpha1.Promise{ObjectMeta: metav1.ObjectMeta{Name: "p1"}}
 	})
@@ -2617,7 +2461,6 @@ var _ = Describe("ResolvePromiseRuntimeOptions", func() {
 		Expect(opts.MaxConcurrentReconciles).To(Equal(10))
 		Expect(opts.RateLimitQPS).To(Equal(float32(0)))
 		Expect(opts.RateLimitBurst).To(Equal(0))
-		Expect(opts.Breaker.Burst).To(Equal(float64(100)))
 	})
 
 	It("applies all annotation overrides when valid", func() {
@@ -2625,14 +2468,12 @@ var _ = Describe("ResolvePromiseRuntimeOptions", func() {
 			controller.AnnotationMaxConcurrentReconciles: "20",
 			controller.AnnotationRateLimitQPS:            "50",
 			controller.AnnotationRateLimitBurst:          "100",
-			controller.AnnotationCircuitBreakerBurst:     "250",
 		})
 		opts, warnings := controller.ResolvePromiseRuntimeOptions(promise, defaults)
 		Expect(warnings).To(BeEmpty())
 		Expect(opts.MaxConcurrentReconciles).To(Equal(20))
 		Expect(opts.RateLimitQPS).To(Equal(float32(50)))
 		Expect(opts.RateLimitBurst).To(Equal(100))
-		Expect(opts.Breaker.Burst).To(Equal(float64(250)))
 	})
 
 	It("reports warnings for invalid values and keeps defaults", func() {
@@ -2644,15 +2485,6 @@ var _ = Describe("ResolvePromiseRuntimeOptions", func() {
 		Expect(warnings).To(HaveLen(2))
 		Expect(opts.MaxConcurrentReconciles).To(Equal(10))
 		Expect(opts.RateLimitQPS).To(Equal(float32(0)))
-	})
-
-	It("merges breaker warnings with rate-limit warnings", func() {
-		promise.SetAnnotations(map[string]string{
-			controller.AnnotationCircuitBreakerBurst: "nope",
-			controller.AnnotationRateLimitQPS:        "nope",
-		})
-		_, warnings := controller.ResolvePromiseRuntimeOptions(promise, defaults)
-		Expect(warnings).To(HaveLen(2))
 	})
 })
 
