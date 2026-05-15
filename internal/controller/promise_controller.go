@@ -96,9 +96,9 @@ type PromiseReconciler struct {
 	// re-assert an already-current state without affecting state-machine
 	// progress (which still observes meaningful status mutations).
 	DynamicRRFilterNoOpWrites bool
-	// BreakerDefaults are applied to every dynamic resource-request controller's
-	// per-resource circuit breaker. Per-Promise annotations override these.
-	BreakerDefaults BreakerDefaults
+	// PromiseRuntimeDefaults are applied to every dynamic resource-request
+	// controller. Per-Promise annotations override individual fields.
+	PromiseRuntimeDefaults PromiseRuntimeDefaults
 }
 
 const (
@@ -1161,7 +1161,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.PromiseUpgradeFeatFlag = r.PromiseUpgrade
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
-		newParams, warnings := ResolveBreakerParams(promise, r.BreakerDefaults)
+		newParams, warnings := ResolveBreakerParams(promise, r.PromiseRuntimeDefaults.Breaker)
 		emitBreakerWarnings(r.Manager.GetEventRecorderFor("PromiseController"), logger, promise, warnings)
 		if newParams != dynamicController.LastBreakerParams {
 			logging.Info(logger, "updating breaker params",
@@ -1183,7 +1183,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	}
 	logging.Info(logger, "starting dynamic controller")
 
-	breakerParams, warnings := ResolveBreakerParams(promise, r.BreakerDefaults)
+	breakerParams, warnings := ResolveBreakerParams(promise, r.PromiseRuntimeDefaults.Breaker)
 	emitBreakerWarnings(r.Manager.GetEventRecorderFor("PromiseController"), logger, promise, warnings)
 	breaker := circuit.NewTokenBucketBreaker(breakerParams, nil)
 

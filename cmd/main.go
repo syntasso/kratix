@@ -119,6 +119,8 @@ var pprofAddr string
 var enableLeaderElection bool
 var dynamicRRMaxConcurrentReconciles int
 var dynamicRRFilterNoOpWrites bool
+var dynamicRRQPS float64
+var dynamicRRBurst int
 var kubeAPIQPS float64
 var kubeAPIBurst int
 
@@ -172,6 +174,14 @@ func main() {
 		"MaxConcurrentReconciles for each spawned dynamic resource-request controller. "+
 			"0 means use controller-runtime's default (1). Set higher to parallelise reconciles "+
 			"of resource requests for the same Promise.")
+	flag.Float64Var(&dynamicRRQPS, "dynamic-rr-qps", 0,
+		"Default workqueue QPS budget per dynamic resource-request controller. "+
+			"0 disables the token-bucket overlay (exponential failure limiter only). "+
+			"Overridable per Promise via kratix.io/rate-limit-qps.")
+	flag.IntVar(&dynamicRRBurst, "dynamic-rr-burst", 0,
+		"Default workqueue burst per dynamic RR controller. "+
+			"Ignored when --dynamic-rr-qps=0. Defaults to 10× QPS when unset. "+
+			"Overridable per Promise via kratix.io/rate-limit-burst.")
 	flag.BoolVar(&dynamicRRFilterNoOpWrites, "dynamic-rr-filter-noop-writes", false,
 		"Filter Update events on the dynamic resource-request self-watch when the old and new "+
 			"objects are semantically identical (same generation, finalizers, labels, annotations, "+
@@ -337,12 +347,17 @@ func main() {
 		PromiseUpgrade:                   promiseUpgradeEnabled(kratixConfig),
 		DynamicRRMaxConcurrentReconciles: dynamicRRMaxConcurrentReconciles,
 		DynamicRRFilterNoOpWrites:        dynamicRRFilterNoOpWrites,
-		BreakerDefaults: controller.BreakerDefaults{
-			Burst:                 circuitBreakerBurst,
-			RefillRate:            circuitBreakerRefillRate,
-			Cooldown:              circuitBreakerCooldown,
-			HalfOpenProbeInterval: 30 * time.Second,
-			Enabled:               circuitBreakerEnabled,
+		PromiseRuntimeDefaults: controller.PromiseRuntimeDefaults{
+			MaxConcurrentReconciles: dynamicRRMaxConcurrentReconciles,
+			RateLimitQPS:            float32(dynamicRRQPS),
+			RateLimitBurst:          dynamicRRBurst,
+			Breaker: controller.BreakerDefaults{
+				Burst:                 circuitBreakerBurst,
+				RefillRate:            circuitBreakerRefillRate,
+				Cooldown:              circuitBreakerCooldown,
+				HalfOpenProbeInterval: 30 * time.Second,
+				Enabled:               circuitBreakerEnabled,
+			},
 		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
