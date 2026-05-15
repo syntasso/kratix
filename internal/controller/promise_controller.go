@@ -1289,15 +1289,24 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		MaxConcurrentReconciles: mcr,
 		RateLimiter:             rateLimiter,
 	})
+	// Note: Job, Work, and ResourceBinding watches do NOT route through the
+	// circuit breaker. The breaker's purpose is to filter chatter on the RR
+	// itself (e.g. hot-loop annotation updates, webhook flapping). Events
+	// from downstream resources (Job completed, Work scheduled, ResourceBinding
+	// created) are convergence-progress signals — the RR must see them to
+	// reach Reconciled=True even when the breaker has tripped on its own
+	// event stream. The per-event predicates (kratixManagedJobPredicate,
+	// dynamicRRWorkPredicate, dynamicRRResourceBindingPredicate) already
+	// filter no-op chatter at the watch layer.
 	dynamicController, err := dynamicControllerBuilder.
 		Watches(
 			&batchv1.Job{},
-			handler.EnqueueRequestsFromMapFunc(circuit.MapFunc(r.jobEventHandler(promise), breaker)),
+			handler.EnqueueRequestsFromMapFunc(r.jobEventHandler(promise)),
 			builder.WithPredicates(kratixManagedJobPredicate()),
 		).
 		Watches(
 			&v1alpha1.Work{},
-			handler.EnqueueRequestsFromMapFunc(circuit.MapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				work := obj.(*v1alpha1.Work)
 				rrName, labelExists := work.Labels[v1alpha1.ResourceNameLabel]
 				if !labelExists || work.Labels[v1alpha1.PromiseNameLabel] != promise.GetName() {
@@ -1310,12 +1319,12 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 						Name:      rrName,
 					},
 				}}
-			}, breaker)),
+			}),
 			builder.WithPredicates(dynamicRRWorkPredicate()),
 		).
 		Watches(
 			&v1alpha1.ResourceBinding{},
-			handler.EnqueueRequestsFromMapFunc(circuit.MapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				resourceBinding := obj.(*v1alpha1.ResourceBinding)
 				rrName, labelExists := resourceBinding.Labels[v1alpha1.ResourceNameLabel]
 				if !labelExists || resourceBinding.Labels[v1alpha1.PromiseNameLabel] != promise.GetName() {
@@ -1328,7 +1337,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 						Name:      rrName,
 					},
 				}}
-			}, breaker)),
+			}),
 			builder.WithPredicates(dynamicRRResourceBindingPredicate())).
 		Build(dynamicResourceRequestController)
 	if err != nil {
