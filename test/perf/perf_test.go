@@ -59,18 +59,23 @@ var _ = Describe("perf rig", func() {
 			_ = logFile.Close()
 		})
 
-		By("provisioning metrics scraper RBAC + bearer token")
-		token, err := driver.EnsureMetricsScraperRBAC(ctx, *flagContext, "kratix-platform-system", timeout+30*time.Minute)
-		Expect(err).NotTo(HaveOccurred())
+		var sc *scraper.Scraper
+		if !*flagNoScrape {
+			By("provisioning metrics scraper RBAC + bearer token")
+			token, err := driver.EnsureMetricsScraperRBAC(ctx, *flagContext, "kratix-platform-system", timeout+30*time.Minute)
+			Expect(err).NotTo(HaveOccurred())
 
-		By("starting /metrics scraper (https + bearer)")
-		sc := scraper.NewSecure(*flagContext, "kratix-platform-system", "kratix-platform-controller-manager", 8443, runDir, token)
-		Expect(sc.Start(ctx)).To(Succeed())
-		DeferCleanup(func() {
-			if err := sc.Stop(); err != nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "scraper stop error: %v\n", err)
-			}
-		})
+			By("starting /metrics scraper (https + bearer)")
+			sc = scraper.NewSecure(*flagContext, "kratix-platform-system", "kratix-platform-controller-manager", 8443, runDir, token)
+			Expect(sc.Start(ctx)).To(Succeed())
+			DeferCleanup(func() {
+				if err := sc.Stop(); err != nil {
+					_, _ = fmt.Fprintf(GinkgoWriter, "scraper stop error: %v\n", err)
+				}
+			})
+		} else {
+			By("skipping /metrics scraper (--perf.no-scrape)")
+		}
 
 		By("applying no-op Promise")
 		_, err = driver.ApplyPromise(ctx, c, *flagPromise)
@@ -119,24 +124,24 @@ var _ = Describe("perf rig", func() {
 		Expect(err).NotTo(HaveOccurred())
 		_, _ = fmt.Fprintf(GinkgoWriter, "converged in %s\n", wall.Truncate(time.Second))
 
-		By("stopping scraper and reducing artefacts → summary.md")
-		// Scraper errors are non-fatal — a transient port-forward blip
-		// loses a snapshot but not the run. The reducer will fail loudly
-		// later if there are no snapshots at all.
-		if err := sc.Stop(); err != nil {
-			_, _ = fmt.Fprintf(GinkgoWriter, "scraper accumulated errors (non-fatal): %v\n", err)
+		if sc != nil {
+			By("stopping scraper and reducing artefacts → summary.md")
+			if err := sc.Stop(); err != nil {
+				_, _ = fmt.Fprintf(GinkgoWriter, "scraper accumulated errors (non-fatal): %v\n", err)
+			}
+			summary, err := reduce.Reduce(runDir, reduce.RunMeta{
+				Name:          *flagRunName,
+				N:             spec.Count,
+				Namespace:     spec.Namespace,
+				RRNamePattern: fmt.Sprintf(`%s-\d{5}`, *flagBaseName),
+				WallClock:     wall,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			_, _ = fmt.Fprintf(GinkgoWriter, "wrote %s\n", filepath.Join(runDir, "summary.md"))
+			_ = summary
+		} else {
+			_, _ = fmt.Fprintf(GinkgoWriter, "%s: converged in %s (no metrics summary; --perf.no-scrape)\n", *flagRunName, wall.Truncate(time.Second))
 		}
-
-		summary, err := reduce.Reduce(runDir, reduce.RunMeta{
-			Name:          *flagRunName,
-			N:             spec.Count,
-			Namespace:     spec.Namespace,
-			RRNamePattern: fmt.Sprintf(`%s-\d{5}`, *flagBaseName),
-			WallClock:     wall,
-		})
-		Expect(err).NotTo(HaveOccurred())
-		_, _ = fmt.Fprintf(GinkgoWriter, "wrote %s\n", filepath.Join(runDir, "summary.md"))
-		_ = summary
 	})
 })
 

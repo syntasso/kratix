@@ -256,7 +256,12 @@ perf-test: fmt vet ## Run the controller perf rig against an existing kind-platf
 		-perf.namespace=$${PERF_NAMESPACE:-default} \
 		-perf.timeout=$${PERF_TIMEOUT:-30m} \
 		-perf.basename=$${PERF_BASENAME:-perftest} \
-		-perf.keep=$${PERF_KEEP:-false}
+		-perf.keep=$${PERF_KEEP:-false} \
+		-perf.no-scrape=$${PERF_NO_SCRAPE:-false} \
+		-perf.promise=$${PERF_PROMISE:-assets/noop-promise.yaml} \
+		-perf.promise.name=$${PERF_PROMISE_NAME:-perftest} \
+		-perf.rr.kind=$${PERF_RR_KIND:-PerfTest} \
+		-perf.rr.group=$${PERF_RR_GROUP:-perf.kratix.io}
 
 .PHONY: run-git-integration-test
 run-git-integration-test: fmt vet ## Runs the integration test suite for the Git client

@@ -21,6 +21,7 @@ var (
 	flagPromise     = flag.String("perf.promise", "assets/noop-promise.yaml", "path to Promise yaml")
 	flagPromiseName = flag.String("perf.promise.name", "perftest", "name of the Promise object")
 	flagKeep        = flag.Bool("perf.keep", false, "skip the cleanup phase and leave the Promise + resource requests in place after the run")
+	flagNoScrape    = flag.Bool("perf.no-scrape", false, "skip the /metrics scraper and summary reduction (use for concurrent rig runs)")
 )
 
 func TestPerf(t *testing.T) {
