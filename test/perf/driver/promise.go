@@ -51,6 +51,28 @@ func ApplyPromise(ctx context.Context, c client.Client, path string) (*platformv
 	return p, nil
 }
 
+// ApplyPromiseObject creates (or updates) an already-materialised Promise and
+// waits for it to report Available=True. Mirrors ApplyPromise but takes the
+// in-memory object instead of a file path.
+func ApplyPromiseObject(ctx context.Context, c client.Client, p *platformv1alpha1.Promise) error {
+	existing := &platformv1alpha1.Promise{}
+	err := c.Get(ctx, types.NamespacedName{Name: p.GetName()}, existing)
+	switch {
+	case apierrors.IsNotFound(err):
+		if err := c.Create(ctx, p); err != nil {
+			return fmt.Errorf("create promise %s: %w", p.GetName(), err)
+		}
+	case err != nil:
+		return fmt.Errorf("get existing promise %s: %w", p.GetName(), err)
+	default:
+		p.SetResourceVersion(existing.GetResourceVersion())
+		if err := c.Update(ctx, p); err != nil {
+			return fmt.Errorf("update promise %s: %w", p.GetName(), err)
+		}
+	}
+	return WaitForPromiseAvailable(ctx, c, p.GetName(), 5*time.Minute)
+}
+
 func WaitForPromiseAvailable(ctx context.Context, c client.Client, name string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
