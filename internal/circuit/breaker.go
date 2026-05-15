@@ -62,11 +62,12 @@ func NewTokenBucketBreaker(params BreakerParams, clk clock.Clock) Breaker {
 }
 
 type bucketState struct {
-	tokens     float64
-	lastRefill time.Time
-	state      State
-	openedAt   time.Time
-	lastProbe  time.Time
+	tokens        float64
+	lastRefill    time.Time
+	state         State
+	openedAt      time.Time
+	lastProbe     time.Time
+	inFlightProbe bool
 }
 
 type tokenBucketBreaker struct {
@@ -98,7 +99,7 @@ func (b *tokenBucketBreaker) Allow(key types.NamespacedName) bool {
 	// Refill.
 	elapsed := now.Sub(st.lastRefill).Seconds()
 	if elapsed > 0 {
-		st.tokens = minFloat(b.params.Burst, st.tokens+elapsed*b.params.RefillRate)
+		st.tokens = min(b.params.Burst, st.tokens+elapsed*b.params.RefillRate)
 		st.lastRefill = now
 	}
 
@@ -107,15 +108,23 @@ func (b *tokenBucketBreaker) Allow(key types.NamespacedName) bool {
 		if now.Sub(st.openedAt) < b.params.Cooldown {
 			return false
 		}
-		// Cooldown elapsed → move to half-open.
+		// Cooldown elapsed → move to half-open. Mark the probe as in-flight so
+		// a slow Reconcile cannot trigger overlapping probes before Observe lands.
 		st.state = StateHalfOpen
 		st.lastProbe = now
+		st.inFlightProbe = true
 		return true
 	case StateHalfOpen:
+		// Only one probe is allowed in flight at a time. A parallel Allow call
+		// while a probe is outstanding short-circuits to false.
+		if st.inFlightProbe {
+			return false
+		}
 		if now.Sub(st.lastProbe) < b.params.HalfOpenProbeInterval {
 			return false
 		}
 		st.lastProbe = now
+		st.inFlightProbe = true
 		return true
 	}
 
@@ -135,13 +144,21 @@ func (b *tokenBucketBreaker) Observe(key types.NamespacedName, success bool) {
 	if !ok {
 		return
 	}
+	// Always clear the in-flight probe flag so the next probe can fire,
+	// regardless of which terminal branch we hit below.
+	defer func() {
+		if entry, present := b.keys[key]; present {
+			entry.inFlightProbe = false
+		}
+	}()
 	if st.state != StateHalfOpen {
 		return
 	}
 	if success {
-		st.state = StateClosed
-		st.tokens = b.params.Burst
-		st.lastRefill = b.clock.Now()
+		// Drop the key entirely on recovery. A fresh Allow recreates the bucket
+		// with full burst — semantically identical to "reset to closed" but
+		// bounds the map to "currently misbehaving" keys for long-running operators.
+		delete(b.keys, key)
 		return
 	}
 	st.state = StateOpen
@@ -162,11 +179,4 @@ func (b *tokenBucketBreaker) UpdateParams(params BreakerParams) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.params = params
-}
-
-func minFloat(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
 }

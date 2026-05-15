@@ -1177,19 +1177,27 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		}
 
 		// Rate-limit + MCR changes require an operator restart.
+		// RateLimitQPS is parsed from the same annotation string on every reconcile so
+		// exact float equality is safe.
 		if newOpts.MaxConcurrentReconciles != old.MaxConcurrentReconciles ||
 			newOpts.RateLimitQPS != old.RateLimitQPS ||
 			newOpts.RateLimitBurst != old.RateLimitBurst {
-			msg := "rate-limit or max-concurrent-reconciles annotation changed; takes effect on next operator restart"
-			logging.Info(logger, msg, "promise", promise.GetName(),
-				"oldMCR", old.MaxConcurrentReconciles, "newMCR", newOpts.MaxConcurrentReconciles,
-				"oldQPS", old.RateLimitQPS, "newQPS", newOpts.RateLimitQPS,
-				"oldBurst", old.RateLimitBurst, "newBurst", newOpts.RateLimitBurst)
-			if recorder != nil {
-				recorder.Event(promise, v1.EventTypeWarning, "RuntimeOptionsRestartRequired", msg)
+			if !dynamicController.RestartRequiredWarned {
+				msg := "rate-limit or max-concurrent-reconciles annotation changed; takes effect on next operator restart"
+				logging.Info(logger, msg, "promise", promise.GetName(),
+					"oldMCR", old.MaxConcurrentReconciles, "newMCR", newOpts.MaxConcurrentReconciles,
+					"oldQPS", old.RateLimitQPS, "newQPS", newOpts.RateLimitQPS,
+					"oldBurst", old.RateLimitBurst, "newBurst", newOpts.RateLimitBurst)
+				if recorder != nil {
+					recorder.Event(promise, v1.EventTypeWarning, "RuntimeOptionsRestartRequired", msg)
+				}
+				dynamicController.RestartRequiredWarned = true
 			}
 		}
 
+		// Always refresh the snapshot so an operator restart picks up the latest values.
+		// The warned flag is independent of the snapshot — it lives only in memory and
+		// resets when the operator restarts (since DynamicResourceRequestController is rebuilt).
 		dynamicController.LastRuntimeOptions = newOpts
 
 		if dynamicController.WatchStopped {

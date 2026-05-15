@@ -69,6 +69,49 @@ var _ = Describe("TokenBucketBreaker", func() {
 		Expect(breaker.State(key)).To(Equal(circuit.StateClosed))
 	})
 
+	It("drops the key from internal state on successful recovery so memory is bounded", func() {
+		// Trip open.
+		for i := 0; i < 6; i++ {
+			breaker.Allow(key)
+		}
+		clk.Step(6 * time.Minute)
+		breaker.Allow(key) // → half-open
+		breaker.Observe(key, true)
+
+		// State on a dropped key falls back to StateClosed (the unknown-key path).
+		Expect(breaker.State(key)).To(Equal(circuit.StateClosed))
+
+		// And a fresh Allow rehydrates a brand-new bucket with full burst —
+		// proving the previous entry was dropped, not merely reset.
+		for i := 0; i < 5; i++ {
+			Expect(breaker.Allow(key)).To(BeTrue(), "fresh burst drain %d", i)
+		}
+		Expect(breaker.Allow(key)).To(BeFalse())
+	})
+
+	It("blocks overlapping probes while a half-open probe is in flight", func() {
+		// Trip open.
+		for i := 0; i < 6; i++ {
+			breaker.Allow(key)
+		}
+		clk.Step(6 * time.Minute)
+
+		// First Allow after cooldown → fires the probe.
+		Expect(breaker.Allow(key)).To(BeTrue())
+		Expect(breaker.State(key)).To(Equal(circuit.StateHalfOpen))
+
+		// Even after HalfOpenProbeInterval elapses, a second Allow must NOT
+		// fire a parallel probe — the first probe hasn't been Observed yet.
+		clk.Step(2 * time.Minute)
+		Expect(breaker.Allow(key)).To(BeFalse())
+
+		// Once Observe lands, the next Allow can fire a probe again.
+		breaker.Observe(key, false)
+		Expect(breaker.State(key)).To(Equal(circuit.StateOpen))
+		clk.Step(6 * time.Minute)
+		Expect(breaker.Allow(key)).To(BeTrue())
+	})
+
 	It("re-opens from half-open on a failed Observe", func() {
 		for i := 0; i < 6; i++ {
 			breaker.Allow(key)
