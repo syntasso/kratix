@@ -1174,7 +1174,7 @@ var _ = Describe("PromiseController", func() {
 						controllerName := promise.GetDynamicControllerName(logr.Logger{})
 						existingController := reconciler.StartedDynamicControllers[controllerName]
 						Expect(existingController).NotTo(BeNil())
-						originalBurst := existingController.LastBreakerParams.Burst
+						originalBurst := existingController.LastRuntimeOptions.Breaker.Burst
 
 						By("annotating the Promise with a new burst")
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
@@ -1194,8 +1194,8 @@ var _ = Describe("PromiseController", func() {
 
 						reusedController := reconciler.StartedDynamicControllers[controllerName]
 						Expect(reusedController).To(BeIdenticalTo(existingController))
-						Expect(reusedController.LastBreakerParams.Burst).To(Equal(float64(250)))
-						Expect(reusedController.LastBreakerParams.Burst).NotTo(Equal(originalBurst))
+						Expect(reusedController.LastRuntimeOptions.Breaker.Burst).To(Equal(float64(250)))
+						Expect(reusedController.LastRuntimeOptions.Breaker.Burst).NotTo(Equal(originalBurst))
 					})
 				})
 

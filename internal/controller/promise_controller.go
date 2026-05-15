@@ -1161,16 +1161,36 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.PromiseUpgradeFeatFlag = r.PromiseUpgrade
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
-		newParams, warnings := ResolveBreakerParams(promise, r.PromiseRuntimeDefaults.Breaker)
-		emitBreakerWarnings(r.Manager.GetEventRecorderFor("PromiseController"), logger, promise, warnings)
-		if newParams != dynamicController.LastBreakerParams {
+		newOpts, warnings := ResolvePromiseRuntimeOptions(promise, r.PromiseRuntimeDefaults)
+		recorder := r.Manager.GetEventRecorderFor("PromiseController")
+		emitBreakerWarnings(recorder, logger, promise, warnings)
+
+		old := dynamicController.LastRuntimeOptions
+
+		// Breaker params are live-updatable.
+		if newOpts.Breaker != old.Breaker {
 			logging.Info(logger, "updating breaker params",
 				"promise", promise.GetName(),
-				"old", dynamicController.LastBreakerParams,
-				"new", newParams)
-			dynamicController.Breaker.UpdateParams(newParams)
-			dynamicController.LastBreakerParams = newParams
+				"old", old.Breaker,
+				"new", newOpts.Breaker)
+			dynamicController.Breaker.UpdateParams(newOpts.Breaker)
 		}
+
+		// Rate-limit + MCR changes require an operator restart.
+		if newOpts.MaxConcurrentReconciles != old.MaxConcurrentReconciles ||
+			newOpts.RateLimitQPS != old.RateLimitQPS ||
+			newOpts.RateLimitBurst != old.RateLimitBurst {
+			msg := "rate-limit or max-concurrent-reconciles annotation changed; takes effect on next operator restart"
+			logging.Info(logger, msg, "promise", promise.GetName(),
+				"oldMCR", old.MaxConcurrentReconciles, "newMCR", newOpts.MaxConcurrentReconciles,
+				"oldQPS", old.RateLimitQPS, "newQPS", newOpts.RateLimitQPS,
+				"oldBurst", old.RateLimitBurst, "newBurst", newOpts.RateLimitBurst)
+			if recorder != nil {
+				recorder.Event(promise, v1.EventTypeWarning, "RuntimeOptionsRestartRequired", msg)
+			}
+		}
+
+		dynamicController.LastRuntimeOptions = newOpts
 
 		if dynamicController.WatchStopped {
 			logging.Debug(logger, "restarting dynamic controller watch", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
@@ -1183,9 +1203,10 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	}
 	logging.Info(logger, "starting dynamic controller")
 
-	breakerParams, warnings := ResolveBreakerParams(promise, r.PromiseRuntimeDefaults.Breaker)
+	runtimeOpts, warnings := ResolvePromiseRuntimeOptions(promise, r.PromiseRuntimeDefaults)
 	emitBreakerWarnings(r.Manager.GetEventRecorderFor("PromiseController"), logger, promise, warnings)
-	breaker := circuit.NewTokenBucketBreaker(breakerParams, nil)
+	breaker := circuit.NewTokenBucketBreaker(runtimeOpts.Breaker, nil)
+	rateLimiter := BuildPromiseRateLimiter(runtimeOpts.RateLimitQPS, runtimeOpts.RateLimitBurst)
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
@@ -1206,7 +1227,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		PromiseUpgradeFeatFlag:      r.PromiseUpgrade,
 		SharedResourceCache:         workflow.NewSharedResourceCache(),
 		Breaker:                     breaker,
-		LastBreakerParams:           breakerParams,
+		LastRuntimeOptions:          runtimeOpts,
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}
@@ -1218,11 +1239,14 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	}
 	dynamicControllerBuilder := ctrl.NewControllerManagedBy(r.Manager).
 		For(unstructuredCRD, builder.WithPredicates(primaryPredicates...))
-	if r.DynamicRRMaxConcurrentReconciles > 0 {
-		dynamicControllerBuilder = dynamicControllerBuilder.WithOptions(controller.Options{
-			MaxConcurrentReconciles: r.DynamicRRMaxConcurrentReconciles,
-		})
+	mcr := runtimeOpts.MaxConcurrentReconciles
+	if mcr <= 0 {
+		mcr = 1 // controller-runtime's default
 	}
+	dynamicControllerBuilder = dynamicControllerBuilder.WithOptions(controller.Options{
+		MaxConcurrentReconciles: mcr,
+		RateLimiter:             rateLimiter,
+	})
 	dynamicController, err := dynamicControllerBuilder.
 		Watches(
 			&batchv1.Job{},
