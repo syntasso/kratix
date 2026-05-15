@@ -1302,6 +1302,9 @@ func (r *PromiseReconciler) stopDynamicControllerForDeletedPromise(ctx context.C
 		}
 	}
 
+	if dynamicController.Breaker != nil {
+		logging.Debug(logger, "releasing per-promise breaker", "promise", promise.GetName())
+	}
 	dynamicController.WatchStopped = true
 	logging.Debug(logger, "dynamic controller watch stopped", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
 	return nil

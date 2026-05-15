@@ -1198,6 +1198,24 @@ var _ = Describe("PromiseController", func() {
 						Expect(reusedController.LastBreakerParams.Burst).NotTo(Equal(originalBurst))
 					})
 				})
+
+				It("releases the breaker when the Promise is deleted", func() {
+					controllerName := promise.GetDynamicControllerName(logr.Logger{})
+					Expect(reconciler.StartedDynamicControllers).To(HaveKey(controllerName))
+
+					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{errorBudget: 5})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					// The controller entry is retained for reuse on reinstall, but the watch
+					// is stopped — which is the effective "release" of the breaker from active use.
+					stoppedController := reconciler.StartedDynamicControllers[controllerName]
+					Expect(stoppedController).NotTo(BeNil())
+					Expect(stoppedController.WatchStopped).To(BeTrue())
+					// Breaker reference is preserved in the stopped controller (available for reuse).
+					Expect(stoppedController.Breaker).NotTo(BeNil())
+				})
 			})
 
 			When("the Promise has a delete workflow", func() {
