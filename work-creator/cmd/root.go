@@ -23,4 +23,5 @@ func init() {
 	rootCmd.AddCommand(workCreatorCmd())
 	rootCmd.AddCommand(updateStatusCmd())
 	rootCmd.AddCommand(readerCmd())
+	rootCmd.AddCommand(runCmd())
 }

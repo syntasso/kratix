@@ -424,7 +424,7 @@ var _ = Describe("Pipeline", func() {
 							podSpec := job.Spec.Template.Spec
 							Expect(podSpec.ServiceAccountName).To(Equal(serviceAccount.GetName()))
 							Expect(podSpec.ImagePullSecrets).To(ConsistOf(pipeline.Spec.ImagePullSecrets))
-							Expect(podSpec.InitContainers).To(HaveLen(4))
+							Expect(podSpec.InitContainers).To(HaveLen(3))
 							var initContainerNames []string
 							var initContainerImages []string
 							for _, container := range podSpec.InitContainers {
@@ -435,20 +435,18 @@ var _ = Describe("Pipeline", func() {
 								"reader",
 								pipeline.Spec.Containers[0].Name,
 								pipeline.Spec.Containers[1].Name,
-								"work-writer",
 							}))
 
 							Expect(podSpec.InitContainers[0].SecurityContext).To(Equal(defaultKratixSecurityContext))
-							Expect(podSpec.InitContainers[len(podSpec.InitContainers)-1].SecurityContext).To(Equal(defaultKratixSecurityContext))
+							Expect(podSpec.InitContainers[len(podSpec.InitContainers)-1].SecurityContext).To(Equal(globalDefaultSecurityContext))
 							Expect(podSpec.Containers[0].SecurityContext).To(Equal(defaultKratixSecurityContext))
 							Expect(initContainerImages).To(Equal([]string{
 								pipelineAdapterImage,
 								pipeline.Spec.Containers[0].Image,
 								pipeline.Spec.Containers[1].Image,
-								pipelineAdapterImage,
 							}))
 							Expect(podSpec.Containers).To(HaveLen(1))
-							Expect(podSpec.Containers[0].Name).To(Equal("status-writer"))
+							Expect(podSpec.Containers[0].Name).To(Equal("work-writer"))
 							Expect(podSpec.RestartPolicy).To(Equal(corev1.RestartPolicyOnFailure))
 							Expect(podSpec.Volumes).To(HaveLen(5))
 							var volumeNames []string
@@ -533,7 +531,7 @@ var _ = Describe("Pipeline", func() {
 							podSpec := podTemplate.Spec
 							Expect(podSpec.ServiceAccountName).To(Equal(serviceAccount.GetName()))
 							Expect(podSpec.ImagePullSecrets).To(ConsistOf(pipeline.Spec.ImagePullSecrets))
-							Expect(podSpec.InitContainers).To(HaveLen(4))
+							Expect(podSpec.InitContainers).To(HaveLen(3))
 							var initContainerNames []string
 							var initContainerImages []string
 							for _, container := range podSpec.InitContainers {
@@ -544,16 +542,14 @@ var _ = Describe("Pipeline", func() {
 								"reader",
 								pipeline.Spec.Containers[0].Name,
 								pipeline.Spec.Containers[1].Name,
-								"work-writer",
 							}))
 							Expect(initContainerImages).To(Equal([]string{
 								pipelineAdapterImage,
 								pipeline.Spec.Containers[0].Image,
 								pipeline.Spec.Containers[1].Image,
-								pipelineAdapterImage,
 							}))
 							Expect(podSpec.Containers).To(HaveLen(1))
-							Expect(podSpec.Containers[0].Name).To(Equal("status-writer"))
+							Expect(podSpec.Containers[0].Name).To(Equal("work-writer"))
 							Expect(podSpec.RestartPolicy).To(Equal(corev1.RestartPolicyOnFailure))
 							Expect(podSpec.Volumes).To(HaveLen(5))
 							var volumeNames []string
@@ -804,18 +800,17 @@ var _ = Describe("Pipeline", func() {
 				})
 			})
 
-			Describe("WorkCreatorContainer", func() {
-				When("building the work creator container for a promise pipeline", func() {
-					It("returns a the work creator container with the appropriate command", func() {
-						containers := resources.Job.Spec.Template.Spec.InitContainers
-						container := containers[len(containers)-1]
+			Describe("WorkWriterContainer", func() {
+				When("building the work writer container for a promise pipeline", func() {
+					It("returns the work writer container with the appropriate command", func() {
+						container := resources.Job.Spec.Template.Spec.Containers[0]
 						Expect(container).ToNot(BeNil())
 						Expect(container.Name).To(Equal("work-writer"))
 						Expect(container.Image).To(Equal(pipelineAdapterImage))
 						Expect(container.ImagePullPolicy).To(BeEmpty())
 						Expect(container.Command).To(Equal([]string{"/bin/pipeline-adapter"}))
 						Expect(container.Args).To(Equal([]string{
-							"work-creator",
+							"run",
 							"--input-directory", "/work-creator-files",
 							"--promise-name", promise.GetName(),
 							"--pipeline-name", pipeline.GetName(),
@@ -827,7 +822,7 @@ var _ = Describe("Pipeline", func() {
 							corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
 							corev1.VolumeMount{Name: "promise-scheduling", MountPath: "/work-creator-files/kratix-system"},
 						))
-						Expect(container.Env).To(ConsistOf(
+						Expect(container.Env).To(ContainElements(
 							corev1.EnvVar{
 								Name: telemetry.TraceParentEnvVar,
 								ValueFrom: &corev1.EnvVarSource{
@@ -855,21 +850,19 @@ var _ = Describe("Pipeline", func() {
 							resources, err = factory.Resources(nil)
 							Expect(err).ToNot(HaveOccurred())
 
-							containers := resources.Job.Spec.Template.Spec.InitContainers
-							container := containers[len(containers)-1]
+							container := resources.Job.Spec.Template.Spec.Containers[0]
 							Expect(string(container.ImagePullPolicy)).To(Equal("Always"))
 						})
 					})
 				})
-				When("building the work creator container for a resource pipeline", func() {
-					It("returns a the work creator container with the appropriate command", func() {
+				When("building the work writer container for a resource pipeline", func() {
+					It("returns the work writer container with the appropriate command", func() {
 						factory.ResourceWorkflow = true
 						var err error
 						resources, err = factory.Resources(nil)
 						Expect(err).ToNot(HaveOccurred())
 
-						containers := resources.Job.Spec.Template.Spec.InitContainers
-						container := containers[len(containers)-1]
+						container := resources.Job.Spec.Template.Spec.Containers[0]
 
 						Expect(container).ToNot(BeNil())
 						Expect(container.Name).To(Equal("work-writer"))
@@ -877,7 +870,7 @@ var _ = Describe("Pipeline", func() {
 						Expect(container.ImagePullPolicy).To(BeEmpty())
 						Expect(container.Command).To(Equal([]string{"/bin/pipeline-adapter"}))
 						Expect(container.Args).To(Equal([]string{
-							"work-creator",
+							"run",
 							"--input-directory", "/work-creator-files",
 							"--promise-name", promise.GetName(),
 							"--pipeline-name", pipeline.GetName(),
@@ -890,7 +883,7 @@ var _ = Describe("Pipeline", func() {
 							corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
 							corev1.VolumeMount{Name: "promise-scheduling", MountPath: "/work-creator-files/kratix-system"},
 						))
-						Expect(container.Env).To(ConsistOf(
+						Expect(container.Env).To(ContainElements(
 							corev1.EnvVar{
 								Name: telemetry.TraceParentEnvVar,
 								ValueFrom: &corev1.EnvVarSource{
@@ -917,8 +910,7 @@ var _ = Describe("Pipeline", func() {
 							resources, err = factory.Resources(nil)
 							Expect(err).ToNot(HaveOccurred())
 
-							containers := resources.Job.Spec.Template.Spec.InitContainers
-							container := containers[len(containers)-1]
+							container := resources.Job.Spec.Template.Spec.Containers[0]
 							Expect(string(container.ImagePullPolicy)).To(Equal("Never"))
 						})
 					})
@@ -929,7 +921,7 @@ var _ = Describe("Pipeline", func() {
 				It("returns the pipeline containers and volumes", func() {
 					containers := resources.Job.Spec.Template.Spec.InitContainers
 					volumes := resources.Job.Spec.Template.Spec.Volumes
-					Expect(containers).To(HaveLen(4))
+					Expect(containers).To(HaveLen(3))
 					Expect(volumes).To(HaveLen(5))
 
 					expectedContainer0 := pipeline.Spec.Containers[0]
@@ -1062,7 +1054,7 @@ var _ = Describe("Pipeline", func() {
 
 			})
 
-			Describe("StatusWriterContainer", func() {
+			Describe("PostPipelineContainer", func() {
 				BeforeEach(func() {
 					factory.ResourceWorkflow = true
 					factory.CRDPlural = "promiseCrdPlural"
@@ -1077,12 +1069,32 @@ var _ = Describe("Pipeline", func() {
 				It("returns the appropriate container", func() {
 					container := resources.Job.Spec.Template.Spec.Containers[0]
 					Expect(container).ToNot(BeNil())
-					Expect(container.Name).To(Equal("status-writer"))
+					Expect(container.Name).To(Equal("work-writer"))
 					Expect(container.Image).To(Equal(pipelineAdapterImage))
 					Expect(container.ImagePullPolicy).To(BeEmpty())
 					Expect(container.Command).To(Equal([]string{"/bin/pipeline-adapter"}))
-					Expect(container.Args).To(Equal([]string{"update-status"}))
+					Expect(container.Args).To(Equal([]string{
+						"run",
+						"--input-directory", "/work-creator-files",
+						"--promise-name", factory.Promise.GetName(),
+						"--pipeline-name", factory.Pipeline.GetName(),
+						"--namespace", factory.Namespace,
+						"--workflow-type", string(factory.WorkflowType),
+						"--resource-name", resourceRequest.GetName(),
+					}))
 					Expect(container.Env).To(ConsistOf(
+						corev1.EnvVar{
+							Name: telemetry.TraceParentEnvVar,
+							ValueFrom: &corev1.EnvVarSource{
+								FieldRef: &corev1.ObjectFieldSelector{FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceParentAnnotation)},
+							},
+						},
+						corev1.EnvVar{
+							Name: telemetry.TraceStateEnvVar,
+							ValueFrom: &corev1.EnvVarSource{
+								FieldRef: &corev1.ObjectFieldSelector{FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceStateAnnotation)},
+							},
+						},
 						corev1.EnvVar{Name: "KRATIX_WORKFLOW_TYPE", Value: string(factory.WorkflowType)},
 						corev1.EnvVar{Name: "KRATIX_WORKFLOW_ACTION", Value: string(factory.WorkflowAction)},
 						corev1.EnvVar{Name: "KRATIX_PROMISE_NAME", Value: factory.Promise.Name},
@@ -1099,7 +1111,9 @@ var _ = Describe("Pipeline", func() {
 						corev1.EnvVar{Name: "env2", Value: "value2"},
 					))
 					Expect(container.VolumeMounts).To(ConsistOf(
+						corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
 						corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
+						corev1.VolumeMount{Name: "promise-scheduling", MountPath: "/work-creator-files/kratix-system"},
 					))
 				})
 
@@ -1111,8 +1125,8 @@ var _ = Describe("Pipeline", func() {
 					It("set pull policy as the default", func() {
 						resources, err := factory.Resources(nil)
 						Expect(err).ToNot(HaveOccurred())
-						statusContainer := resources.Job.Spec.Template.Spec.Containers[0]
-						Expect(string(statusContainer.ImagePullPolicy)).To(Equal("Never"))
+						postPipelineContainer := resources.Job.Spec.Template.Spec.Containers[0]
+						Expect(string(postPipelineContainer.ImagePullPolicy)).To(Equal("Never"))
 					})
 				})
 
@@ -1132,11 +1146,11 @@ var _ = Describe("Pipeline", func() {
 						}
 					})
 
-					It("applies the overridden ephemeral-storage requests and limits to the status-writer container", func() {
+					It("applies the overridden ephemeral-storage requests and limits to the work-writer container", func() {
 						resources, err := factory.Resources(nil)
 						Expect(err).ToNot(HaveOccurred())
 						container := resources.Job.Spec.Template.Spec.Containers[0]
-						Expect(container.Name).To(Equal("status-writer"))
+						Expect(container.Name).To(Equal("work-writer"))
 						Expect(container.Resources.Requests.StorageEphemeral().String()).To(Equal("512Mi"))
 						Expect(container.Resources.Limits.StorageEphemeral().String()).To(Equal("512Mi"))
 					})
@@ -1147,11 +1161,11 @@ var _ = Describe("Pipeline", func() {
 				})
 
 				When("DefaultResourceRequirements is not overridden", func() {
-					It("uses the hardcoded default ephemeral-storage values on the status-writer container", func() {
+					It("uses the hardcoded default ephemeral-storage values on the work-writer container", func() {
 						resources, err := factory.Resources(nil)
 						Expect(err).ToNot(HaveOccurred())
 						container := resources.Job.Spec.Template.Spec.Containers[0]
-						Expect(container.Name).To(Equal("status-writer"))
+						Expect(container.Name).To(Equal("work-writer"))
 						Expect(container.Resources.Requests.StorageEphemeral().String()).To(Equal("128Mi"))
 						Expect(container.Resources.Limits.StorageEphemeral().String()).To(Equal("256Mi"))
 					})
@@ -1728,12 +1742,11 @@ var _ = Describe("Pipeline", func() {
 					}
 				})
 
-				It("returns a the work creator container with the appropriate command", func() {
+				It("returns the work writer container with the appropriate command", func() {
 					job := generatedResource.Job
 					Expect(job).ToNot(BeNil())
 
-					containers := job.Spec.Template.Spec.InitContainers
-					container := containers[len(containers)-1]
+					container := job.Spec.Template.Spec.Containers[0]
 
 					Expect(container).ToNot(BeNil())
 					Expect(container.Name).To(Equal("work-writer"))
@@ -1741,7 +1754,7 @@ var _ = Describe("Pipeline", func() {
 					Expect(container.ImagePullPolicy).To(BeEmpty())
 					Expect(container.Command).To(Equal([]string{"/bin/pipeline-adapter"}))
 					Expect(container.Args).To(Equal([]string{
-						"work-creator",
+						"run",
 						"--input-directory", "/work-creator-files",
 						"--promise-name", promise.GetName(),
 						"--pipeline-name", pipeline.GetName(),
