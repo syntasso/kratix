@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"sync"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -83,20 +84,56 @@ type DynamicResourceRequestController struct {
 	NumberOfJobsToKeep          int
 	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
+	// mu guards the runtime-options fields below, which are mutated by the
+	// PromiseReconciler reuse path (`ensureDynamicControllerIsStarted`) while
+	// Reconcile workers may be reading them concurrently.
+	//
+	// The remaining ambient fields (Client, Scheme, GVK, CRD, Log, UID,
+	// EventRecorder, etc.) are also rewritten on the reuse path; those have
+	// been racy since before this branch and are not in scope for this fix.
+	// Migrating them to mu requires touching ~97 read sites and is a separate
+	// piece of work.
+	mu sync.RWMutex
 	// LastRuntimeOptions is the most recently applied PromiseRuntimeOptions
 	// snapshot. The reuse branch compares the next resolved set against this
 	// to decide which kinds of changes are restart-required (rate-limit, MCR).
+	// Read/write under mu.
 	LastRuntimeOptions PromiseRuntimeOptions
 	// RestartRequiredWarned is set once the reuse branch has emitted a
 	// RuntimeOptionsRestartRequired warning event for the current in-memory
 	// controller. Prevents per-reconcile event spam while the user is in the
 	// "annotated but not yet restarted" state. Resets on operator restart.
+	// Read/write under mu.
 	RestartRequiredWarned  bool
 	PromiseUpgradeFeatFlag bool
 	// SharedResourceCache deduplicates Apply operations for pipeline-shared
 	// resources (ServiceAccount, RBAC, scheduling ConfigMap) across reconciles
 	// of different resource requests under the same Promise.
 	SharedResourceCache *workflow.SharedResourceCache
+}
+
+// SnapshotRuntimeOptions returns the most recently applied runtime-options
+// snapshot under a read lock, so callers can compare against newly resolved
+// options without racing the writer in ensureDynamicControllerIsStarted.
+func (r *DynamicResourceRequestController) SnapshotRuntimeOptions() (PromiseRuntimeOptions, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.LastRuntimeOptions, r.RestartRequiredWarned
+}
+
+// ApplyRuntimeOptions stores new runtime options under a write lock and
+// returns whether the warned flag transitioned from false to true (i.e. this
+// caller should emit the warning event). The warned flag is sticky for the
+// lifetime of the controller process.
+func (r *DynamicResourceRequestController) ApplyRuntimeOptions(opts PromiseRuntimeOptions, restartRequired bool) (justWarned bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if restartRequired && !r.RestartRequiredWarned {
+		r.RestartRequiredWarned = true
+		justWarned = true
+	}
+	r.LastRuntimeOptions = opts
+	return justWarned
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete

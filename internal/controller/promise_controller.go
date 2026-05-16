@@ -1164,31 +1164,30 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		recorder := r.Manager.GetEventRecorderFor("PromiseController")
 		emitRuntimeOptionsWarnings(recorder, logger, promise, warnings)
 
-		old := dynamicController.LastRuntimeOptions
+		old, _ := dynamicController.SnapshotRuntimeOptions()
 
 		// Rate-limit + MCR changes require an operator restart.
 		// RateLimitQPS is parsed from the same annotation string on every reconcile so
 		// exact float equality is safe.
-		if newOpts.MaxConcurrentReconciles != old.MaxConcurrentReconciles ||
+		restartRequired := newOpts.MaxConcurrentReconciles != old.MaxConcurrentReconciles ||
 			newOpts.RateLimitQPS != old.RateLimitQPS ||
-			newOpts.RateLimitBurst != old.RateLimitBurst {
-			if !dynamicController.RestartRequiredWarned {
-				msg := "rate-limit or max-concurrent-reconciles annotation changed; takes effect on next operator restart"
-				logging.Info(logger, msg, "promise", promise.GetName(),
-					"oldMCR", old.MaxConcurrentReconciles, "newMCR", newOpts.MaxConcurrentReconciles,
-					"oldQPS", old.RateLimitQPS, "newQPS", newOpts.RateLimitQPS,
-					"oldBurst", old.RateLimitBurst, "newBurst", newOpts.RateLimitBurst)
-				if recorder != nil {
-					recorder.Event(promise, v1.EventTypeWarning, "RuntimeOptionsRestartRequired", msg)
-				}
-				dynamicController.RestartRequiredWarned = true
+			newOpts.RateLimitBurst != old.RateLimitBurst
+
+		// ApplyRuntimeOptions stores the new snapshot under a write lock and
+		// reports true only if this caller flipped the warned flag from false
+		// to true, so we emit the event at most once per controller lifetime.
+		justWarned := dynamicController.ApplyRuntimeOptions(newOpts, restartRequired)
+		if justWarned {
+			msg := "rate-limit or max-concurrent-reconciles annotation changed; takes effect on next operator restart"
+			logging.Info(logger, msg, "promise", promise.GetName(),
+				"oldMCR", old.MaxConcurrentReconciles, "newMCR", newOpts.MaxConcurrentReconciles,
+				"oldQPS", old.RateLimitQPS, "newQPS", newOpts.RateLimitQPS,
+				"oldBurst", old.RateLimitBurst, "newBurst", newOpts.RateLimitBurst)
+			if recorder != nil {
+				recorder.Event(promise, v1.EventTypeWarning, "RuntimeOptionsRestartRequired", msg)
 			}
 		}
 
-		// Always refresh the snapshot so an operator restart picks up the latest values.
-		// The warned flag is independent of the snapshot — it lives only in memory and
-		// resets when the operator restarts (since DynamicResourceRequestController is rebuilt).
-		dynamicController.LastRuntimeOptions = newOpts
 		newOpts.EmitMetric(promise.GetName())
 
 		if dynamicController.WatchStopped {
