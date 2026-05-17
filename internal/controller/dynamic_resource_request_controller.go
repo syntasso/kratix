@@ -957,25 +957,27 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, l
 func (r *DynamicResourceRequestController) generateWorkflowsCounterStatus(logger logr.Logger, rr *unstructured.Unstructured, numOfPipelines int64) bool {
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 
-	desiredWorkflows := numOfPipelines
-	var desiredWorkflowsSucceeded int64
+	changed := false
 
-	if completedCond != nil && completedCond.Status == v1.ConditionTrue {
-		desiredWorkflowsSucceeded = numOfPipelines
+	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != numOfPipelines {
+		resourceutil.SetStatus(rr, logger, "workflows", numOfPipelines)
+		changed = true
 	}
 
-	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != desiredWorkflows ||
-		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != desiredWorkflowsSucceeded {
-
-		resourceutil.SetStatus(rr, logger,
-			"workflows", desiredWorkflows,
-			"workflowsSucceeded", desiredWorkflowsSucceeded,
-			"workflowsFailed", int64(0),
-		)
-
-		return true
+	// Only normalise workflowsSucceeded/workflowsFailed once the workflow has
+	// completed. While ConfigureWorkflowCompleted=False (in-progress or stuck),
+	// reconcileWorkflowStatus owns these counters; overriding them here causes
+	// an oscillation that fires a Status write every reconcile.
+	if completedCond == nil || completedCond.Status != v1.ConditionTrue {
+		return changed
 	}
-	return false
+
+	if resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != numOfPipelines {
+		resourceutil.SetStatus(rr, logger, "workflowsSucceeded", numOfPipelines, "workflowsFailed", int64(0))
+		changed = true
+	}
+
+	return changed
 }
 
 func (r *DynamicResourceRequestController) cleanupWorkflowCountersAndExecution(ctx context.Context, logger logr.Logger,

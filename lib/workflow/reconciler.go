@@ -416,6 +416,15 @@ func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1
 		return setFailedConditionAndEvents(opts, state, pipeline)
 	}
 
+	// Self-heal: if the last pipeline step has completed but ConfigureWorkflowCompleted
+	// is not True, set it in-memory so the terminal Status().Update persists it. This
+	// covers the case where the 10h ReconciliationInterval fired, setPipelineStartingStatus
+	// set the condition False, but the newly-created job never ran its work-creator.
+	if !opts.SkipConditions && state.pipelineIndex == len(opts.Resources)-1 &&
+		resourceutil.GetConfigureWorkflowCompletedConditionStatus(opts.parentObject) != v1.ConditionTrue {
+		resourceutil.MarkConfigureWorkflowAsCompleted(opts.logger, opts.parentObject)
+	}
+
 	return false, cleanup(opts, opts.namespace)
 }
 
