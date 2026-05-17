@@ -276,6 +276,8 @@ func main() {
 		// this setup is not recommended for production.
 	}
 
+	stripManagedFields := cache.TransformStripManagedFields()
+
 	mgrOptions := ctrl.Options{
 		Scheme:                 scheme.Scheme,
 		Metrics:                metricsServerOptions,
@@ -286,6 +288,27 @@ func main() {
 		LeaderElectionID:       "2743c979.kratix.io",
 		Controller: controllercfg.Controller{
 			SkipNameValidation: ptr.True(),
+		},
+		Cache: cache.Options{
+			DefaultTransform: stripManagedFields,
+			ByObject: map[client.Object]cache.ByObject{
+				// Strip the Job spec from the informer cache — Kratix only needs
+				// job status and labels. The spec (PodSpec, containers, env vars,
+				// volumes) accounts for ~400 MB. Managed fields are stripped first
+				// because ByObject transforms override DefaultTransform for that type.
+				&batchv1.Job{}: {
+					Transform: func(in interface{}) (interface{}, error) {
+						out, err := stripManagedFields(in)
+						if err != nil {
+							return out, err
+						}
+						if job, ok := out.(*batchv1.Job); ok {
+							job.Spec = batchv1.JobSpec{}
+						}
+						return out, nil
+					},
+				},
+			},
 		},
 	}
 
@@ -301,9 +324,7 @@ func main() {
 			os.Exit(1)
 		}
 		kratixSelector := labels.NewSelector().Add(*kratixLabel)
-		mgrOptions.Cache.ByObject = map[client.Object]cache.ByObject{
-			&corev1.Secret{}: {Label: kratixSelector},
-		}
+		mgrOptions.Cache.ByObject[&corev1.Secret{}] = cache.ByObject{Label: kratixSelector}
 	}
 
 	mgr, err := ctrl.NewManager(config, mgrOptions)

@@ -115,6 +115,14 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		"branch", g.GitServer.Branch,
 	)
 
+	// For non-directory-mode: compare desired content against the checked-out
+	// working tree before any disk IO. After Reset/Checkout the working tree
+	// reflects the remote, so externally deleted or modified files are detected.
+	if subDir == "" && !g.workingTreeDiffers(workloadsToCreate, workloadsToDelete) {
+		logging.Debug(logger, "working tree matches desired state; skipping write")
+		return "", nil
+	}
+
 	err := g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, logger)
 	if err != nil {
 		return "", err
@@ -218,6 +226,25 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 		logging.Debug(logger, "successfully deleted files from worktree")
 	}
 	return nil
+}
+
+// workingTreeDiffers returns true if the on-disk working tree differs from the
+// desired state — any file to create has different content, or any file to
+// delete still exists. Only valid when subDir is empty (no directory-level delete).
+func (g *GitWriter) workingTreeDiffers(workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) bool {
+	root := filepath.Join(g.Runner.Root(), g.Path)
+	for _, file := range workloadsToDelete {
+		if _, err := os.Lstat(filepath.Join(root, file)); err == nil {
+			return true
+		}
+	}
+	for _, file := range workloadsToCreate {
+		existing, err := os.ReadFile(filepath.Join(root, file.Filepath))
+		if err != nil || string(existing) != file.Content {
+			return true
+		}
+	}
+	return false
 }
 
 func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
