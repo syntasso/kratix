@@ -56,6 +56,7 @@ import (
 	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
 
 	"github.com/go-logr/logr"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -63,6 +64,7 @@ import (
 	_ "github.com/syntasso/kratix/internal/metrics" // register kratix-custom Prometheus instruments
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/fetchers"
+	"github.com/syntasso/kratix/lib/workflow"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -307,6 +309,21 @@ func main() {
 	mgr, err := ctrl.NewManager(config, mgrOptions)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
+		os.Exit(1)
+	}
+
+	if err = mgr.GetFieldIndexer().IndexField(context.Background(), &batchv1.Job{}, workflow.JobByPromiseAndResourceIndex,
+		func(rawObj client.Object) []string {
+			job := rawObj.(*batchv1.Job)
+			promiseName := job.GetLabels()[platformv1alpha1.PromiseNameLabel]
+			if promiseName == "" {
+				return nil
+			}
+			resourceName := job.GetLabels()[platformv1alpha1.ResourceNameLabel]
+			return []string{workflow.JobIndexKey(promiseName, resourceName)}
+		},
+	); err != nil {
+		setupLog.Error(err, "unable to create index", "index", workflow.JobByPromiseAndResourceIndex)
 		os.Exit(1)
 	}
 

@@ -8,7 +8,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/workflow"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -69,6 +71,13 @@ var _ = BeforeEach(func() {
 	fakeK8sClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(
 		&v1alpha1.Promise{},
 		uResource,
-	).Build()
+	).WithIndex(&batchv1.Job{}, workflow.JobByPromiseAndResourceIndex, func(rawObj client.Object) []string {
+		job := rawObj.(*batchv1.Job)
+		promiseName := job.GetLabels()[v1alpha1.PromiseNameLabel]
+		if promiseName == "" {
+			return nil
+		}
+		return []string{workflow.JobIndexKey(promiseName, job.GetLabels()[v1alpha1.ResourceNameLabel])}
+	}).Build()
 	logger = ctrl.Log.WithName("manager")
 })
