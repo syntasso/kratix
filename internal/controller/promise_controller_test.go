@@ -74,6 +74,9 @@ var _ = Describe("PromiseController", func() {
 			SkipNameValidation: ptr.True()})
 		m.GetCacheReturns(dynamicControllerCache)
 		eventRecorder = record.NewFakeRecorder(1024)
+		// Route manager-fetched recorders (e.g. r.Manager.GetEventRecorderFor("PromiseController"))
+		// through the same FakeRecorder so tests can observe those events too.
+		m.GetEventRecorderForReturns(eventRecorder)
 		reconciler = &controller.PromiseReconciler{
 			Client:                 fakeK8sClient,
 			ApiextensionsClient:    fakeApiExtensionsClient,
@@ -1168,6 +1171,83 @@ var _ = Describe("PromiseController", func() {
 					Expect(reusedController.UID).To(Equal(string(reinstalledPromise.GetUID())[:5]))
 					Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
 				})
+
+				When("a Promise's restart-required annotation (rate limit) is updated", func() {
+					It("emits a single RuntimeOptionsRestartRequired warning event and does not re-emit on subsequent reconciles", func() {
+						controllerName := promise.GetDynamicControllerName(logr.Logger{})
+						existingController := reconciler.StartedDynamicControllers[controllerName]
+						Expect(existingController).NotTo(BeNil())
+						Expect(existingController.RestartRequiredWarned).To(BeFalse())
+
+						By("draining any startup events from the recorder so we only observe restart-required signals")
+						for {
+							select {
+							case <-eventRecorder.Events:
+								continue
+							default:
+							}
+							break
+						}
+
+						By("annotating the Promise with a new rate-limit QPS")
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						ann := promise.GetAnnotations()
+						if ann == nil {
+							ann = map[string]string{}
+						}
+						ann[controller.AnnotationRateLimitQPS] = "75"
+						promise.SetAnnotations(ann)
+						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+						By("reconciling so the reuse branch emits exactly one warning event")
+						_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+						})
+						Expect(err).NotTo(HaveOccurred())
+
+						reusedController := reconciler.StartedDynamicControllers[controllerName]
+						Expect(reusedController).To(BeIdenticalTo(existingController))
+						Expect(reusedController.RestartRequiredWarned).To(BeTrue())
+						Expect(reusedController.LastRuntimeOptions.RateLimitQPS).To(Equal(float32(75)))
+
+						warningCount := 0
+					drain:
+						for {
+							select {
+							case e := <-eventRecorder.Events:
+								if strings.Contains(e, "RuntimeOptionsRestartRequired") {
+									warningCount++
+								}
+							default:
+								break drain
+							}
+						}
+						Expect(warningCount).To(Equal(1), "expected exactly one RuntimeOptionsRestartRequired event from the initial annotation change")
+
+						By("reconciling again with no annotation changes — must not re-emit")
+						for i := 0; i < 3; i++ {
+							_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+								funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+							})
+							Expect(err).NotTo(HaveOccurred())
+						}
+
+						additional := 0
+					drain2:
+						for {
+							select {
+							case e := <-eventRecorder.Events:
+								if strings.Contains(e, "RuntimeOptionsRestartRequired") {
+									additional++
+								}
+							default:
+								break drain2
+							}
+						}
+						Expect(additional).To(Equal(0), "subsequent reconciles must not re-emit the warning while RestartRequiredWarned is set")
+					})
+				})
+
 			})
 
 			When("the Promise has a delete workflow", func() {
@@ -2359,6 +2439,54 @@ func createAndUpdateWork(work *v1alpha1.Work, status metav1.ConditionStatus, mes
 	Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
 	Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
 }
+
+var _ = Describe("ResolvePromiseRuntimeOptions", func() {
+	var (
+		defaults controller.PromiseRuntimeDefaults
+		promise  *v1alpha1.Promise
+	)
+
+	BeforeEach(func() {
+		defaults = controller.PromiseRuntimeDefaults{
+			MaxConcurrentReconciles: 10,
+			RateLimitQPS:            0,
+			RateLimitBurst:          0,
+		}
+		promise = &v1alpha1.Promise{ObjectMeta: metav1.ObjectMeta{Name: "p1"}}
+	})
+
+	It("falls back to defaults when no annotations are set", func() {
+		opts, warnings := controller.ResolvePromiseRuntimeOptions(promise, defaults)
+		Expect(warnings).To(BeEmpty())
+		Expect(opts.MaxConcurrentReconciles).To(Equal(10))
+		Expect(opts.RateLimitQPS).To(Equal(float32(0)))
+		Expect(opts.RateLimitBurst).To(Equal(0))
+	})
+
+	It("applies all annotation overrides when valid", func() {
+		promise.SetAnnotations(map[string]string{
+			controller.AnnotationMaxConcurrentReconciles: "20",
+			controller.AnnotationRateLimitQPS:            "50",
+			controller.AnnotationRateLimitBurst:          "100",
+		})
+		opts, warnings := controller.ResolvePromiseRuntimeOptions(promise, defaults)
+		Expect(warnings).To(BeEmpty())
+		Expect(opts.MaxConcurrentReconciles).To(Equal(20))
+		Expect(opts.RateLimitQPS).To(Equal(float32(50)))
+		Expect(opts.RateLimitBurst).To(Equal(100))
+	})
+
+	It("reports warnings for invalid values and keeps defaults", func() {
+		promise.SetAnnotations(map[string]string{
+			controller.AnnotationMaxConcurrentReconciles: "negative-one",
+			controller.AnnotationRateLimitQPS:            "-5",
+		})
+		opts, warnings := controller.ResolvePromiseRuntimeOptions(promise, defaults)
+		Expect(warnings).To(HaveLen(2))
+		Expect(opts.MaxConcurrentReconciles).To(Equal(10))
+		Expect(opts.RateLimitQPS).To(Equal(float32(0)))
+	})
+})
 
 // aggregate events from the event recorder channel
 // increase event limits if we are sending more than 20

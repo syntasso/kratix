@@ -56,12 +56,15 @@ import (
 	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
 
 	"github.com/go-logr/logr"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
+	_ "github.com/syntasso/kratix/internal/metrics" // register kratix-custom Prometheus instruments
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/fetchers"
+	"github.com/syntasso/kratix/lib/workflow"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -117,9 +120,27 @@ var probeAddr string
 var secureMetrics bool
 var pprofAddr string
 var enableLeaderElection bool
+var dynamicRRMaxConcurrentReconciles int
+var dynamicRRFilterNoOpWrites bool
+var dynamicRRQPS float64
+var dynamicRRBurst int
+var kubeAPIQPS float64
+var kubeAPIBurst int
 
 // wrapConfigWithOTel wraps the Kubernetes REST config's HTTP transport with OpenTelemetry
 // instrumentation to automatically trace all Kubernetes API calls.
+// applyKubeAPIRateLimits overrides client-go's default QPS/Burst on the
+// supplied rest.Config. Pass-through when the corresponding flag is 0 so the
+// upstream defaults (20/30) remain in force.
+func applyKubeAPIRateLimits(cfg *rest.Config) {
+	if kubeAPIQPS > 0 {
+		cfg.QPS = float32(kubeAPIQPS)
+	}
+	if kubeAPIBurst > 0 {
+		cfg.Burst = kubeAPIBurst
+	}
+}
+
 func wrapConfigWithOTel(config *rest.Config) *rest.Config {
 	config.Wrap(func(rt http.RoundTripper) http.RoundTripper {
 		return otelhttp.NewTransport(rt,
@@ -145,6 +166,30 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.IntVar(&dynamicRRMaxConcurrentReconciles, "dynamic-rr-max-concurrent-reconciles", 0,
+		"MaxConcurrentReconciles for each spawned dynamic resource-request controller. "+
+			"0 means use controller-runtime's default (1). Set higher to parallelise reconciles "+
+			"of resource requests for the same Promise.")
+	flag.Float64Var(&dynamicRRQPS, "dynamic-rr-qps", 0,
+		"Default workqueue QPS budget per dynamic resource-request controller. "+
+			"0 disables the token-bucket overlay (exponential failure limiter only). "+
+			"Overridable per Promise via kratix.io/rate-limit-qps.")
+	flag.IntVar(&dynamicRRBurst, "dynamic-rr-burst", 0,
+		"Default workqueue burst per dynamic RR controller. "+
+			"Ignored when --dynamic-rr-qps=0. Defaults to 10× QPS when unset. "+
+			"Overridable per Promise via kratix.io/rate-limit-burst.")
+	flag.BoolVar(&dynamicRRFilterNoOpWrites, "dynamic-rr-filter-noop-writes", false,
+		"Filter Update events on the dynamic resource-request self-watch when the old and new "+
+			"objects are semantically identical (same generation, finalizers, labels, annotations, "+
+			"deletionTimestamp, and full status block). Reduces self-watch churn from status writes "+
+			"that re-assert an already-current state. Opt-in; off by default.")
+	flag.Float64Var(&kubeAPIQPS, "kube-api-qps", 0,
+		"Sustained queries-per-second for outbound Kubernetes API calls. "+
+			"0 means use client-go's default (20). Raise for clusters with many resource requests "+
+			"or controllers that issue several writes per reconcile.")
+	flag.IntVar(&kubeAPIBurst, "kube-api-burst", 0,
+		"Burst capacity for outbound Kubernetes API calls. "+
+			"0 means use client-go's default (30). Should be at least 2x kube-api-qps.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -159,6 +204,7 @@ func main() {
 	setupLog = ctrl.Log.WithName("setup")
 
 	kClientConfig := wrapConfigWithOTel(ctrl.GetConfigOrDie())
+	applyKubeAPIRateLimits(kClientConfig)
 	kClient, err := client.New(kClientConfig, client.Options{})
 	if err != nil {
 		panic(err)
@@ -208,6 +254,7 @@ func main() {
 	}
 
 	config := wrapConfigWithOTel(ctrl.GetConfigOrDie())
+	applyKubeAPIRateLimits(config)
 	apiextensionsClient := clientset.NewForConfigOrDie(config)
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   metricsAddr,
@@ -229,6 +276,8 @@ func main() {
 		// this setup is not recommended for production.
 	}
 
+	stripManagedFields := cache.TransformStripManagedFields()
+
 	mgrOptions := ctrl.Options{
 		Scheme:                 scheme.Scheme,
 		Metrics:                metricsServerOptions,
@@ -239,6 +288,27 @@ func main() {
 		LeaderElectionID:       "2743c979.kratix.io",
 		Controller: controllercfg.Controller{
 			SkipNameValidation: ptr.True(),
+		},
+		Cache: cache.Options{
+			DefaultTransform: stripManagedFields,
+			ByObject: map[client.Object]cache.ByObject{
+				// Strip the Job spec from the informer cache — Kratix only needs
+				// job status and labels. The spec (PodSpec, containers, env vars,
+				// volumes) accounts for ~400 MB. Managed fields are stripped first
+				// because ByObject transforms override DefaultTransform for that type.
+				&batchv1.Job{}: {
+					Transform: func(in interface{}) (interface{}, error) {
+						out, err := stripManagedFields(in)
+						if err != nil {
+							return out, err
+						}
+						if job, ok := out.(*batchv1.Job); ok {
+							job.Spec = batchv1.JobSpec{}
+						}
+						return out, nil
+					},
+				},
+			},
 		},
 	}
 
@@ -254,14 +324,27 @@ func main() {
 			os.Exit(1)
 		}
 		kratixSelector := labels.NewSelector().Add(*kratixLabel)
-		mgrOptions.Cache.ByObject = map[client.Object]cache.ByObject{
-			&corev1.Secret{}: {Label: kratixSelector},
-		}
+		mgrOptions.Cache.ByObject[&corev1.Secret{}] = cache.ByObject{Label: kratixSelector}
 	}
 
 	mgr, err := ctrl.NewManager(config, mgrOptions)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
+		os.Exit(1)
+	}
+
+	if err = mgr.GetFieldIndexer().IndexField(context.Background(), &batchv1.Job{}, workflow.JobByPromiseAndResourceIndex,
+		func(rawObj client.Object) []string {
+			job := rawObj.(*batchv1.Job)
+			promiseName := job.GetLabels()[platformv1alpha1.PromiseNameLabel]
+			if promiseName == "" {
+				return nil
+			}
+			resourceName := job.GetLabels()[platformv1alpha1.ResourceNameLabel]
+			return []string{workflow.JobIndexKey(promiseName, resourceName)}
+		},
+	); err != nil {
+		setupLog.Error(err, "unable to create index", "index", workflow.JobByPromiseAndResourceIndex)
 		os.Exit(1)
 	}
 
@@ -274,15 +357,22 @@ func main() {
 	}
 
 	if err = (&controller.PromiseReconciler{
-		ApiextensionsClient:    apiextensionsClient.ApiextensionsV1(),
-		Client:                 mgr.GetClient(),
-		Log:                    ctrl.Log.WithName("controllers").WithName("Promise"),
-		Manager:                mgr,
-		Scheme:                 mgr.GetScheme(),
-		NumberOfJobsToKeep:     getNumJobsToKeep(kratixConfig),
-		ReconciliationInterval: getRegularReconciliationInterval(kratixConfig),
-		EventRecorder:          mgr.GetEventRecorderFor("PromiseController"),
-		PromiseUpgrade:         promiseUpgradeEnabled(kratixConfig),
+		ApiextensionsClient:              apiextensionsClient.ApiextensionsV1(),
+		Client:                           mgr.GetClient(),
+		Log:                              ctrl.Log.WithName("controllers").WithName("Promise"),
+		Manager:                          mgr,
+		Scheme:                           mgr.GetScheme(),
+		NumberOfJobsToKeep:               getNumJobsToKeep(kratixConfig),
+		ReconciliationInterval:           getRegularReconciliationInterval(kratixConfig),
+		EventRecorder:                    mgr.GetEventRecorderFor("PromiseController"),
+		PromiseUpgrade:                   promiseUpgradeEnabled(kratixConfig),
+		DynamicRRMaxConcurrentReconciles: dynamicRRMaxConcurrentReconciles,
+		DynamicRRFilterNoOpWrites:        dynamicRRFilterNoOpWrites,
+		PromiseRuntimeDefaults: controller.PromiseRuntimeDefaults{
+			MaxConcurrentReconciles: dynamicRRMaxConcurrentReconciles,
+			RateLimitQPS:            float32(dynamicRRQPS),
+			RateLimitBurst:          dynamicRRBurst,
+		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
 		os.Exit(1)

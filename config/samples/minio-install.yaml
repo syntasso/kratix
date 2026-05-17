@@ -50,6 +50,13 @@ spec:
           args: ["server", "/data"]
           ports:
             - containerPort: 9000
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 4Gi
           volumeMounts:
             - mountPath: /data
               name: data-volume

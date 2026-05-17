@@ -28,7 +28,9 @@ import (
 	"github.com/syntasso/kratix/lib/objectutil"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -81,6 +83,21 @@ type PromiseReconciler struct {
 	ReconciliationInterval    time.Duration
 	EventRecorder             record.EventRecorder
 	PromiseUpgrade            bool
+	// DynamicRRMaxConcurrentReconciles caps the number of in-flight reconciles
+	// per spawned dynamic resource-request controller. 0 means use
+	// controller-runtime's default of 1 (no parallelism).
+	DynamicRRMaxConcurrentReconciles int
+	// DynamicRRFilterNoOpWrites, when true, installs a predicate on the
+	// dynamic resource-request controller's self-watch that filters Update
+	// events whose old and new objects are semantically identical (same
+	// generation, finalizers, labels, annotations, deletionTimestamp, and
+	// full status block). Reduces self-watch churn from status writes that
+	// re-assert an already-current state without affecting state-machine
+	// progress (which still observes meaningful status mutations).
+	DynamicRRFilterNoOpWrites bool
+	// PromiseRuntimeDefaults are applied to every dynamic resource-request
+	// controller. Per-Promise annotations override individual fields.
+	PromiseRuntimeDefaults PromiseRuntimeDefaults
 }
 
 const (
@@ -1143,6 +1160,36 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.PromiseUpgradeFeatFlag = r.PromiseUpgrade
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
+		newOpts, warnings := ResolvePromiseRuntimeOptions(promise, r.PromiseRuntimeDefaults)
+		recorder := r.Manager.GetEventRecorderFor("PromiseController")
+		emitRuntimeOptionsWarnings(recorder, logger, promise, warnings)
+
+		old, _ := dynamicController.SnapshotRuntimeOptions()
+
+		// Rate-limit + MCR changes require an operator restart.
+		// RateLimitQPS is parsed from the same annotation string on every reconcile so
+		// exact float equality is safe.
+		restartRequired := newOpts.MaxConcurrentReconciles != old.MaxConcurrentReconciles ||
+			newOpts.RateLimitQPS != old.RateLimitQPS ||
+			newOpts.RateLimitBurst != old.RateLimitBurst
+
+		// ApplyRuntimeOptions stores the new snapshot under a write lock and
+		// reports true only if this caller flipped the warned flag from false
+		// to true, so we emit the event at most once per controller lifetime.
+		justWarned := dynamicController.ApplyRuntimeOptions(newOpts, restartRequired)
+		if justWarned {
+			msg := "rate-limit or max-concurrent-reconciles annotation changed; takes effect on next operator restart"
+			logging.Info(logger, msg, "promise", promise.GetName(),
+				"oldMCR", old.MaxConcurrentReconciles, "newMCR", newOpts.MaxConcurrentReconciles,
+				"oldQPS", old.RateLimitQPS, "newQPS", newOpts.RateLimitQPS,
+				"oldBurst", old.RateLimitBurst, "newBurst", newOpts.RateLimitBurst)
+			if recorder != nil {
+				recorder.Event(promise, v1.EventTypeWarning, "RuntimeOptionsRestartRequired", msg)
+			}
+		}
+
+		newOpts.EmitMetric(promise.GetName())
+
 		if dynamicController.WatchStopped {
 			logging.Debug(logger, "restarting dynamic controller watch", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
 			if err := r.restartDynamicControllerWatch(dynamicController); err != nil {
@@ -1153,6 +1200,11 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		return nil
 	}
 	logging.Info(logger, "starting dynamic controller")
+
+	runtimeOpts, warnings := ResolvePromiseRuntimeOptions(promise, r.PromiseRuntimeDefaults)
+	emitRuntimeOptionsWarnings(r.Manager.GetEventRecorderFor("PromiseController"), logger, promise, warnings)
+	runtimeOpts.EmitMetric(promise.GetName())
+	rateLimiter := BuildPromiseRateLimiter(runtimeOpts.RateLimitQPS, runtimeOpts.RateLimitBurst)
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
@@ -1171,21 +1223,32 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		ReconciliationInterval:      r.ReconciliationInterval,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
 		PromiseUpgradeFeatFlag:      r.PromiseUpgrade,
+		SharedResourceCache:         workflow.NewSharedResourceCache(),
+		LastRuntimeOptions:          runtimeOpts,
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(*rrGVK)
 
-	dynamicController, err := ctrl.NewControllerManagedBy(r.Manager).
-		For(unstructuredCRD).
+	var primaryPredicates []predicate.Predicate
+	if r.DynamicRRFilterNoOpWrites {
+		primaryPredicates = append(primaryPredicates, dynamicRRNoOpWriteFilter())
+	}
+	dynamicControllerBuilder := ctrl.NewControllerManagedBy(r.Manager).
+		For(unstructuredCRD, builder.WithPredicates(primaryPredicates...))
+	mcr := runtimeOpts.MaxConcurrentReconciles
+	if mcr <= 0 {
+		mcr = 1 // controller-runtime's default
+	}
+	dynamicControllerBuilder = dynamicControllerBuilder.WithOptions(controller.Options{
+		MaxConcurrentReconciles: mcr,
+		RateLimiter:             rateLimiter,
+	})
+	dynamicController, err := dynamicControllerBuilder.
 		Watches(
 			&batchv1.Job{},
 			handler.EnqueueRequestsFromMapFunc(r.jobEventHandler(promise)),
-			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
-				// Only watch Jobs that are managed by Kratix
-				labels := obj.GetLabels()
-				return labels != nil && labels[v1alpha1.ManagedByLabel] == v1alpha1.ManagedByLabelValue
-			})),
+			builder.WithPredicates(kratixManagedJobPredicate()),
 		).
 		Watches(
 			&v1alpha1.Work{},
@@ -1203,6 +1266,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 					},
 				}}
 			}),
+			builder.WithPredicates(dynamicRRWorkPredicate()),
 		).
 		Watches(
 			&v1alpha1.ResourceBinding{},
@@ -1219,7 +1283,8 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 						Name:      rrName,
 					},
 				}}
-			})).
+			}),
+			builder.WithPredicates(dynamicRRResourceBindingPredicate())).
 		Build(dynamicResourceRequestController)
 	if err != nil {
 		return err
@@ -2143,4 +2208,175 @@ func (r *PromiseReconciler) getPreviousRevision(ctx context.Context, promise *v1
 		return nil, false, nil
 	}
 	return previousRevision, true, nil
+}
+
+// dynamicRRNoOpWriteFilter is a watch predicate for the dynamic resource-request
+// controller's self-watch. It filters Update events whose old and new objects
+// are semantically identical from the controller's perspective — i.e. nothing
+// the reconcile reacts to differs.
+//
+// Such events arise when something writes the resource without changing
+// anything meaningful — most commonly a Status().Update that re-asserts the
+// same conditions, or a metadata-only client side update that didn't actually
+// mutate anything. They re-enqueue the RR through the self-watch, the
+// reconcile re-runs, does a no-op, and exits — pure waste at scale.
+//
+// Important: this predicate is conservative about status changes. A status
+// mutation that only flips a condition's lastTransitionTime DOES propagate
+// (the timestamp differs → status DeepEqual is false → event passes). The win
+// comes from filtering writes that re-assert an already-current state, not
+// from optimising every transition. Earlier attempts that filtered all
+// status changes (only checking generation/finalizers/labels/annotations/
+// deletionTimestamp) broke the state machine because every legitimate state
+// transition is driven by a Status().Update that the next reconcile must
+// observe — see docs/perf-rig-findings.md for the empirical proof.
+//
+// Apply via `For(unstructuredCRD, builder.WithPredicates(...))` so it scopes
+// to the RR self-watch only. The Job/Work/ResourceBinding Watches must
+// continue firing unconditionally; this predicate does not affect them.
+func dynamicRRNoOpWriteFilter() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return true },
+		DeleteFunc:  func(event.DeleteEvent) bool { return true },
+		GenericFunc: func(event.GenericEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldU, oldOK := e.ObjectOld.(*unstructured.Unstructured)
+			newU, newOK := e.ObjectNew.(*unstructured.Unstructured)
+			if !oldOK || !newOK {
+				// Defensive: if the type isn't unstructured we cannot safely
+				// diff status, so let the event through.
+				return true
+			}
+			if oldU.GetGeneration() != newU.GetGeneration() {
+				return true
+			}
+			if !reflect.DeepEqual(oldU.GetFinalizers(), newU.GetFinalizers()) {
+				return true
+			}
+			if !reflect.DeepEqual(oldU.GetLabels(), newU.GetLabels()) {
+				return true
+			}
+			if !reflect.DeepEqual(oldU.GetAnnotations(), newU.GetAnnotations()) {
+				return true
+			}
+			if (oldU.GetDeletionTimestamp() == nil) != (newU.GetDeletionTimestamp() == nil) {
+				return true
+			}
+			if !reflect.DeepEqual(oldU.Object["status"], newU.Object["status"]) {
+				return true
+			}
+			return false
+		},
+	}
+}
+
+// dynamicRRResourceBindingPredicate filters ResourceBinding events that trigger
+// a resource request reconcile. The RR controller only reads ResourceBinding
+// when the PromiseUpgrade feature flag is enabled — and even then only
+// Spec.Version and Status.LastAppliedVersion. Other writes (label updates,
+// metadata churn) re-enqueue the RR for no useful work.
+func dynamicRRResourceBindingPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return true },
+		DeleteFunc:  func(event.DeleteEvent) bool { return true },
+		GenericFunc: func(event.GenericEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldRB, oldOK := e.ObjectOld.(*v1alpha1.ResourceBinding)
+			newRB, newOK := e.ObjectNew.(*v1alpha1.ResourceBinding)
+			if !oldOK || !newOK {
+				return true
+			}
+			if oldRB.GetGeneration() != newRB.GetGeneration() {
+				return true
+			}
+			if (oldRB.GetDeletionTimestamp() == nil) != (newRB.GetDeletionTimestamp() == nil) {
+				return true
+			}
+			if oldRB.Spec.Version != newRB.Spec.Version {
+				return true
+			}
+			if oldRB.Status.LastAppliedVersion != newRB.Status.LastAppliedVersion {
+				return true
+			}
+			return false
+		},
+	}
+}
+
+// dynamicRRWorkPredicate filters Work events that trigger a resource request
+// reconcile. The RR only reads Work.Status.Conditions (specifically the Ready
+// condition's message), so transient writes that don't touch conditions —
+// spec.lastExecutionTimestamp updates, WorkPlacement count refreshes, status
+// counter updates — produce reconciles that do no work.
+//
+// We let through Create, Delete, generation changes, finalizer changes,
+// deletionTimestamp transitions, and any change to Status.Conditions.
+func dynamicRRWorkPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return true },
+		DeleteFunc:  func(event.DeleteEvent) bool { return true },
+		GenericFunc: func(event.GenericEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldW, oldOK := e.ObjectOld.(*v1alpha1.Work)
+			newW, newOK := e.ObjectNew.(*v1alpha1.Work)
+			if !oldOK || !newOK {
+				return true
+			}
+			if oldW.GetGeneration() != newW.GetGeneration() {
+				return true
+			}
+			if !reflect.DeepEqual(oldW.GetFinalizers(), newW.GetFinalizers()) {
+				return true
+			}
+			if (oldW.GetDeletionTimestamp() == nil) != (newW.GetDeletionTimestamp() == nil) {
+				return true
+			}
+			if !reflect.DeepEqual(oldW.Status.Conditions, newW.Status.Conditions) {
+				return true
+			}
+			return false
+		},
+	}
+}
+
+// kratixManagedJobPredicate filters Job events that trigger a resource request
+// reconcile. It only allows through events that change something the RR
+// controller cares about — Job creation, deletion, generation changes (spec
+// mutation), deletionTimestamp transitions, and Job condition changes
+// (Complete/Failed/Suspended). All other Update events (pod-phase noise,
+// status.Active toggles, status.Ready, startTime/completionTime alone) are
+// dropped because they cause re-enqueues that produce no-op reconciles.
+//
+// The kratix-managed-by label check is applied to every event so non-kratix
+// Jobs never enqueue the RR.
+func kratixManagedJobPredicate() predicate.Predicate {
+	managedByKratix := func(obj client.Object) bool {
+		labels := obj.GetLabels()
+		return labels != nil && labels[v1alpha1.ManagedByLabel] == v1alpha1.ManagedByLabelValue
+	}
+	return predicate.Funcs{
+		CreateFunc:  func(e event.CreateEvent) bool { return managedByKratix(e.Object) },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return managedByKratix(e.Object) },
+		GenericFunc: func(e event.GenericEvent) bool { return managedByKratix(e.Object) },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if !managedByKratix(e.ObjectNew) {
+				return false
+			}
+			oldJob, oldOK := e.ObjectOld.(*batchv1.Job)
+			newJob, newOK := e.ObjectNew.(*batchv1.Job)
+			if !oldOK || !newOK {
+				return true
+			}
+			if oldJob.GetGeneration() != newJob.GetGeneration() {
+				return true
+			}
+			if (oldJob.GetDeletionTimestamp() == nil) != (newJob.GetDeletionTimestamp() == nil) {
+				return true
+			}
+			if !reflect.DeepEqual(oldJob.Status.Conditions, newJob.Status.Conditions) {
+				return true
+			}
+			return false
+		},
+	}
 }

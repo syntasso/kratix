@@ -121,7 +121,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 			}
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, nil
+		// Fall through to schedule work in the same reconcile.
 	}
 
 	originalAnnotations := cloneStringMap(work.GetAnnotations())

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"sync"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -53,6 +54,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crcontroller "sigs.k8s.io/controller-runtime/pkg/controller"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -82,7 +84,56 @@ type DynamicResourceRequestController struct {
 	NumberOfJobsToKeep          int
 	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
-	PromiseUpgradeFeatFlag      bool
+	// mu guards the runtime-options fields below, which are mutated by the
+	// PromiseReconciler reuse path (`ensureDynamicControllerIsStarted`) while
+	// Reconcile workers may be reading them concurrently.
+	//
+	// The remaining ambient fields (Client, Scheme, GVK, CRD, Log, UID,
+	// EventRecorder, etc.) are also rewritten on the reuse path; those have
+	// been racy since before this branch and are not in scope for this fix.
+	// Migrating them to mu requires touching ~97 read sites and is a separate
+	// piece of work.
+	mu sync.RWMutex
+	// LastRuntimeOptions is the most recently applied PromiseRuntimeOptions
+	// snapshot. The reuse branch compares the next resolved set against this
+	// to decide which kinds of changes are restart-required (rate-limit, MCR).
+	// Read/write under mu.
+	LastRuntimeOptions PromiseRuntimeOptions
+	// RestartRequiredWarned is set once the reuse branch has emitted a
+	// RuntimeOptionsRestartRequired warning event for the current in-memory
+	// controller. Prevents per-reconcile event spam while the user is in the
+	// "annotated but not yet restarted" state. Resets on operator restart.
+	// Read/write under mu.
+	RestartRequiredWarned  bool
+	PromiseUpgradeFeatFlag bool
+	// SharedResourceCache deduplicates Apply operations for pipeline-shared
+	// resources (ServiceAccount, RBAC, scheduling ConfigMap) across reconciles
+	// of different resource requests under the same Promise.
+	SharedResourceCache *workflow.SharedResourceCache
+}
+
+// SnapshotRuntimeOptions returns the most recently applied runtime-options
+// snapshot under a read lock, so callers can compare against newly resolved
+// options without racing the writer in ensureDynamicControllerIsStarted.
+func (r *DynamicResourceRequestController) SnapshotRuntimeOptions() (PromiseRuntimeOptions, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.LastRuntimeOptions, r.RestartRequiredWarned
+}
+
+// ApplyRuntimeOptions stores new runtime options under a write lock and
+// returns whether the warned flag transitioned from false to true (i.e. this
+// caller should emit the warning event). The warned flag is sticky for the
+// lifetime of the controller process.
+func (r *DynamicResourceRequestController) ApplyRuntimeOptions(opts PromiseRuntimeOptions, restartRequired bool) (justWarned bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if restartRequired && !r.RestartRequiredWarned {
+		r.RestartRequiredWarned = true
+		justWarned = true
+	}
+	r.LastRuntimeOptions = opts
+	return justWarned
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
@@ -158,12 +209,15 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, rr, msg)
 	}
 
+	// Set the promise-name label in-memory if missing. The actual API write
+	// is bundled with the finalizer Update below (or, if finalizers are
+	// already present, persisted directly here) — saving an entire
+	// reconcile cycle on every freshly-created RR.
 	resourceLabels := getResourceLabels(rr)
-	if resourceLabels[v1alpha1.PromiseNameLabel] != r.PromiseIdentifier {
-		if err := r.setPromiseLabels(ctx, promise.GetName(), rr, resourceLabels, logger); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
+	promiseLabelMissing := resourceLabels[v1alpha1.PromiseNameLabel] != r.PromiseIdentifier
+	if promiseLabelMissing {
+		resourceLabels[v1alpha1.PromiseNameLabel] = r.PromiseIdentifier
+		rr.SetLabels(resourceLabels)
 	}
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
@@ -206,11 +260,28 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if resourceutil.FinalizersAreMissing(rr, r.getRRFinalizers()) {
+		finCtx, finSpan := otel.Tracer("kratix/dynamicRR").Start(ctx, "rr.addFinalizers")
+		opts.ctx = finCtx
+		// addFinalizers does a metadata Update, which also persists the
+		// promise-name label change we may have made above.
 		err := addFinalizers(opts, rr, r.getRRFinalizers())
-		if apierrors.IsConflict(err) {
-			return fastRequeue, nil
+		finSpan.End()
+		opts.ctx = ctx
+		if err != nil {
+			if apierrors.IsConflict(err) {
+				return fastRequeue, nil
+			}
+			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, err
+	} else if promiseLabelMissing {
+		// Finalizers were already present, so addFinalizers didn't run and
+		// we still need to persist the promise-name label.
+		if err := r.Client.Update(ctx, rr); err != nil {
+			if apierrors.IsConflict(err) {
+				return fastRequeue, nil
+			}
+			return ctrl.Result{}, err
+		}
 	}
 
 	if r.PromiseUpgradeFeatFlag {
@@ -245,8 +316,14 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	if updated, err := r.ensureConfigureWorkflowStatus(ctx, logger, rr, pipelineResources); updated || err != nil {
-		return ctrl.Result{}, err
+	ensureCtx, ensureSpan := otel.Tracer("kratix/dynamicRR").Start(ctx, "rr.ensureConfigureWorkflowStatus")
+	_, ensureErr := r.ensureConfigureWorkflowStatus(ensureCtx, logger, rr, pipelineResources)
+	ensureSpan.End()
+	if ensureErr != nil {
+		if apierrors.IsConflict(ensureErr) {
+			return fastRequeue, nil
+		}
+		return ctrl.Result{}, ensureErr
 	}
 
 	if passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(ctx, logger, rr,
@@ -272,6 +349,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		r.NumberOfJobsToKeep,
 		namespace,
 	)
+	jobOpts.SharedResourceCache = r.SharedResourceCache
+	jobOpts.SharedResourceScope = string(promise.GetUID())
 
 	passiveRequeue, err := reconcileConfigure(jobOpts)
 	if err != nil {
@@ -282,8 +361,22 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
+	// terminalStatusDirty tracks in-memory status mutations that aren't yet
+	// persisted, so we can coalesce them into a single Status().Update at the
+	// end of Reconcile instead of writing once per mutation. Each write fires
+	// the RR self-watch and re-enqueues this reconcile, so coalescing
+	// directly reduces reconciles-per-RR.
+	//
+	// Note: B17 (observedGeneration) is *not* coalesced into this — its
+	// write-and-return is part of the controller's external contract (clients
+	// rely on the reconcile that bumps observedGeneration returning ctrl.Result{}
+	// rather than the longer-tail nextReconciliation result). Changing it
+	// breaks `dynamic_resource_request_controller_test.go:406`.
+	terminalStatusDirty := false
+
 	if rr.GetGeneration() != resourceutil.GetObservedGeneration(rr) {
-		return ctrl.Result{}, updateObservedGeneration(rr, opts, logger)
+		markObservedGeneration(rr, logger)
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
@@ -295,6 +388,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 	if statusUpdated {
+		// ensureResourceStatus already wrote rr (with any prior in-memory marks
+		// folded in). Nothing left to persist.
 		return ctrl.Result{}, nil
 	}
 
@@ -308,20 +403,28 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if workflowsCompletedSuccessfully(workflowCompletedCondition) {
 		if shouldUpdateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr) {
-			if err := updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts); err != nil {
+			if err := markLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts); err != nil {
 				return ctrl.Result{}, err
 			}
-			return ctrl.Result{}, nil
+			terminalStatusDirty = true
+			// Fall through to the terminal write below; do not return.
 		}
-		return r.nextReconciliation(logger), nil
+		if !terminalStatusDirty {
+			return r.nextReconciliation(logger), nil
+		}
+		// terminalStatusDirty == true: fall through to terminal write, then
+		// the caller's controller-runtime backoff handles re-entry.
 	}
 
-	if r.PromiseUpgradeFeatFlag {
-		if r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevisionUsed) {
-			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
-		}
-	}
+	// Note: a previous version of this controller also called
+	// updatePromiseVersionStatus here and wrote status if it returned true.
+	// That call was a duplicate of the same sub-mutator invoked inside
+	// generateResourceStatus (see ensureResourceStatus above), running twice
+	// per reconcile on the same inputs. The B19 aggregator covers it.
 
+	if terminalStatusDirty {
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -441,6 +544,14 @@ func (r *DynamicResourceRequestController) ensureConfigureWorkflowStatus(
 	statusChanged := false
 	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != int64(len(pipelineResources)) {
 		resourceutil.SetStatus(rr, logger, "workflows", int64(len(pipelineResources)))
+		statusChanged = true
+	}
+
+	// Initialise workflowsFailed=0 on first reconcile so the workflow library's
+	// reconcileWorkflowStatus does not have to issue a separate Status().Update
+	// solely to undrift the counter on a brand-new RR.
+	if resourceutil.GetWorkflowsCounterStatus(rr, "workflowsFailed") == -1 {
+		resourceutil.SetStatus(rr, logger, "workflowsFailed", int64(0))
 		statusChanged = true
 	}
 
@@ -710,25 +821,27 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, l
 func (r *DynamicResourceRequestController) generateWorkflowsCounterStatus(logger logr.Logger, rr *unstructured.Unstructured, numOfPipelines int64) bool {
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 
-	desiredWorkflows := numOfPipelines
-	var desiredWorkflowsSucceeded int64
+	changed := false
 
-	if completedCond != nil && completedCond.Status == v1.ConditionTrue {
-		desiredWorkflowsSucceeded = numOfPipelines
+	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != numOfPipelines {
+		resourceutil.SetStatus(rr, logger, "workflows", numOfPipelines)
+		changed = true
 	}
 
-	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != desiredWorkflows ||
-		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != desiredWorkflowsSucceeded {
-
-		resourceutil.SetStatus(rr, logger,
-			"workflows", desiredWorkflows,
-			"workflowsSucceeded", desiredWorkflowsSucceeded,
-			"workflowsFailed", int64(0),
-		)
-
-		return true
+	// Only normalise workflowsSucceeded/workflowsFailed once the workflow has
+	// completed. While ConfigureWorkflowCompleted=False (in-progress or stuck),
+	// reconcileWorkflowStatus owns these counters; overriding them here causes
+	// an oscillation that fires a Status write every reconcile.
+	if completedCond == nil || completedCond.Status != v1.ConditionTrue {
+		return changed
 	}
-	return false
+
+	if resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != numOfPipelines {
+		resourceutil.SetStatus(rr, logger, "workflowsSucceeded", numOfPipelines, "workflowsFailed", int64(0))
+		changed = true
+	}
+
+	return changed
 }
 
 func (r *DynamicResourceRequestController) cleanupWorkflowCountersAndExecution(ctx context.Context, logger logr.Logger,
@@ -786,6 +899,8 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		}
 
 		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
+		jobOpts.SharedResourceCache = r.SharedResourceCache
+		jobOpts.SharedResourceScope = string(promise.GetUID())
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
 			if errors.Is(err, workflow.ErrDeletePipelineFailed) {
@@ -806,35 +921,43 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		if err = o.client.Update(o.ctx, resourceRequest); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, nil
+		// Fall through to attempt subsequent finalizer cleanups in the same
+		// reconcile. Each delete* helper is responsible for removing its own
+		// finalizer when its cleanup is complete; if not yet complete, we
+		// requeue at the end.
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
-		err := r.deleteWork(o, resourceRequest, workFinalizer, namespace)
-		if err != nil {
+		if err := r.deleteWork(o, resourceRequest, workFinalizer, namespace); err != nil {
 			return ctrl.Result{}, err
 		}
-		return fastRequeue, nil
+		// Fall through. deleteWork removes the finalizer iff no Works remain.
+		// If Works are still being deleted, the finalizer stays and we'll
+		// requeue at the end.
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, removeAllWorkflowJobsFinalizer) {
-		err := r.deleteWorkflows(o, resourceRequest, removeAllWorkflowJobsFinalizer)
-		if err != nil {
+		if err := r.deleteWorkflows(o, resourceRequest, removeAllWorkflowJobsFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
-		return fastRequeue, nil
+		// Fall through. deleteWorkflows removes the finalizer iff all Jobs
+		// matching its label sets are gone.
 	}
 
 	if r.PromiseUpgradeFeatFlag {
 		if controllerutil.ContainsFinalizer(resourceRequest, resourceBindingFinalizer) {
-			err := r.deleteResourceBinding(o, resourceRequest, promise, resourceBindingFinalizer)
-			if err != nil {
+			if err := r.deleteResourceBinding(o, resourceRequest, promise, resourceBindingFinalizer); err != nil {
 				return ctrl.Result{}, err
 			}
-			return fastRequeue, nil
 		}
 	}
 
+	// If all finalizers were removed in this reconcile, no requeue is needed —
+	// kubernetes will GC the RR. Otherwise, requeue to retry the cleanup paths
+	// that left their finalizers in place.
+	if resourceutil.FinalizersAreDeleted(resourceRequest, r.getRRFinalizers()) {
+		return ctrl.Result{}, nil
+	}
 	return fastRequeue, nil
 }
 
@@ -1171,27 +1294,17 @@ func fetchRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promi
 	return &revisions[0], nil
 }
 
-func updateObservedGeneration(
-	rr *unstructured.Unstructured, opts opts, logger logr.Logger,
-) error {
+// markObservedGeneration sets the observedGeneration field on rr in memory.
+// The actual API write is deferred to the single terminal Status().Update
+// at the end of Reconcile so callers can coalesce it with other status mutations.
+func markObservedGeneration(rr *unstructured.Unstructured, logger logr.Logger) {
 	resourceutil.SetStatus(rr, logger, "observedGeneration", rr.GetGeneration())
-	return opts.client.Status().Update(opts.ctx, rr)
 }
 
 func shouldForcePipelineRun(completedCond *clusterv1.Condition, reconciliationInterval time.Duration) bool {
 	return completedCond != nil &&
 		completedCond.Status == v1.ConditionTrue &&
 		time.Since(completedCond.LastTransitionTime.Time) > reconciliationInterval
-}
-
-func (r *DynamicResourceRequestController) setPromiseLabels(ctx context.Context, promiseName string, rr *unstructured.Unstructured, resourceLabels map[string]string, logger logr.Logger) error {
-	resourceLabels[v1alpha1.PromiseNameLabel] = promiseName
-	rr.SetLabels(resourceLabels)
-	if err := r.Client.Update(ctx, rr); err != nil {
-		logging.Error(logger, err, "failed updating resource request with promise label")
-		return err
-	}
-	return nil
 }
 
 func (r *DynamicResourceRequestController) getRRFinalizers() []string {
@@ -1221,13 +1334,13 @@ func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 	return lastTransitionTime != lastSuccessfulLegacy || lastTransitionTime != lastSuccessfulKratix
 }
 
-func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts) error {
+// markLastSuccessfulConfigureWorkflowTime sets the success-timestamp fields on
+// rr in memory. The actual API write is deferred to the single terminal
+// Status().Update at the end of Reconcile.
+func markLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts) error {
 	lastTransitionTime := workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339)
 	resourceutil.SetStatus(rr, opts.logger, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime)
-	if err := resourceutil.SetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime); err != nil {
-		return err
-	}
-	return opts.client.Status().Update(opts.ctx, rr)
+	return resourceutil.SetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime)
 }
 
 func nextRetryAtForResource(rr *unstructured.Unstructured) (time.Time, error) {

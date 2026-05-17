@@ -277,6 +277,16 @@ func (r *WorkPlacementReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func workPlacementReconcilePredicate() predicate.Funcs {
 	return predicate.Funcs{
+		// On controller restart the informer cache fires a Create event for every
+		// existing object. Skip WPs that are already healthy — they don't need to
+		// re-write to the state store. Unhealthy ones still reconcile normally.
+		CreateFunc: func(e event.CreateEvent) bool {
+			wp, ok := e.Object.(*v1alpha1.WorkPlacement)
+			if !ok {
+				return true
+			}
+			return !isWorkPlacementHealthy(wp)
+		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldDeletionTimestamp := e.ObjectOld.GetDeletionTimestamp()
 			newDeletionTimestamp := e.ObjectNew.GetDeletionTimestamp()
@@ -285,6 +295,21 @@ func workPlacementReconcilePredicate() predicate.Funcs {
 			return e.ObjectNew.GetGeneration() != e.ObjectOld.GetGeneration() || deletionStarted
 		},
 	}
+}
+
+// isWorkPlacementHealthy returns true when the WP has been successfully written
+// and is ready — meaning it doesn't need to reconcile unless its spec changes.
+func isWorkPlacementHealthy(wp *v1alpha1.WorkPlacement) bool {
+	var writeSucceeded, ready bool
+	for _, cond := range wp.Status.Conditions {
+		if cond.Type == v1alpha1.WriteSucceededConditionType && cond.Status == "True" {
+			writeSucceeded = true
+		}
+		if cond.Type == "Ready" && cond.Status == "True" {
+			ready = true
+		}
+	}
+	return writeSucceeded && ready
 }
 
 func (w *workPlacementReconcileContext) checkWorkPlacementFinalizers() []string {
@@ -524,7 +549,9 @@ func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (str
 
 	telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultSuccess, metricAttrs...)
 	w.setVersionID(versionID)
-	w.publishWriteEvent("WorkloadsWrittenToStateStore", versionID, nil)
+	if versionID != "" {
+		w.publishWriteEvent("WorkloadsWrittenToStateStore", versionID, nil)
+	}
 
 	return versionID, ctrl.Result{}, nil
 }

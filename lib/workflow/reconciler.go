@@ -2,9 +2,13 @@ package workflow
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -14,15 +18,21 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/resourceutil"
+	"go.opentelemetry.io/otel"
 	"gopkg.in/yaml.v2"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// JobByPromiseAndResourceIndex is the field index name for Jobs keyed by promise+resource.
+// Register this index via mgr.GetFieldIndexer().IndexField on batchv1.Job at startup.
+const JobByPromiseAndResourceIndex = "kratix.workflow.job.promiseResource"
 
 type Opts struct {
 	ctx          context.Context
@@ -38,13 +48,122 @@ type Opts struct {
 
 	// Set by other controllers that use the Workflow engine
 	SkipConditions bool
+
+	// SharedResourceCache, if non-nil, deduplicates apply operations for
+	// pipeline resources whose names are deterministic per Promise+Pipeline
+	// (ServiceAccount, RBAC, scheduling ConfigMap). The cache is consulted
+	// before each Create, and updated after a successful apply.
+	SharedResourceCache *SharedResourceCache
+
+	// SharedResourceScope namespaces cache entries so that a Promise being
+	// deleted and recreated (same name, different UID) cannot reuse the old
+	// Promise's "Applied" markers. Callers should pass the owning Promise UID.
+	SharedResourceScope string
+}
+
+// SharedResourceCache tracks which pipeline-shared resources the controller has
+// already successfully applied, so concurrent reconciles across many resource
+// requests don't repeatedly Create-then-Update the same ServiceAccount / Role /
+// RoleBinding / ConfigMap.
+//
+// Cache entries are keyed by (scope, GVK, ns, name, content-hash) and expire
+// after sharedResourceCacheTTL so that:
+//   - A spec change to a pipeline resource produces a new key (different hash),
+//     causing the next reconcile to re-apply.
+//   - An out-of-band deletion of the on-cluster resource is recovered within
+//     the TTL window rather than requiring an operator restart.
+type SharedResourceCache struct {
+	mu      sync.Mutex
+	applied map[string]time.Time
+	ttl     time.Duration
+	now     func() time.Time
+}
+
+// sharedResourceCacheTTL bounds how long an "Applied" marker is trusted before
+// the next reconcile must re-issue the apply. 5 minutes keeps cache hits high
+// for tight reconcile loops while bounding recovery time after manual deletion.
+const sharedResourceCacheTTL = 5 * time.Minute
+
+// NewSharedResourceCache returns an empty cache with the default TTL.
+func NewSharedResourceCache() *SharedResourceCache {
+	return &SharedResourceCache{
+		applied: make(map[string]time.Time),
+		ttl:     sharedResourceCacheTTL,
+		now:     time.Now,
+	}
+}
+
+// Applied reports whether the given resource has been applied recently. Scope
+// is typically the owning Promise UID — when a Promise is deleted and
+// recreated, the new UID produces a fresh cache namespace.
+func (c *SharedResourceCache) Applied(scope string, obj client.Object) bool {
+	if c == nil {
+		return false
+	}
+	key := sharedResourceKey(scope, obj)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	expiresAt, ok := c.applied[key]
+	if !ok {
+		return false
+	}
+	if c.now().After(expiresAt) {
+		delete(c.applied, key)
+		return false
+	}
+	return true
+}
+
+// MarkApplied records that the given resource has been successfully applied
+// under the supplied scope, with an expiry of now+TTL.
+func (c *SharedResourceCache) MarkApplied(scope string, obj client.Object) {
+	if c == nil {
+		return
+	}
+	key := sharedResourceKey(scope, obj)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.applied[key] = c.now().Add(c.ttl)
+}
+
+// sharedResourceKey produces a key that varies with the resource's content.
+// Two objects with identical GVK+ns+name but different specs produce different
+// keys, so a spec change forces the next reconcile to re-apply.
+func sharedResourceKey(scope string, obj client.Object) string {
+	gvk := obj.GetObjectKind().GroupVersionKind()
+	return fmt.Sprintf("%s|%s/%s/%s|%s",
+		scope,
+		gvk.GroupKind().String(),
+		obj.GetNamespace(),
+		obj.GetName(),
+		contentHash(obj),
+	)
+}
+
+// contentHash returns a short stable hash of the object's marshalled form.
+// Hash failures degrade to a constant sentinel so callers still get safe
+// (cache-miss) behaviour rather than a panic.
+func contentHash(obj client.Object) string {
+	bytes, err := json.Marshal(obj)
+	if err != nil {
+		return "unhashable"
+	}
+	sum := sha256.Sum256(bytes)
+	return hex.EncodeToString(sum[:8])
 }
 
 func (o *Opts) SetParentObject(parentObj *unstructured.Unstructured) {
 	o.parentObject = parentObj
 }
 
-var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
+// withCtx returns a shallow copy of opts with ctx replaced. Used during
+// diagnostic tracing to push a child span context down without mutating the
+// caller's Opts.
+func withCtx(opts Opts, ctx context.Context) Opts {
+	opts.ctx = ctx
+	return opts
+}
+
 var ErrDeletePipelineFailed = fmt.Errorf("delete Pipeline Failed")
 
 func NewOpts(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, workflowType string, numberOfJobsToKeep int, namespace string) Opts {
@@ -152,6 +271,10 @@ type workflowState struct {
 // resources are updated (for example workflow Jobs or the parent object status),
 // rather than by issuing an explicit direct requeue from this function.
 func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
+	ctx, span := otel.Tracer("kratix/workflow").Start(opts.ctx, "workflow.ReconcileConfigure")
+	defer span.End()
+	opts.ctx = ctx
+
 	if len(opts.Resources) == 0 {
 		logging.Debug(opts.logger, "no pipeline resources to reconcile")
 		return false, nil
@@ -169,10 +292,8 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 	}
 
 	if !opts.SkipConditions {
-		if requeue, err := reconcileWorkflowStatus(opts, state); err != nil {
-			return requeue, err
-		} else if requeue && !state.restartFromStart && !state.manualReconcile {
-			return requeue, err
+		if _, err := reconcileWorkflowStatus(opts, state); err != nil {
+			return false, err
 		}
 	}
 
@@ -183,12 +304,20 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 }
 
 func determineWorkflowState(opts Opts) (*workflowState, error) {
-	allJobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
+	ctx, span := otel.Tracer("kratix/workflow").Start(opts.ctx, "workflow.determineWorkflowState")
+	defer span.End()
+	opts.ctx = ctx
+
+	listCtx, listSpan := otel.Tracer("kratix/workflow").Start(opts.ctx, "workflow.listJobs.current")
+	allJobs, err := getJobsWithLabels(withCtx(opts, listCtx), labelsForJobs(opts), opts.namespace)
+	listSpan.End()
 	if err != nil {
 		logging.Error(opts.logger, err, "failed to list jobs")
 		return nil, err
 	}
-	allLegacyJobs, err := getJobsWithLabels(opts, legacyLabelsForJobs(opts), opts.namespace)
+	listLegacyCtx, listLegacySpan := otel.Tracer("kratix/workflow").Start(opts.ctx, "workflow.listJobs.legacy")
+	allLegacyJobs, err := getJobsWithLabels(withCtx(opts, listLegacyCtx), legacyLabelsForJobs(opts), opts.namespace)
+	listLegacySpan.End()
 	if err != nil {
 		logging.Error(opts.logger, err, "failed to list jobs")
 		return nil, err
@@ -367,6 +496,15 @@ func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1
 	if isFailed(state.mostRecentJob) {
 		logging.Debug(opts.logger, "job failed", "job", state.mostRecentJob.Name, "pipeline", pipeline.Name)
 		return setFailedConditionAndEvents(opts, state, pipeline)
+	}
+
+	// Self-heal: if the last pipeline step has completed but ConfigureWorkflowCompleted
+	// is not True, set it in-memory so the terminal Status().Update persists it. This
+	// covers the case where the 10h ReconciliationInterval fired, setPipelineStartingStatus
+	// set the condition False, but the newly-created job never ran its work-creator.
+	if !opts.SkipConditions && state.pipelineIndex == len(opts.Resources)-1 &&
+		resourceutil.GetConfigureWorkflowCompletedConditionStatus(opts.parentObject) != v1.ConditionTrue {
+		resourceutil.MarkConfigureWorkflowAsCompleted(opts.logger, opts.parentObject)
 	}
 
 	return false, cleanup(opts, opts.namespace)
@@ -596,6 +734,10 @@ func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
 }
 
 func createConfigurePipeline(opts Opts, state *workflowState, resources v1alpha1.PipelineJobResources) (passiveRequeue bool, err error) {
+	ctx, span := otel.Tracer("kratix/workflow").Start(opts.ctx, "workflow.createConfigurePipeline")
+	defer span.End()
+	opts.ctx = ctx
+
 	logging.Info(opts.logger, "triggering pipeline", "workflowAction", resources.WorkflowAction)
 	var objectToDelete []client.Object
 	if objectToDelete, err = getObjectsToDelete(opts, resources); err != nil {
@@ -614,8 +756,13 @@ func createConfigurePipeline(opts Opts, state *workflowState, resources v1alpha1
 		}
 	}
 
-	deleteResources(opts, objectToDelete...)
-	applyResources(opts, append(resources.GetObjects(), resources.Job)...)
+	delCtx, delSpan := otel.Tracer("kratix/workflow").Start(opts.ctx, "workflow.deleteResources")
+	deleteResources(withCtx(opts, delCtx), objectToDelete...)
+	delSpan.End()
+
+	applyCtx, applySpan := otel.Tracer("kratix/workflow").Start(opts.ctx, "workflow.applyResources")
+	applyResources(withCtx(opts, applyCtx), append(resources.GetObjects(), resources.Job)...)
+	applySpan.End()
 
 	opts.eventRecorder.Eventf(opts.parentObject, "Normal", "PipelineStarted", "Configure Pipeline started: %s", resources.Name)
 
@@ -705,10 +852,13 @@ func getMostRecentDeletePipelineJob(opts Opts, namespace string, pipeline v1alph
 	return &jobs[0], nil
 }
 
+func JobIndexKey(promiseName, resourceName string) string {
+	return promiseName + "/" + resourceName
+}
+
 func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {
 	selectorLabels := labels.FormatLabels(jobLabels)
 	selector, err := labels.Parse(selectorLabels)
-
 	if err != nil {
 		return nil, fmt.Errorf("error parsing labels %v: %w", jobLabels, err)
 	}
@@ -718,9 +868,16 @@ func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string)
 		Namespace:     namespace,
 	}
 
+	if promiseName := jobLabels[v1alpha1.PromiseNameLabel]; promiseName != "" {
+		resourceName := jobLabels[v1alpha1.ResourceNameLabel]
+		listOps.FieldSelector = fields.OneTermEqualSelector(
+			JobByPromiseAndResourceIndex,
+			JobIndexKey(promiseName, resourceName),
+		)
+	}
+
 	jobs := &batchv1.JobList{}
-	err = opts.client.List(opts.ctx, jobs, listOps)
-	if err != nil {
+	if err = opts.client.List(opts.ctx, jobs, listOps); err != nil {
 		logging.Error(opts.logger, err, "error listing jobs", "selectors", selector.String())
 		return nil, err
 	}
@@ -750,6 +907,12 @@ func applyResources(opts Opts, resources ...client.Object) {
 	for _, resource := range resources {
 		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", resource.GetObjectKind().GroupVersionKind().String(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
 
+		cacheable := isCacheableSharedResource(resource)
+		if cacheable && opts.SharedResourceCache.Applied(opts.SharedResourceScope, resource) {
+			logging.Debug(logger, "shared resource already applied this run; skipping")
+			continue
+		}
+
 		logging.Debug(logger, "reconciling resource")
 		if err := opts.client.Create(opts.ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
@@ -768,6 +931,9 @@ func applyResources(opts Opts, resources ...client.Object) {
 				}
 				logging.Debug(logger, "resource already exists; updating")
 				if err = opts.client.Update(opts.ctx, resource); err == nil {
+					if cacheable {
+						opts.SharedResourceCache.MarkApplied(opts.SharedResourceScope, resource)
+					}
 					continue
 				}
 			}
@@ -777,10 +943,24 @@ func applyResources(opts Opts, resources ...client.Object) {
 			logging.Error(logger, err, string(y))
 		} else {
 			logging.Debug(logger, "resource created")
+			if cacheable {
+				opts.SharedResourceCache.MarkApplied(opts.SharedResourceScope, resource)
+			}
 		}
 	}
+}
 
-	time.Sleep(minimumPeriodBetweenCreatingPipelineResources)
+// isCacheableSharedResource returns true for pipeline resources whose name is
+// deterministic per Promise+Pipeline (and therefore identical across resource
+// requests of the same Promise) and which can be safely deduplicated by the
+// SharedResourceCache. Per-RR objects like the pipeline Job are excluded.
+func isCacheableSharedResource(obj client.Object) bool {
+	switch obj.GetObjectKind().GroupVersionKind().Kind {
+	case rbacv1.ServiceAccountKind, "ConfigMap", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding":
+		return true
+	default:
+		return false
+	}
 }
 
 func deleteResources(opts Opts, resources ...client.Object) {
