@@ -1489,6 +1489,50 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
+		Context("deleting the resource request", func() {
+			BeforeEach(func() {
+				// This Context is not nested under "updating an existing resource", so we must
+				// register a revision here for delete reconciliation (and for tests that pin an applied version).
+				createPromiseRevision(fakeK8sClient, promise, "v1.1.0")
+			})
+
+			It("also deletes the associated resource binding", func() {
+				Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
+				_, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).ToNot(HaveOccurred())
+				binding := listBindings(promise.GetName(), resReqNameNamespace)
+				Expect(binding.Items).To(BeEmpty())
+			})
+
+			When("the binding spec references a missing PromiseRevision but applied version is valid", func() {
+				It("deletes the resource request and removes the resource binding", func() {
+					appliedVersion := "v1.1.0"
+					badDesiredVersion := "v1.2.0"
+
+					resourceutil.SetStatus(resReq, l, "promiseVersion", appliedVersion)
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+					createResourceBinding(fakeK8sClient, promise, resReq, badDesiredVersion)
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					binding.Status.LastAppliedVersion = appliedVersion
+					Expect(fakeK8sClient.Status().Update(ctx, binding)).To(Succeed())
+
+					// Without Kratix finalizers, the fake client drops the RR immediately on Delete,
+					// so reconcile never runs deleteResources / ensureResourceBindingRemoved.
+					addResourceRequestDeleteFinalizers(resReq)
+
+					Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
+					setReconcileConfigureWorkflowToReturnFinished()
+					setReconcileDeleteWorkflowToReturnFinished(resReq)
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).ToNot(HaveOccurred())
+
+					bindings := listBindings(promise.GetName(), resReqNameNamespace)
+					Expect(bindings.Items).To(BeEmpty())
+				})
+			})
+		})
+
 		When("updating the resource binding version status", func() {
 			const promiseVersion = "v1.1.0"
 
@@ -1634,7 +1678,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(binding.GetLabels()).To(HaveKeyWithValue("kratix.io/resource-name", resReq.GetName()))
 			})
 		})
-
 	})
 })
 
@@ -1683,6 +1726,18 @@ func createPromiseRevision(fakeK8sClient client.Client, promise *v1alpha1.Promis
 	promiseRevision.SetLatestRevisionLabel()
 	Expect(fakeK8sClient.Create(ctx, promiseRevision)).To(Succeed())
 	Expect(fakeK8sClient.Status().Update(ctx, promiseRevision)).To(Succeed())
+}
+
+func addResourceRequestDeleteFinalizers(rr *unstructured.Unstructured) {
+	GinkgoHelper()
+	Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(rr), rr)).To(Succeed())
+	rr.SetFinalizers([]string{
+		v1alpha1.KratixPrefix + "work-cleanup",
+		v1alpha1.KratixPrefix + "workflows-cleanup",
+		v1alpha1.KratixPrefix + "delete-workflows",
+		v1alpha1.KratixPrefix + "resource-binding-cleanup",
+	})
+	Expect(fakeK8sClient.Update(ctx, rr)).To(Succeed())
 }
 
 func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *unstructured.Unstructured, version string) {
@@ -1820,7 +1875,7 @@ func verifyPauseReconciliationStatus(rr *unstructured.Unstructured, rrNameNamesp
 	ExpectWithOffset(1, condition.Message).To(ContainSubstring("Paused"))
 }
 
-func getResourceBinding(promiseName string, resource types.NamespacedName) *v1alpha1.ResourceBinding {
+func listBindings(promiseName string, resource types.NamespacedName) *v1alpha1.ResourceBindingList {
 	GinkgoHelper()
 	bindingLabels := map[string]string{
 		"kratix.io/promise-name":  promiseName,
@@ -1831,7 +1886,12 @@ func getResourceBinding(promiseName string, resource types.NamespacedName) *v1al
 		Namespace:     resource.Namespace,
 		LabelSelector: labels.SelectorFromSet(bindingLabels),
 	})
+	return &bindingList
+}
 
+func getResourceBinding(promiseName string, resource types.NamespacedName) *v1alpha1.ResourceBinding {
+	GinkgoHelper()
+	bindingList := listBindings(promiseName, resource)
 	Expect(bindingList.Items).To(HaveLen(1), "found multiple resource bindings, expecting one")
 	return &bindingList.Items[0]
 }
