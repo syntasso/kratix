@@ -29,6 +29,10 @@ spec:
       jsonPath: .spec.version
       name: Version
       type: string
+    - description: Whether the last upgrade succeeded
+      jsonPath: .status.conditions[?(@.type=='UpgradeSucceeded')].status
+      name: Upgrade Succeeded
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:

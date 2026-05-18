@@ -1311,14 +1311,7 @@ func fetchRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promi
 		return latestRevision(ctx, c, promise)
 	}
 
-	rev, err := promiseRevisionByExactVersion(ctx, c, promise, desiredVersion)
-	if err == nil {
-		return rev, nil
-	}
-	if errors.Is(err, errPromiseRevisionNotFound) && promiseVersionFromRRStatus != "" && promiseVersionFromRRStatus != desiredVersion {
-		return promiseRevisionByExactVersion(ctx, c, promise, promiseVersionFromRRStatus)
-	}
-	return nil, err
+	return promiseRevisionByExactVersion(ctx, c, promise, desiredVersion)
 }
 
 func updateObservedGeneration(
