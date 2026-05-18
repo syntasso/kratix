@@ -251,6 +251,13 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
+	if r.PromiseUpgradeFeatFlag {
+		if err := r.syncResourceBindingUpgradeStatus(ctx, logger, promise.GetName(), rr); err != nil {
+			logging.Error(logger, err, "failed to update resource binding version status")
+			return ctrl.Result{}, err
+		}
+	}
+
 	if passiveRequeue {
 		return ctrl.Result{}, nil
 	}
@@ -269,13 +276,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 	if statusUpdated {
 		return ctrl.Result{}, nil
-	}
-
-	if r.PromiseUpgradeFeatFlag {
-		if err := r.syncResourceBindingUpgradeStatus(ctx, logger, promise.GetName(), rr); err != nil {
-			logging.Error(logger, err, "failed to update resource binding version status")
-			return ctrl.Result{}, err
-		}
 	}
 
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)

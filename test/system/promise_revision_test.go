@@ -248,6 +248,25 @@ var _ = Describe("Promise Revisions", func() {
 			}).Should(Succeed())
 		})
 
+		By("setting UpgradeSucceeded to False when an upgrade pipeline fails", func() {
+			// rrOne is pinned to "latest"; applying a failing promise version triggers
+			// an upgrade attempt which will fail, setting UpgradeSucceeded=False on its binding.
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise-failing-version.yaml"))
+
+			upgradeSucceededCondition := `.status.conditions[?(@.type=="UpgradeSucceeded")]`
+			Eventually(func(g Gomega) {
+				name := getBindingName(promiseName, rrOneName)
+				g.Expect(
+					platform.Kubectl("get", "--namespace=default", name,
+						fmt.Sprintf(`-o=jsonpath='{%s.status}'`, upgradeSucceededCondition)),
+				).To(ContainSubstring("False"))
+				// lastAppliedVersion must remain at the last successfully applied version
+				g.Expect(
+					platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.lastAppliedVersion}'"),
+				).To(ContainSubstring(updatedPromiseVersion))
+			}).Should(Succeed())
+		})
+
 		By("restoring the bindings correctly when they are deleted", func() {
 			platform.EventuallyKubectlDelete("resourcebindings", "--all")
 

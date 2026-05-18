@@ -1597,6 +1597,27 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(cond.Message).To(ContainSubstring("pipeline-abc"))
 				})
 			})
+
+			When("the configure workflow failed and reconcileConfigure returns passiveRequeue=true", func() {
+				It("sets UpgradeSucceeded=False even when the reconcile loop short-circuits", func() {
+					// The default test mock returns (true, nil) — matching the real production failure
+					// path where setFailedConditionAndEvents always returns passiveRequeue=true.
+					// This test verifies the fix: syncResourceBindingUpgradeStatus must be called
+					// before the passiveRequeue early-return, not after it.
+					setConfigureWorkflowAsFailed(resReq, "pipeline-abc")
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Status.LastAppliedVersion).To(BeEmpty())
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).NotTo(BeNil())
+					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionFalse)))
+					Expect(cond.Reason).To(Equal(v1alpha1.UpgradeFailedReason))
+					Expect(cond.Message).To(ContainSubstring("pipeline-abc"))
+				})
+			})
 		})
 
 		When("creating the resource binding", func() {
