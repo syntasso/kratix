@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -36,8 +37,6 @@ import (
 	"github.com/syntasso/kratix/lib/objectutil"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
-
-	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -67,7 +66,7 @@ const (
 )
 
 type DynamicResourceRequestController struct {
-	//use same naming conventions as other controllers
+	// use same naming conventions as other controllers
 	Client                      client.Client
 	GVK                         *schema.GroupVersionKind
 	Scheme                      *runtime.Scheme
@@ -273,7 +272,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if r.PromiseUpgradeFeatFlag {
-		if err := r.updateResourceBindingVersionStatus(ctx, logger, promise.GetName(), rr); err != nil {
+		if err := r.syncResourceBindingUpgradeStatus(ctx, logger, promise.GetName(), rr); err != nil {
 			logging.Error(logger, err, "failed to update resource binding version status")
 			return ctrl.Result{}, err
 		}
@@ -384,7 +383,7 @@ func (r *DynamicResourceRequestController) ensureResourceStatus(
 	return false, nil
 }
 
-func (r *DynamicResourceRequestController) updateResourceBindingVersionStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured) error {
+func (r *DynamicResourceRequestController) syncResourceBindingUpgradeStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured) error {
 	resourceBindingName := objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promiseName))
 	resourceBinding := &v1alpha1.ResourceBinding{}
 	err := r.Client.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: rr.GetNamespace()}, resourceBinding)
@@ -392,13 +391,49 @@ func (r *DynamicResourceRequestController) updateResourceBindingVersionStatus(ct
 		return fmt.Errorf("failed to get resourceBinding: %w", err)
 	}
 
+	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	desiredVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
-	if resourceBinding.Status.LastAppliedVersion == desiredVersion {
+
+	var (
+		newCondStatus                 metav1.ConditionStatus
+		newCondReason, newCondMessage string
+	)
+
+	switch {
+	case workflowsCompletedSuccessfully(workflowCompleted):
+		newCondStatus = metav1.ConditionTrue
+		newCondReason = v1alpha1.UpgradeCompleteReason
+		newCondMessage = fmt.Sprintf("Resource is at version %s", desiredVersion)
+	case workflowCompletedWithFailure(workflowCompleted):
+		newCondStatus = metav1.ConditionFalse
+		newCondReason = v1alpha1.UpgradeFailedReason
+		newCondMessage = workflowCompleted.Message
+	default:
 		return nil
 	}
 
-	logging.Info(logger, "updating resource binding Status.LastAppliedVersion", "oldVersion", resourceBinding.Status.LastAppliedVersion, "newVersion", desiredVersion)
-	resourceBinding.Status.LastAppliedVersion = desiredVersion
+	needsVersionUpdate := newCondStatus == metav1.ConditionTrue && resourceBinding.Status.LastAppliedVersion != desiredVersion
+
+	existing := apiMeta.FindStatusCondition(resourceBinding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+	conditionChanged := existing == nil || string(existing.Status) != string(newCondStatus) || existing.Reason != newCondReason
+
+	if !needsVersionUpdate && !conditionChanged {
+		return nil
+	}
+
+	if needsVersionUpdate {
+		logging.Info(logger, "updating resource binding Status.LastAppliedVersion", "oldVersion", resourceBinding.Status.LastAppliedVersion, "newVersion", desiredVersion)
+		resourceBinding.Status.LastAppliedVersion = desiredVersion
+	}
+
+	apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
+		Type:               v1alpha1.UpgradeSucceededCondition,
+		Status:             newCondStatus,
+		Reason:             newCondReason,
+		Message:            newCondMessage,
+		LastTransitionTime: metav1.Now(),
+	})
+
 	if err := r.Client.Status().Update(ctx, resourceBinding); err != nil {
 		return fmt.Errorf("failed to update resource binding status: %w", err)
 	}
@@ -498,7 +533,6 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 	rr *unstructured.Unstructured,
 	pipelineResources []v1alpha1.PipelineJobResources,
 ) (shouldRequeue bool, result *ctrl.Result, err error) {
-
 	if notWorkflowSuspended(rr) {
 		return false, nil, nil
 	}
@@ -560,7 +594,8 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 }
 
 func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured,
-	numberOfPipelines int64, workLabels map[string]string, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) (bool, error) {
+	numberOfPipelines int64, workLabels map[string]string, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision,
+) (bool, error) {
 	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, logger, rr, workLabels)
 	if err != nil {
 		return false, err
@@ -713,7 +748,6 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, l
 		Namespace:     rr.GetNamespace(),
 		LabelSelector: selector,
 	})
-
 	if err != nil {
 		logging.Error(logger, err, "failed listing works", "namespace", rr.GetNamespace(), "labelSelector", workSelectorLabel)
 		return nil, nil, nil, nil, err
@@ -765,7 +799,8 @@ func (r *DynamicResourceRequestController) generateWorkflowsCounterStatus(logger
 }
 
 func (r *DynamicResourceRequestController) cleanupWorkflowCountersAndExecution(ctx context.Context, logger logr.Logger,
-	rr *unstructured.Unstructured) error {
+	rr *unstructured.Unstructured,
+) error {
 	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != 0 ||
 		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != 0 ||
 		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsFailed") != 0 {
@@ -1001,6 +1036,12 @@ func workflowsCompletedSuccessfully(workflowCompletedCondition *clusterv1.Condit
 		workflowCompletedCondition.Reason == resourceutil.PipelinesExecutedSuccessfully
 }
 
+func workflowCompletedWithFailure(workflowCompletedCondition *clusterv1.Condition) bool {
+	return workflowCompletedCondition != nil &&
+		workflowCompletedCondition.Status == v1.ConditionFalse &&
+		workflowCompletedCondition.Reason == resourceutil.ConfigureWorkflowCompletedFailedReason
+}
+
 func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) ctrl.Result {
 	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", r.ReconciliationInterval)
 	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
@@ -1011,8 +1052,8 @@ func (r *DynamicResourceRequestController) restartOnReconciliationInterval(
 	logger logr.Logger,
 	rr *unstructured.Unstructured,
 	completedCond *clusterv1.Condition,
-	forcePipelineRun bool) (bool, error) {
-
+	forcePipelineRun bool,
+) (bool, error) {
 	if forcePipelineRun && notManualReconcile(rr) {
 		logging.Debug(
 			logger,
@@ -1069,7 +1110,8 @@ func (r *DynamicResourceRequestController) ensurePromiseIsAvailable(ctx context.
 func (r *DynamicResourceRequestController) fetchResourceBinding(
 	ctx context.Context,
 	rr *unstructured.Unstructured,
-	promise *v1alpha1.Promise) (*v1alpha1.ResourceBinding, error) {
+	promise *v1alpha1.Promise,
+) (*v1alpha1.ResourceBinding, error) {
 	bindings := &v1alpha1.ResourceBindingList{}
 	if err := r.Client.List(ctx, bindings, &client.ListOptions{
 		Namespace:     rr.GetNamespace(),
@@ -1248,8 +1290,8 @@ func promiseRevisionByExactVersion(ctx context.Context, c client.Client, promise
 }
 
 func fetchRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promise,
-	binding *v1alpha1.ResourceBinding, promiseVersionFromRRStatus string) (*v1alpha1.PromiseRevision, error) {
-
+	binding *v1alpha1.ResourceBinding, promiseVersionFromRRStatus string,
+) (*v1alpha1.PromiseRevision, error) {
 	// there is a scenario where the PromiseVersion from resource request status
 	//  is set, but no resource binding exists, which means the resource binding was
 	// deleted at some point.
