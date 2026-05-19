@@ -130,11 +130,16 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		"resource binding version", resourceBinding.Spec.Version,
 	)
 
-	existing := apiMeta.FindStatusCondition(resourceBinding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
-	if existing != nil && existing.Status == metav1.ConditionFalse {
+	upgradeSucceededCond := apiMeta.FindStatusCondition(resourceBinding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+	if upgradeSucceededCond != nil && upgradeSucceededCond.Status == metav1.ConditionFalse && resourceBinding.Status.FailedVersion == desiredVersion {
 		return ctrl.Result{}, nil
 	}
-	if existing == nil || existing.Status != metav1.ConditionUnknown || existing.Reason != v1alpha1.UpgradeInProgressReason {
+	needsStatusUpdate := upgradeSucceededCond == nil ||
+		upgradeSucceededCond.Status != metav1.ConditionUnknown ||
+		upgradeSucceededCond.Reason != v1alpha1.UpgradeInProgressReason ||
+		resourceBinding.Status.FailedVersion != ""
+
+	if needsStatusUpdate {
 		apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
 			Type:               v1alpha1.UpgradeSucceededCondition,
 			Status:             metav1.ConditionUnknown,
@@ -142,6 +147,7 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			Message:            fmt.Sprintf("Upgrade to version %s is in progress", desiredVersion),
 			LastTransitionTime: metav1.Now(),
 		})
+		resourceBinding.Status.FailedVersion = ""
 		if err := r.Client.Status().Update(ctx, resourceBinding); err != nil {
 			return ctrl.Result{}, err
 		}

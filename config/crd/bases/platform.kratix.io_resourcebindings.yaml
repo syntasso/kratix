@@ -157,6 +157,11 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              failedVersion:
+                description: |-
+                  The promise version that was being attempted when the last upgrade failure occurred.
+                  Cleared when an upgrade succeeds or a new upgrade attempt begins.
+                type: string
               lastAppliedVersion:
                 description: Reference to the Resource Request version
                 type: string

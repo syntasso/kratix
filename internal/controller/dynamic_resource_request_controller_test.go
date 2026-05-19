@@ -1581,7 +1581,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			When("the configure workflow failed", func() {
-				It("sets UpgradeSucceeded=False and does not update LastAppliedVersion", func() {
+				It("sets UpgradeSucceeded=False, records FailedVersion, and does not update LastAppliedVersion", func() {
 					setReconcileConfigureWorkflowToReturnFinished()
 					setConfigureWorkflowAsFailed(resReq, "pipeline-abc")
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
@@ -1589,6 +1589,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Status.LastAppliedVersion).To(BeEmpty())
+					Expect(binding.Status.FailedVersion).To(Equal(promiseVersion))
 
 					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
 					Expect(cond).NotTo(BeNil())
@@ -1599,7 +1600,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			When("the configure workflow failed and reconcileConfigure returns passiveRequeue=true", func() {
-				It("sets UpgradeSucceeded=False even when the reconcile loop short-circuits", func() {
+				It("sets UpgradeSucceeded=False and records FailedVersion even when the reconcile loop short-circuits", func() {
 					// The default test mock returns (true, nil) — matching the real production failure
 					// path where setFailedConditionAndEvents always returns passiveRequeue=true.
 					// This test verifies the fix: syncResourceBindingUpgradeStatus must be called
@@ -1610,12 +1611,44 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Status.LastAppliedVersion).To(BeEmpty())
+					Expect(binding.Status.FailedVersion).To(Equal(promiseVersion))
 
 					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
 					Expect(cond).NotTo(BeNil())
 					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionFalse)))
 					Expect(cond.Reason).To(Equal(v1alpha1.UpgradeFailedReason))
 					Expect(cond.Message).To(ContainSubstring("pipeline-abc"))
+				})
+			})
+
+			When("the configure workflow succeeds after a previous failure", func() {
+				It("clears FailedVersion when UpgradeSucceeded goes to True", func() {
+					// First reconcile: creates the binding (reconcileConfigure returns passiveRequeue=true by default).
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					// Simulate a pre-existing failure on the now-existing binding.
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					binding.Status.FailedVersion = promiseVersion
+					apiMeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+						Type:   v1alpha1.UpgradeSucceededCondition,
+						Status: metav1.ConditionFalse,
+						Reason: v1alpha1.UpgradeFailedReason,
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, binding)).To(Succeed())
+
+					setReconcileConfigureWorkflowToReturnFinished()
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+					_, err = t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					binding = getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Status.FailedVersion).To(BeEmpty())
+					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).NotTo(BeNil())
+					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionTrue)))
 				})
 			})
 		})
