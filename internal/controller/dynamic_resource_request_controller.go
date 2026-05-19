@@ -287,6 +287,16 @@ func (r *DynamicResourceRequestController) reconcileAfterConfigure(
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
+		if r.PromiseUpgradeFeatFlag {
+			versionUpdated := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevisionUsed)
+			if err := r.syncNoPipelineBindingUpgradeStatus(ctx, logger, promise.GetName(), rr); err != nil {
+				logging.Error(logger, err, "failed to update resource binding version status")
+				return ctrl.Result{}, err
+			}
+			if versionUpdated {
+				return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+			}
+		}
 		return r.nextReconciliation(logger), r.cleanupWorkflowCountersAndExecution(ctx, logger, rr)
 	}
 
@@ -410,10 +420,28 @@ func (r *DynamicResourceRequestController) ensureResourceStatus(
 	return false, nil
 }
 
+// syncNoPipelineBindingUpgradeStatus marks the binding as UpgradeSucceeded=True for promises that
+// have no configure pipeline. Without a pipeline there is nothing to run, so the upgrade succeeds
+// immediately once the version on the RR has been updated.
+func (r *DynamicResourceRequestController) syncNoPipelineBindingUpgradeStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured) error {
+	resourceBinding, err := r.getResourceBindingForRR(ctx, promiseName, rr)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to get resourceBinding: %w", err)
+	}
+
+	appliedVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
+	return r.applyResourceBindingUpgradeStatus(ctx, logger, resourceBinding, metav1.Condition{
+		Status:  metav1.ConditionTrue,
+		Reason:  v1alpha1.UpgradeCompleteReason,
+		Message: fmt.Sprintf("Resource is at version %s", appliedVersion),
+	}, appliedVersion, "")
+}
+
 func (r *DynamicResourceRequestController) syncResourceBindingUpgradeStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured, attemptedVersion string) error {
-	resourceBindingName := objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promiseName))
-	resourceBinding := &v1alpha1.ResourceBinding{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: rr.GetNamespace()}, resourceBinding)
+	resourceBinding, err := r.getResourceBindingForRR(ctx, promiseName, rr)
 	if err != nil {
 		return fmt.Errorf("failed to get resourceBinding: %w", err)
 	}
@@ -421,30 +449,55 @@ func (r *DynamicResourceRequestController) syncResourceBindingUpgradeStatus(ctx 
 	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	appliedVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
 
-	var (
-		newCondStatus                 metav1.ConditionStatus
-		newCondReason, newCondMessage string
-	)
-
+	var upgradeCondition metav1.Condition
 	switch {
 	case workflowsCompletedSuccessfully(workflowCompleted):
-		newCondStatus = metav1.ConditionTrue
-		newCondReason = v1alpha1.UpgradeCompleteReason
-		newCondMessage = fmt.Sprintf("Resource is at version %s", appliedVersion)
+		upgradeCondition = metav1.Condition{
+			Status:  metav1.ConditionTrue,
+			Reason:  v1alpha1.UpgradeCompleteReason,
+			Message: fmt.Sprintf("Resource is at version %s", appliedVersion),
+		}
 	case workflowCompletedWithFailure(workflowCompleted):
-		newCondStatus = metav1.ConditionFalse
-		newCondReason = v1alpha1.UpgradeFailedReason
-		newCondMessage = workflowCompleted.Message
+		upgradeCondition = metav1.Condition{
+			Status:  metav1.ConditionFalse,
+			Reason:  v1alpha1.UpgradeFailedReason,
+			Message: workflowCompleted.Message,
+		}
 	default:
 		return nil
 	}
 
-	needsVersionUpdate := newCondStatus == metav1.ConditionTrue && resourceBinding.Status.LastAppliedVersion != appliedVersion
-	needsFailedVersionUpdate := newCondStatus == metav1.ConditionFalse && resourceBinding.Status.FailedVersion != attemptedVersion
-	needsFailedVersionClear := newCondStatus == metav1.ConditionTrue && resourceBinding.Status.FailedVersion != ""
+	return r.applyResourceBindingUpgradeStatus(ctx, logger, resourceBinding, upgradeCondition, appliedVersion, attemptedVersion)
+}
+
+func (r *DynamicResourceRequestController) getResourceBindingForRR(ctx context.Context, promiseName string, rr *unstructured.Unstructured) (*v1alpha1.ResourceBinding, error) {
+	resourceBinding := &v1alpha1.ResourceBinding{}
+	err := r.Client.Get(ctx, types.NamespacedName{
+		Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promiseName)),
+		Namespace: rr.GetNamespace(),
+	}, resourceBinding)
+	if err != nil {
+		return nil, err
+	}
+	return resourceBinding, nil
+}
+
+func (r *DynamicResourceRequestController) applyResourceBindingUpgradeStatus(
+	ctx context.Context,
+	logger logr.Logger,
+	resourceBinding *v1alpha1.ResourceBinding,
+	upgradeCondition metav1.Condition,
+	appliedVersion, attemptedVersion string,
+) error {
+	needsVersionUpdate := upgradeCondition.Status == metav1.ConditionTrue && resourceBinding.Status.LastAppliedVersion != appliedVersion
+	needsFailedVersionUpdate := upgradeCondition.Status == metav1.ConditionFalse && resourceBinding.Status.FailedVersion != attemptedVersion
+	needsFailedVersionClear := upgradeCondition.Status == metav1.ConditionTrue && resourceBinding.Status.FailedVersion != ""
 
 	existing := apiMeta.FindStatusCondition(resourceBinding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
-	conditionChanged := existing == nil || string(existing.Status) != string(newCondStatus) || existing.Reason != newCondReason
+	conditionChanged := existing == nil ||
+		string(existing.Status) != string(upgradeCondition.Status) ||
+		existing.Reason != upgradeCondition.Reason ||
+		existing.Message != upgradeCondition.Message
 
 	if !needsVersionUpdate && !needsFailedVersionUpdate && !needsFailedVersionClear && !conditionChanged {
 		return nil
@@ -463,9 +516,9 @@ func (r *DynamicResourceRequestController) syncResourceBindingUpgradeStatus(ctx 
 
 	apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
 		Type:               v1alpha1.UpgradeSucceededCondition,
-		Status:             newCondStatus,
-		Reason:             newCondReason,
-		Message:            newCondMessage,
+		Status:             upgradeCondition.Status,
+		Reason:             upgradeCondition.Reason,
+		Message:            upgradeCondition.Message,
 		LastTransitionTime: metav1.Now(),
 	})
 
