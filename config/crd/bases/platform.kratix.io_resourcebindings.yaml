@@ -25,13 +25,13 @@ spec:
       jsonPath: .spec.promiseRef.name
       name: Promise
       type: string
-    - description: Promise version used by the Resource
+    - description: Promise version the resource should be reconciled with
       jsonPath: .spec.version
-      name: Version
+      name: Desired
       type: string
-    - description: Whether the last upgrade succeeded
-      jsonPath: .status.conditions[?(@.type=='UpgradeSucceeded')].status
-      name: Upgrade Succeeded
+    - description: Promise version the resource was last reconciled with
+      jsonPath: .status.lastAppliedVersion
+      name: Applied
       type: string
     name: v1alpha1
     schema:

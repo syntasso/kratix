@@ -1541,7 +1541,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			When("the resource binding Status.LastAppliedVersion does not yet reflect the current promise version", func() {
-				It("updates Status.LastAppliedVersion and sets UpgradeSucceeded=True", func() {
+				It("updates Status.LastAppliedVersion without setting UpgradeSucceeded on a fresh deployment", func() {
 					setReconcileConfigureWorkflowToReturnFinished()
 					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
@@ -1549,6 +1549,33 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Spec.Version).To(Equal("latest"))
+					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).To(BeNil(), "fresh deployments should not set UpgradeSucceeded")
+				})
+			})
+
+			When("an upgrade is in progress", func() {
+				BeforeEach(func() {
+					createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					binding.Status.LastAppliedVersion = "v1.0.0"
+					apiMeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+						Type:   v1alpha1.UpgradeSucceededCondition,
+						Status: metav1.ConditionUnknown,
+						Reason: v1alpha1.UpgradeInProgressReason,
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, binding)).To(Succeed())
+				})
+
+				It("sets UpgradeSucceeded=True when the configure workflow succeeds", func() {
+					setReconcileConfigureWorkflowToReturnFinished()
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
 
 					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
@@ -1563,7 +1590,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
 				})
 
-				It("updates Status.LastAppliedVersion and sets UpgradeSucceeded=True", func() {
+				It("updates Status.LastAppliedVersion without setting UpgradeSucceeded on a fresh deployment", func() {
 					setReconcileConfigureWorkflowToReturnFinished()
 					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
@@ -1574,9 +1601,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
 
 					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
-					Expect(cond).NotTo(BeNil())
-					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionTrue)))
-					Expect(cond.Reason).To(Equal(v1alpha1.UpgradeCompleteReason))
+					Expect(cond).To(BeNil(), "fresh deployments should not set UpgradeSucceeded")
 				})
 			})
 

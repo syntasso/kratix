@@ -494,12 +494,20 @@ func (r *DynamicResourceRequestController) applyResourceBindingUpgradeStatus(
 	needsFailedVersionClear := upgradeCondition.Status == metav1.ConditionTrue && resourceBinding.Status.FailedVersion != ""
 
 	existing := apiMeta.FindStatusCondition(resourceBinding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+	recordCondition := shouldRecordUpgradeSucceededCondition(
+		existing,
+		upgradeCondition,
+		resourceBinding.Status.LastAppliedVersion,
+		appliedVersion,
+		resourceBinding.Status.FailedVersion,
+	)
 	conditionChanged := existing == nil ||
 		string(existing.Status) != string(upgradeCondition.Status) ||
 		existing.Reason != upgradeCondition.Reason ||
 		existing.Message != upgradeCondition.Message
+	needsConditionUpdate := recordCondition && conditionChanged
 
-	if !needsVersionUpdate && !needsFailedVersionUpdate && !needsFailedVersionClear && !conditionChanged {
+	if !needsVersionUpdate && !needsFailedVersionUpdate && !needsFailedVersionClear && !needsConditionUpdate {
 		return nil
 	}
 
@@ -514,18 +522,47 @@ func (r *DynamicResourceRequestController) applyResourceBindingUpgradeStatus(
 		resourceBinding.Status.FailedVersion = ""
 	}
 
-	apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
-		Type:               v1alpha1.UpgradeSucceededCondition,
-		Status:             upgradeCondition.Status,
-		Reason:             upgradeCondition.Reason,
-		Message:            upgradeCondition.Message,
-		LastTransitionTime: metav1.Now(),
-	})
+	if recordCondition {
+		apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
+			Type:               v1alpha1.UpgradeSucceededCondition,
+			Status:             upgradeCondition.Status,
+			Reason:             upgradeCondition.Reason,
+			Message:            upgradeCondition.Message,
+			LastTransitionTime: metav1.Now(),
+		})
+	}
 
 	if err := r.Client.Status().Update(ctx, resourceBinding); err != nil {
 		return fmt.Errorf("failed to update resource binding status: %w", err)
 	}
 	return nil
+}
+
+// shouldRecordUpgradeSucceededCondition reports whether UpgradeSucceeded should be written.
+// UpgradeSucceeded=True is only recorded when an upgrade was attempted; fresh deployments
+// update LastAppliedVersion without setting the condition. Failures are always recorded.
+func shouldRecordUpgradeSucceededCondition(
+	existing *metav1.Condition,
+	desired metav1.Condition,
+	lastAppliedVersion, appliedVersion, failedVersion string,
+) bool {
+	if desired.Status == metav1.ConditionFalse {
+		return true
+	}
+
+	if failedVersion != "" {
+		return true
+	}
+	if existing != nil && existing.Reason == v1alpha1.UpgradeInProgressReason {
+		return true
+	}
+	if existing != nil && existing.Status == metav1.ConditionFalse {
+		return true
+	}
+	if lastAppliedVersion != "" && lastAppliedVersion != appliedVersion {
+		return true
+	}
+	return false
 }
 
 func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured, promise *v1alpha1.Promise) error {
