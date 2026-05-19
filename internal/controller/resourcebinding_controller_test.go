@@ -236,6 +236,113 @@ var _ = Describe("ResourceBinding Controller", func() {
 				_, err := reconciler.Reconcile(ctx, request)
 				Expect(err).To(MatchError(ContainSubstring("failed to get latest provision revision for promise redis")))
 			})
+
+			When("UpgradeSucceeded is False", func() {
+				BeforeEach(func() {
+					// Pre-set the binding with UpgradeSucceeded=False (pipeline previously failed).
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
+					apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
+						Type:   v1alpha1.UpgradeSucceededCondition,
+						Status: metav1.ConditionFalse,
+						Reason: v1alpha1.UpgradeFailedReason,
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, &resourceBinding)).To(Succeed())
+				})
+
+				When("FailedVersion matches the desired version (same version that previously failed)", func() {
+					BeforeEach(func() {
+						// FailedVersion == spec.Version ("v0.0.2"), so this attempt already failed.
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
+						resourceBinding.Status.FailedVersion = resourceBinding.Spec.Version
+						Expect(fakeK8sClient.Status().Update(ctx, &resourceBinding)).To(Succeed())
+					})
+
+					It("returns early without re-triggering the upgrade", func() {
+						request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+						result, err := reconciler.Reconcile(ctx, request)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()}, rr)).To(Succeed())
+						Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).NotTo(Equal("true"))
+
+						var rb v1alpha1.ResourceBinding
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &rb)).To(Succeed())
+						cond := apiMeta.FindStatusCondition(rb.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+						Expect(string(cond.Status)).To(Equal(string(metav1.ConditionFalse)))
+						Expect(rb.Status.FailedVersion).To(Equal(resourceBinding.Spec.Version))
+					})
+				})
+
+				When("FailedVersion does not match the desired version (spec.version was changed to a new target)", func() {
+					BeforeEach(func() {
+						// FailedVersion points to an older version, not the current spec.Version.
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
+						resourceBinding.Status.FailedVersion = "v0.0.1"
+						Expect(fakeK8sClient.Status().Update(ctx, &resourceBinding)).To(Succeed())
+					})
+
+					It("triggers a new upgrade attempt, clears FailedVersion, and sets UpgradeSucceeded=Unknown", func() {
+						request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+						result, err := reconciler.Reconcile(ctx, request)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()}, rr)).To(Succeed())
+						Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+
+						var rb v1alpha1.ResourceBinding
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &rb)).To(Succeed())
+						cond := apiMeta.FindStatusCondition(rb.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+						Expect(string(cond.Status)).To(Equal(string(metav1.ConditionUnknown)))
+						Expect(cond.Reason).To(Equal(v1alpha1.UpgradeInProgressReason))
+						Expect(rb.Status.FailedVersion).To(BeEmpty())
+					})
+				})
+
+				When("FailedVersion is unset (legacy binding without FailedVersion)", func() {
+					It("triggers a new upgrade attempt and sets UpgradeSucceeded=Unknown", func() {
+						request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+						result, err := reconciler.Reconcile(ctx, request)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()}, rr)).To(Succeed())
+						Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+
+						var rb v1alpha1.ResourceBinding
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &rb)).To(Succeed())
+						cond := apiMeta.FindStatusCondition(rb.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+						Expect(string(cond.Status)).To(Equal(string(metav1.ConditionUnknown)))
+						Expect(rb.Status.FailedVersion).To(BeEmpty())
+					})
+				})
+			})
+
+			When("UpgradeSucceeded is Unknown and FailedVersion is stale", func() {
+				It("clears FailedVersion as part of the in-progress write", func() {
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
+					apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
+						Type:   v1alpha1.UpgradeSucceededCondition,
+						Status: metav1.ConditionUnknown,
+						Reason: v1alpha1.UpgradeInProgressReason,
+					})
+					resourceBinding.Status.FailedVersion = "stale-version"
+					Expect(fakeK8sClient.Status().Update(ctx, &resourceBinding)).To(Succeed())
+
+					request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+					_, err := reconciler.Reconcile(ctx, request)
+					Expect(err).ToNot(HaveOccurred())
+
+					var rb v1alpha1.ResourceBinding
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &rb)).To(Succeed())
+					Expect(rb.Status.FailedVersion).To(BeEmpty())
+				})
+			})
 		})
 	})
 })

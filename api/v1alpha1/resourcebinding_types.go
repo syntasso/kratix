@@ -76,6 +76,10 @@ type ResourceBindingStatus struct {
 	// Reference to the Resource Request version
 	// +optional
 	LastAppliedVersion string `json:"lastAppliedVersion,omitempty"`
+	// The promise version that was being attempted when the last upgrade failure occurred.
+	// Cleared when an upgrade succeeds or a new upgrade attempt begins.
+	// +optional
+	FailedVersion string `json:"failedVersion,omitempty"`
 }
 
 // +kubebuilder:object:root=true
