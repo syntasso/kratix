@@ -131,6 +131,9 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	)
 
 	existing := apiMeta.FindStatusCondition(resourceBinding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+	if existing != nil && existing.Status == metav1.ConditionFalse {
+		return ctrl.Result{}, nil
+	}
 	if existing == nil || existing.Status != metav1.ConditionUnknown || existing.Reason != v1alpha1.UpgradeInProgressReason {
 		apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
 			Type:               v1alpha1.UpgradeSucceededCondition,
