@@ -300,7 +300,7 @@ var _ = Describe("Promise Revisions", func() {
 				// failedVersion must be cleared after a successful upgrade
 				g.Expect(
 					platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.failedVersion}'"),
-				).To(BeEmpty())
+				).To(Equal(`''`))
 			}).Should(Succeed())
 		})
 
