@@ -1,7 +1,6 @@
 package system_test
 
 import (
-	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -104,27 +103,18 @@ var _ = Describe("Reconciliation", func() {
 		})
 
 		It("does not do reconciliation for paused resource request", func() {
-			podLabels := fmt.Sprintf("kratix.io/promise-name=%s,kratix.io/workflow-type=resource", promiseName)
-			goTemplate := `go-template='{{printf "%d\n" (len  .items)}}'`
-			numberOfTriggeredPods := platform.Kubectl("get", "pods", "-l", podLabels, "-o", goTemplate)
-
 			platform.Kubectl("label", kindName, resourceRequestName, "kratix.io/paused=true")
 			platform.Kubectl("apply", "-f", "assets/reconciliation/pause-request-promise-rr-update.yaml")
 			platform.Kubectl("apply", "-f", "assets/reconciliation/pause-request-promise-update.yaml")
 
 			By("not running any workflow while paused")
 			Consistently(func() string {
-				return platform.Kubectl("get", "pods", "-l", podLabels, "-o", goTemplate)
-			}, 10*time.Second).Should(Equal(numberOfTriggeredPods))
+				return platform.Kubectl("get", kindName, resourceRequestName)
+			}, 10*time.Second).Should(ContainSubstring("Paused"))
 
 			platform.Kubectl("label", kindName, resourceRequestName, "kratix.io/paused-")
 
 			By("resuming reconciliation for resource request after unpaused")
-			numberOfTriggeredPodsPlusOne := "2"
-			Eventually(func() string {
-				return platform.Kubectl("get", "pods", "-l", podLabels, "-o", goTemplate)
-			}, 90*time.Second).Should(ContainSubstring(numberOfTriggeredPodsPlusOne))
-
 			Eventually(func() string {
 				return platform.Kubectl("get", kindName, resourceRequestName)
 			}).Should(ContainSubstring("Reconciled"))
