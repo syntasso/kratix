@@ -487,6 +487,28 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 				Reason:  "ScheduledToDestination",
 				Message: "Pending",
 			})
+		} else {
+			// Workload was previously written, set Ready to true
+			readyUpdated = apimeta.SetStatusCondition(&updatedwp.Status.Conditions, metav1.Condition{
+				Type:    "Ready",
+				Status:  metav1.ConditionTrue,
+				Reason:  "WorkloadsWrittenToTargetDestination",
+				Message: "Ready",
+			})
+		}
+	}
+
+	// Always check if Ready condition needs to be updated from Misplaced to Ready
+	readyCond := apimeta.FindStatusCondition(updatedwp.Status.Conditions, "Ready")
+	if readyCond != nil && readyCond.Reason == "Misplaced" && !misplaced {
+		writeSucceededCond := apimeta.FindStatusCondition(updatedwp.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+		if writeSucceededCond != nil && writeSucceededCond.Status == metav1.ConditionTrue {
+			readyUpdated = apimeta.SetStatusCondition(&updatedwp.Status.Conditions, metav1.Condition{
+				Type:    "Ready",
+				Status:  metav1.ConditionTrue,
+				Reason:  "WorkloadsWrittenToTargetDestination",
+				Message: "Ready",
+			})
 		}
 	}
 
