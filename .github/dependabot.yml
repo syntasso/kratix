@@ -1,10 +1,15 @@
 version: 2
 updates:
+  # Version updates disabled — security-only to reduce noise while dependency baseline is stabilised.
+  # open-pull-requests-limit: 0 suppresses routine version bumps; Dependabot security alerts
+  # bypass this limit and still open individual PRs for CVEs.
+  # Re-enable by removing open-pull-requests-limit once baseline is healthy.
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
       day: monday
+    open-pull-requests-limit: 0
     groups:
       go-dependencies:
         patterns: ["*"]
@@ -15,6 +20,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    open-pull-requests-limit: 0
     groups:
       go-dependencies:
         patterns: ["*"]
@@ -25,6 +31,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    open-pull-requests-limit: 0
     groups:
       go-dependencies:
         patterns: ["*"]
