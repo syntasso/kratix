@@ -1541,7 +1541,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			When("the resource binding Status.LastAppliedVersion does not yet reflect the current promise version", func() {
-				It("updates Status.LastAppliedVersion and sets UpgradeSucceeded=True", func() {
+				It("updates Status.LastAppliedVersion without setting UpgradeSucceeded on a fresh deployment", func() {
 					setReconcileConfigureWorkflowToReturnFinished()
 					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
@@ -1549,6 +1549,33 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Spec.Version).To(Equal("latest"))
+					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).To(BeNil(), "fresh deployments should not set UpgradeSucceeded")
+				})
+			})
+
+			When("an upgrade is in progress", func() {
+				BeforeEach(func() {
+					createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					binding.Status.LastAppliedVersion = "v1.0.0"
+					apiMeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+						Type:   v1alpha1.UpgradeSucceededCondition,
+						Status: metav1.ConditionUnknown,
+						Reason: v1alpha1.UpgradeInProgressReason,
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, binding)).To(Succeed())
+				})
+
+				It("sets UpgradeSucceeded=True when the configure workflow succeeds", func() {
+					setReconcileConfigureWorkflowToReturnFinished()
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
 
 					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
@@ -1563,7 +1590,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
 				})
 
-				It("updates Status.LastAppliedVersion and sets UpgradeSucceeded=True", func() {
+				It("updates Status.LastAppliedVersion without setting UpgradeSucceeded on a fresh deployment", func() {
 					setReconcileConfigureWorkflowToReturnFinished()
 					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
@@ -1574,9 +1601,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
 
 					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
-					Expect(cond).NotTo(BeNil())
-					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionTrue)))
-					Expect(cond.Reason).To(Equal(v1alpha1.UpgradeCompleteReason))
+					Expect(cond).To(BeNil(), "fresh deployments should not set UpgradeSucceeded")
 				})
 			})
 
@@ -1649,6 +1674,96 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
 					Expect(cond).NotTo(BeNil())
 					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionTrue)))
+				})
+			})
+
+			When("the configure workflow fails again with a different message while FailedVersion is already set", func() {
+				It("updates the UpgradeSucceeded condition message to the latest failure", func() {
+					// First reconcile: creates the binding.
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					// Pre-set the binding with UpgradeSucceeded=False and FailedVersion already recorded.
+					// This simulates the state after a first failure: the binding already has
+					// FailedVersion=promiseVersion so needsFailedVersionUpdate will be false.
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					apiMeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+						Type:    v1alpha1.UpgradeSucceededCondition,
+						Status:  metav1.ConditionFalse,
+						Reason:  v1alpha1.UpgradeFailedReason,
+						Message: "A Configure Pipeline has failed: old-pipeline-xyz",
+					})
+					binding.Status.FailedVersion = promiseVersion
+					Expect(fakeK8sClient.Status().Update(ctx, binding)).To(Succeed())
+
+					// Update the RR's workflow condition to a new failure with a different message
+					// (e.g., a new job was started and failed differently — without changing the version).
+					setConfigureWorkflowAsFailed(resReq, "new-pipeline-abc")
+
+					_, err = t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					binding = getResourceBinding(promise.GetName(), resReqNameNamespace)
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).NotTo(BeNil())
+					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionFalse)))
+					Expect(cond.Message).To(ContainSubstring("new-pipeline-abc"),
+						"condition message should reflect the latest failure, not be silently dropped")
+				})
+			})
+
+			When("the promise has no configure pipeline", func() {
+				BeforeEach(func() {
+					// Simulate a prior successful reconcile that set rrPromiseVersion,
+					// then the pipeline was removed in a new promise version.
+					resourceutil.SetStatus(resReq, l, "promiseVersion", "v1.0.0")
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+					promise.Spec.Workflows.Resource.Configure = nil
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					// The outer BeforeEach created the PromiseRevision while the promise still
+					// had its configure pipeline. Update the revision's PromiseSpec to match the
+					// current (no-pipeline) promise spec, because resolvePromiseRevisionForRR
+					// replaces promise.Spec with revision.Spec.PromiseSpec — restoring the
+					// pipeline if we don't update the revision here.
+					revisionName := fmt.Sprintf("%s-%s", promise.GetName(), promiseVersion)
+					revision := &v1alpha1.PromiseRevision{}
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: revisionName}, revision)).To(Succeed())
+					revision.Spec.PromiseSpec = promise.Spec
+					Expect(fakeK8sClient.Update(ctx, revision)).To(Succeed())
+
+					// Without a pipeline, workflow.ReconcileConfigure returns (false, nil) in
+					// production. Mirror that here so reconcileAfterConfigure is entered.
+					setReconcileConfigureWorkflowToReturnFinished()
+				})
+
+				It("sets UpgradeSucceeded=True and updates rrPromiseVersion so the upgrade resolves", func() {
+					createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					binding.Status.FailedVersion = "v1.0.0"
+					apiMeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+						Type:   v1alpha1.UpgradeSucceededCondition,
+						Status: metav1.ConditionFalse,
+						Reason: v1alpha1.UpgradeFailedReason,
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, binding)).To(Succeed())
+
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					Expect(resourceutil.GetStatus(resReq, "promiseVersion")).To(Equal(promiseVersion),
+						"rrPromiseVersion must be updated so the ResourceBinding controller sees no mismatch")
+
+					binding = getResourceBinding(promise.GetName(), resReqNameNamespace)
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).NotTo(BeNil())
+					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionTrue)),
+						"no-pipeline upgrade should be marked as succeeded immediately")
+					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
+					Expect(binding.Status.FailedVersion).To(BeEmpty(),
+						"stale FailedVersion from a prior pipeline failure should be cleared")
 				})
 			})
 		})
