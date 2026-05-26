@@ -1,0 +1,40 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      go-dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: gomod
+    directory: /hack/kratix-quick-start-installer
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      go-dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: gomod
+    directory: /test/system/assets/promise-release/test-server
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      go-dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns: ["*"]
