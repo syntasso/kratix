@@ -73,19 +73,15 @@ func init() {
 }
 
 type KratixConfig struct {
-	Workflows                Workflows               `json:"workflows"`
-	NumberOfJobsToKeep       int                     `json:"numberOfJobsToKeep,omitempty"`
-	ControllerLeaderElection *LeaderElectionConfig   `json:"controllerLeaderElection,omitempty"`
-	SelectiveCache           bool                    `json:"selectiveCache,omitempty"`
-	ReconciliationInterval   *metav1.Duration        `json:"reconciliationInterval,omitempty"`
-	Telemetry                *telemetry.Config       `json:"telemetry,omitempty"`
-	Logging                  *LoggingConfig          `json:"logging,omitempty"`
-	FeatureFlags             *FeatureFlags           `json:"featureFlags,omitempty"`
-	ResourceBindings         *ResourceBindingsConfig `json:"resourceBindings,omitempty"`
-}
-
-type ResourceBindingsConfig struct {
-	DefaultVersion ResourceBindingDefaultVersion `json:"defaultVersion,omitempty"`
+	Workflows                      Workflows                     `json:"workflows"`
+	NumberOfJobsToKeep             int                           `json:"numberOfJobsToKeep,omitempty"`
+	ControllerLeaderElection       *LeaderElectionConfig         `json:"controllerLeaderElection,omitempty"`
+	SelectiveCache                 bool                          `json:"selectiveCache,omitempty"`
+	ReconciliationInterval         *metav1.Duration              `json:"reconciliationInterval,omitempty"`
+	Telemetry                      *telemetry.Config             `json:"telemetry,omitempty"`
+	Logging                        *LoggingConfig                `json:"logging,omitempty"`
+	FeatureFlags                   *FeatureFlags                 `json:"featureFlags,omitempty"`
+	ResourceBindingVersionStrategy ResourceBindingDefaultVersion `json:"resourceBindingVersionStrategy,omitempty"`
 }
 
 // ResourceBindingDefaultVersion controls the version strategy for ResourceBindings.
@@ -510,14 +506,14 @@ func getPodTTLAfterFinished(kratixConfig *KratixConfig) *time.Duration {
 }
 
 func getResourceBindingDefaultVersion(kratixConfig *KratixConfig) ResourceBindingDefaultVersion {
-	if kratixConfig == nil || kratixConfig.ResourceBindings == nil || kratixConfig.ResourceBindings.DefaultVersion == "" {
+	if kratixConfig == nil || kratixConfig.ResourceBindingVersionStrategy == "" {
 		return ResourceBindingDefaultVersionFloating
 	}
-	v := kratixConfig.ResourceBindings.DefaultVersion
+	v := kratixConfig.ResourceBindingVersionStrategy
 	if v != ResourceBindingDefaultVersionFloating && v != ResourceBindingDefaultVersionPinned {
 		setupLog.Error(fmt.Errorf("invalid Kratix Config"),
-			"resourceBindings.defaultVersion must be 'floating' or 'pinned'; defaulting to 'floating'",
-			"defaultVersion", v)
+			"resourceBindingVersionStrategy must be 'floating' or 'pinned'; defaulting to 'floating'",
+			"resourceBindingVersionStrategy", v)
 		return ResourceBindingDefaultVersionFloating
 	}
 	return v

@@ -26,35 +26,27 @@ var _ = Describe("getResourceBindingDefaultVersion", func() {
 		Expect(getResourceBindingDefaultVersion(nil)).To(Equal(ResourceBindingDefaultVersionFloating))
 	})
 
-	It("returns floating when config has no resourceBindings section", func() {
+	It("returns floating when config has no resourceBindingVersionStrategy set", func() {
 		Expect(getResourceBindingDefaultVersion(&KratixConfig{})).To(Equal(ResourceBindingDefaultVersionFloating))
 	})
 
-	It("returns floating when defaultVersion is empty", func() {
-		config := &KratixConfig{
-			ResourceBindings: &ResourceBindingsConfig{DefaultVersion: ""},
-		}
+	It("returns floating when resourceBindingVersionStrategy is empty", func() {
+		config := &KratixConfig{ResourceBindingVersionStrategy: ""}
 		Expect(getResourceBindingDefaultVersion(config)).To(Equal(ResourceBindingDefaultVersionFloating))
 	})
 
-	It("returns floating when defaultVersion is set to floating", func() {
-		config := &KratixConfig{
-			ResourceBindings: &ResourceBindingsConfig{DefaultVersion: ResourceBindingDefaultVersionFloating},
-		}
+	It("returns floating when resourceBindingVersionStrategy is set to floating", func() {
+		config := &KratixConfig{ResourceBindingVersionStrategy: ResourceBindingDefaultVersionFloating}
 		Expect(getResourceBindingDefaultVersion(config)).To(Equal(ResourceBindingDefaultVersionFloating))
 	})
 
-	It("returns pinned when defaultVersion is set to pinned", func() {
-		config := &KratixConfig{
-			ResourceBindings: &ResourceBindingsConfig{DefaultVersion: ResourceBindingDefaultVersionPinned},
-		}
+	It("returns pinned when resourceBindingVersionStrategy is set to pinned", func() {
+		config := &KratixConfig{ResourceBindingVersionStrategy: ResourceBindingDefaultVersionPinned}
 		Expect(getResourceBindingDefaultVersion(config)).To(Equal(ResourceBindingDefaultVersionPinned))
 	})
 
-	It("returns floating for an unrecognised defaultVersion value", func() {
-		config := &KratixConfig{
-			ResourceBindings: &ResourceBindingsConfig{DefaultVersion: "invalid"},
-		}
+	It("returns floating for an unrecognised resourceBindingVersionStrategy value", func() {
+		config := &KratixConfig{ResourceBindingVersionStrategy: "invalid"}
 		Expect(getResourceBindingDefaultVersion(config)).To(Equal(ResourceBindingDefaultVersionFloating))
 	})
 })
