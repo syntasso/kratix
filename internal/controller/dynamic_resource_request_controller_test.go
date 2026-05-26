@@ -1289,6 +1289,33 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					)))
 				})
 			})
+
+			When("ResourceBindingPinned is true", func() {
+				BeforeEach(func() {
+					reconciler.ResourceBindingPinned = true
+				})
+
+				When("there is a promise revision marked as latest", func() {
+					It("sets the binding version to the promise revision version, not latest", func() {
+						promiseVersion := "v1.1.0"
+						createPromiseRevision(fakeK8sClient, promise, promiseVersion)
+
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+
+						binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+						Expect(binding.Spec.Version).To(Equal(promiseVersion))
+					})
+				})
+
+				When("there is no promise revision marked as latest", func() {
+					It("returns a reconciliation error", func() {
+						_, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).To(MatchError(ContainSubstring("cannot find any PromiseRevision for Promise redis with status.latest set to true")))
+					})
+				})
+			})
 		})
 
 		When("the resource was created from a revision but the resource binding doesn't exist", func() {
@@ -1331,6 +1358,24 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(binding.Spec.ResourceRef.Name).To(Equal(resReqNameNamespace.Name))
 					Expect(binding.Spec.ResourceRef.Namespace).To(Equal(resReqNameNamespace.Namespace))
 					Expect(binding.Spec.Version).To(Equal(promiseVersion))
+				})
+
+				When("ResourceBindingPinned is true", func() {
+					BeforeEach(func() {
+						reconciler.ResourceBindingPinned = true
+					})
+
+					It("restores the version from status regardless of the pinned strategy", func() {
+						resourceutil.SetStatus(resReq, l, "resourceBindingVersion", promiseVersion)
+						Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+
+						binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+						Expect(binding.Spec.Version).To(Equal(promiseVersion))
+					})
 				})
 			})
 
