@@ -73,15 +73,30 @@ func init() {
 }
 
 type KratixConfig struct {
-	Workflows                Workflows             `json:"workflows"`
-	NumberOfJobsToKeep       int                   `json:"numberOfJobsToKeep,omitempty"`
-	ControllerLeaderElection *LeaderElectionConfig `json:"controllerLeaderElection,omitempty"`
-	SelectiveCache           bool                  `json:"selectiveCache,omitempty"`
-	ReconciliationInterval   *metav1.Duration      `json:"reconciliationInterval,omitempty"`
-	Telemetry                *telemetry.Config     `json:"telemetry,omitempty"`
-	Logging                  *LoggingConfig        `json:"logging,omitempty"`
-	FeatureFlags             *FeatureFlags         `json:"featureFlags,omitempty"`
+	Workflows                Workflows               `json:"workflows"`
+	NumberOfJobsToKeep       int                     `json:"numberOfJobsToKeep,omitempty"`
+	ControllerLeaderElection *LeaderElectionConfig   `json:"controllerLeaderElection,omitempty"`
+	SelectiveCache           bool                    `json:"selectiveCache,omitempty"`
+	ReconciliationInterval   *metav1.Duration        `json:"reconciliationInterval,omitempty"`
+	Telemetry                *telemetry.Config       `json:"telemetry,omitempty"`
+	Logging                  *LoggingConfig          `json:"logging,omitempty"`
+	FeatureFlags             *FeatureFlags           `json:"featureFlags,omitempty"`
+	ResourceBindings         *ResourceBindingsConfig `json:"resourceBindings,omitempty"`
 }
+
+type ResourceBindingsConfig struct {
+	DefaultVersion ResourceBindingDefaultVersion `json:"defaultVersion,omitempty"`
+}
+
+// ResourceBindingDefaultVersion controls the version strategy for ResourceBindings.
+// "floating" sets spec.version to "latest"; "pinned" sets it to the current PromiseRevision version.
+// Defaults to "floating" when not set.
+type ResourceBindingDefaultVersion string
+
+const (
+	ResourceBindingDefaultVersionFloating ResourceBindingDefaultVersion = "floating"
+	ResourceBindingDefaultVersionPinned   ResourceBindingDefaultVersion = "pinned"
+)
 
 type FeatureFlags struct {
 	PromiseUpgrade *bool `json:"promiseUpgrade,omitempty"`
@@ -283,6 +298,7 @@ func main() {
 		ReconciliationInterval: getRegularReconciliationInterval(kratixConfig),
 		EventRecorder:          mgr.GetEventRecorderFor("PromiseController"),
 		PromiseUpgrade:         promiseUpgradeEnabled(kratixConfig),
+		ResourceBindingPinned:  getResourceBindingDefaultVersion(kratixConfig) == ResourceBindingDefaultVersionPinned,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
 		os.Exit(1)
@@ -489,6 +505,13 @@ func getPodTTLAfterFinished(kratixConfig *KratixConfig) *time.Duration {
 
 	ttl := time.Duration(podTTLSecondsAfterFinished) * time.Second
 	return &ttl
+}
+
+func getResourceBindingDefaultVersion(kratixConfig *KratixConfig) ResourceBindingDefaultVersion {
+	if kratixConfig == nil || kratixConfig.ResourceBindings == nil || kratixConfig.ResourceBindings.DefaultVersion == "" {
+		return ResourceBindingDefaultVersionFloating
+	}
+	return kratixConfig.ResourceBindings.DefaultVersion
 }
 
 func getRegularReconciliationInterval(kratixConfig *KratixConfig) time.Duration {
