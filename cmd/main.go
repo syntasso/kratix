@@ -511,7 +511,14 @@ func getResourceBindingDefaultVersion(kratixConfig *KratixConfig) ResourceBindin
 	if kratixConfig == nil || kratixConfig.ResourceBindings == nil || kratixConfig.ResourceBindings.DefaultVersion == "" {
 		return ResourceBindingDefaultVersionFloating
 	}
-	return kratixConfig.ResourceBindings.DefaultVersion
+	v := kratixConfig.ResourceBindings.DefaultVersion
+	if v != ResourceBindingDefaultVersionFloating && v != ResourceBindingDefaultVersionPinned {
+		setupLog.Error(fmt.Errorf("invalid Kratix Config"),
+			"resourceBindings.defaultVersion must be 'floating' or 'pinned'; defaulting to 'floating'",
+			"defaultVersion", v)
+		return ResourceBindingDefaultVersionFloating
+	}
+	return v
 }
 
 func getRegularReconciliationInterval(kratixConfig *KratixConfig) time.Duration {

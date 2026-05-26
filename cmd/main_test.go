@@ -59,6 +59,13 @@ func TestGetResourceBindingDefaultVersion(t *testing.T) {
 			},
 			expected: ResourceBindingDefaultVersionPinned,
 		},
+		{
+			name: "unrecognised value defaults to floating",
+			config: &KratixConfig{
+				ResourceBindings: &ResourceBindingsConfig{DefaultVersion: "invalid"},
+			},
+			expected: ResourceBindingDefaultVersionFloating,
+		},
 	}
 
 	for _, tt := range tests {
