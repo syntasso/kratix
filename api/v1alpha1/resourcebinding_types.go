@@ -46,8 +46,8 @@ type ResourceBindingSpec struct {
 // +kubebuilder:resource:scope=Namespaced,path=resourcebindings,categories=kratix
 // +kubebuilder:printcolumn:name="Resource",type=string,JSONPath=".spec.resourceRef.name",description="Resource using a Promise"
 // +kubebuilder:printcolumn:name="Promise",type=string,JSONPath=".spec.promiseRef.name",description="Promise being used by the Resource"
-// +kubebuilder:printcolumn:name="Version",type=string,JSONPath=".spec.version",description="Promise version used by the Resource"
-// +kubebuilder:printcolumn:name="Upgrade Succeeded",type=string,JSONPath=".status.conditions[?(@.type=='UpgradeSucceeded')].status",description="Whether the last upgrade succeeded"
+// +kubebuilder:printcolumn:name="Desired",type=string,JSONPath=".spec.version",description="Promise version the resource should be reconciled with"
+// +kubebuilder:printcolumn:name="Applied",type=string,JSONPath=".status.lastAppliedVersion",description="Promise version the resource was last reconciled with"
 
 // ResourceBinding is the Schema for the resourcebindings API
 type ResourceBinding struct {
