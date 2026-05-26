@@ -207,6 +207,8 @@ func main() {
 	}
 
 	podTTLAfterFinished := getPodTTLAfterFinished(kratixConfig)
+	resourceBindingDefaultVersion := getResourceBindingDefaultVersion(kratixConfig)
+	setupLog.Info("resource binding default version strategy configured", "defaultVersion", resourceBindingDefaultVersion)
 
 	telemetryShutdown := func(context.Context) error { return nil }
 	if shutdown, err := telemetry.SetupTracerProvider(context.Background(), ctrl.Log.WithName("telemetry"), "kratix-controller-manager", telemetryConfigFromKratixConfig(kratixConfig)); err != nil {
@@ -298,7 +300,7 @@ func main() {
 		ReconciliationInterval: getRegularReconciliationInterval(kratixConfig),
 		EventRecorder:          mgr.GetEventRecorderFor("PromiseController"),
 		PromiseUpgrade:         promiseUpgradeEnabled(kratixConfig),
-		ResourceBindingPinned:  getResourceBindingDefaultVersion(kratixConfig) == ResourceBindingDefaultVersionPinned,
+		ResourceBindingPinned:  resourceBindingDefaultVersion == ResourceBindingDefaultVersionPinned,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
 		os.Exit(1)
