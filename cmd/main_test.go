@@ -17,61 +17,44 @@ limitations under the License.
 package main
 
 import (
-	"testing"
-
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
-func TestGetResourceBindingDefaultVersion(t *testing.T) {
-	tests := []struct {
-		name     string
-		config   *KratixConfig
-		expected ResourceBindingDefaultVersion
-	}{
-		{
-			name:     "nil config defaults to floating",
-			config:   nil,
-			expected: ResourceBindingDefaultVersionFloating,
-		},
-		{
-			name:     "config with no resourceBindings section defaults to floating",
-			config:   &KratixConfig{},
-			expected: ResourceBindingDefaultVersionFloating,
-		},
-		{
-			name: "config with empty defaultVersion defaults to floating",
-			config: &KratixConfig{
-				ResourceBindings: &ResourceBindingsConfig{DefaultVersion: ""},
-			},
-			expected: ResourceBindingDefaultVersionFloating,
-		},
-		{
-			name: "config with floating returns floating",
-			config: &KratixConfig{
-				ResourceBindings: &ResourceBindingsConfig{DefaultVersion: ResourceBindingDefaultVersionFloating},
-			},
-			expected: ResourceBindingDefaultVersionFloating,
-		},
-		{
-			name: "config with pinned returns pinned",
-			config: &KratixConfig{
-				ResourceBindings: &ResourceBindingsConfig{DefaultVersion: ResourceBindingDefaultVersionPinned},
-			},
-			expected: ResourceBindingDefaultVersionPinned,
-		},
-		{
-			name: "unrecognised value defaults to floating",
-			config: &KratixConfig{
-				ResourceBindings: &ResourceBindingsConfig{DefaultVersion: "invalid"},
-			},
-			expected: ResourceBindingDefaultVersionFloating,
-		},
-	}
+var _ = Describe("getResourceBindingDefaultVersion", func() {
+	It("returns floating when config is nil", func() {
+		Expect(getResourceBindingDefaultVersion(nil)).To(Equal(ResourceBindingDefaultVersionFloating))
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			g := NewWithT(t)
-			g.Expect(getResourceBindingDefaultVersion(tt.config)).To(Equal(tt.expected))
-		})
-	}
-}
+	It("returns floating when config has no resourceBindings section", func() {
+		Expect(getResourceBindingDefaultVersion(&KratixConfig{})).To(Equal(ResourceBindingDefaultVersionFloating))
+	})
+
+	It("returns floating when defaultVersion is empty", func() {
+		config := &KratixConfig{
+			ResourceBindings: &ResourceBindingsConfig{DefaultVersion: ""},
+		}
+		Expect(getResourceBindingDefaultVersion(config)).To(Equal(ResourceBindingDefaultVersionFloating))
+	})
+
+	It("returns floating when defaultVersion is set to floating", func() {
+		config := &KratixConfig{
+			ResourceBindings: &ResourceBindingsConfig{DefaultVersion: ResourceBindingDefaultVersionFloating},
+		}
+		Expect(getResourceBindingDefaultVersion(config)).To(Equal(ResourceBindingDefaultVersionFloating))
+	})
+
+	It("returns pinned when defaultVersion is set to pinned", func() {
+		config := &KratixConfig{
+			ResourceBindings: &ResourceBindingsConfig{DefaultVersion: ResourceBindingDefaultVersionPinned},
+		}
+		Expect(getResourceBindingDefaultVersion(config)).To(Equal(ResourceBindingDefaultVersionPinned))
+	})
+
+	It("returns floating for an unrecognised defaultVersion value", func() {
+		config := &KratixConfig{
+			ResourceBindings: &ResourceBindingsConfig{DefaultVersion: "invalid"},
+		}
+		Expect(getResourceBindingDefaultVersion(config)).To(Equal(ResourceBindingDefaultVersionFloating))
+	})
+})
