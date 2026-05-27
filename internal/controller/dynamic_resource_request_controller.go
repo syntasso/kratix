@@ -287,12 +287,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	// end of Reconcile instead of writing once per mutation. Each write fires
 	// the RR self-watch and re-enqueues this reconcile, so coalescing
 	// directly reduces reconciles-per-RR.
-	//
-	// Note: B17 (observedGeneration) is *not* coalesced into this — its
-	// write-and-return is part of the controller's external contract (clients
-	// rely on the reconcile that bumps observedGeneration returning ctrl.Result{}
-	// rather than the longer-tail nextReconciliation result). Changing it
-	// breaks `dynamic_resource_request_controller_test.go:406`.
 	terminalStatusDirty := false
 
 	if rr.GetGeneration() != resourceutil.GetObservedGeneration(rr) {
@@ -336,12 +330,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		// terminalStatusDirty == true: fall through to terminal write, then
 		// the caller's controller-runtime backoff handles re-entry.
 	}
-
-	// Note: a previous version of this controller also called
-	// updatePromiseVersionStatus here and wrote status if it returned true.
-	// That call was a duplicate of the same sub-mutator invoked inside
-	// generateResourceStatus (see ensureResourceStatus above), running twice
-	// per reconcile on the same inputs. The B19 aggregator covers it.
 
 	if terminalStatusDirty {
 		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)

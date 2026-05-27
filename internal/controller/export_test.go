@@ -24,3 +24,5 @@ func SetNewGitWriter(f func(logger logr.Logger, stateStoreSpec v1alpha1.GitState
 	creds map[string][]byte) (writers.StateStoreWriter, error)) {
 	newGitWriter = f
 }
+
+var DynamicRRNoOpWriteFilter = dynamicRRNoOpWriteFilter
