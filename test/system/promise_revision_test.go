@@ -13,7 +13,7 @@ import (
 	"github.com/syntasso/kratix/test/kubeutils"
 )
 
-var _ = Describe("Promise Revisions", func() {
+var _ = FDescribe("Promise Revisions", func() {
 
 	const assetsPath = "assets/promise-revision"
 
@@ -273,13 +273,36 @@ var _ = Describe("Promise Revisions", func() {
 			}).Should(Succeed())
 		})
 
+		name := getBindingName(promiseName, rrOneName)
+		upgradeSucceededCondition := `.status.conditions[?(@.type=="UpgradeSucceeded")]`
 		By("not re-triggering the upgrade when the binding version has not changed (oscillation check)", func() {
-			name := getBindingName(promiseName, rrOneName)
-			upgradeSucceededCondition := `.status.conditions[?(@.type=="UpgradeSucceeded")]`
 			Consistently(func() string {
 				return platform.Kubectl("get", "--namespace=default", name,
 					fmt.Sprintf(`-o=jsonpath='{%s.status}'`, upgradeSucceededCondition))
 			}, 3*time.Second, 300*time.Millisecond).Should(ContainSubstring("False"))
+		})
+
+		By("retrying when labeled for manual reconciliation", func() {
+			configureJobCount := jobCountForResourcePipeline(promiseName, "resource-configure")
+			platform.Kubectl("label", "--overwrite", "--namespace=default", name, "kratix.io/manual-reconciliation=true")
+			Eventually(func(g Gomega) {
+				g.Expect(
+					platform.Kubectl("get", "--namespace=default", name,
+						`-o=jsonpath='{.metadata.labels.kratix\.io/manual-reconciliation}'`),
+				).To(Equal(`''`))
+			}).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(jobCountForResourcePipeline(promiseName, "resource-configure")).To(Equal(configureJobCount + 1))
+			}).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(
+					platform.Kubectl("get", "--namespace=default", name,
+						fmt.Sprintf(`-o=jsonpath='{%s.status}'`, upgradeSucceededCondition)),
+				).To(ContainSubstring("False"))
+				g.Expect(
+					platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.failedVersion}'"),
+				).To(ContainSubstring(failingPromiseVersion))
+			}).Should(Succeed())
 		})
 
 		By("recovering when a new (working) promise version is applied after the failure", func() {
