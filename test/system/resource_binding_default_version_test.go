@@ -9,7 +9,7 @@ import (
 	"github.com/syntasso/kratix/test/kubeutils"
 )
 
-var _ = Describe("ResourceBinding Default Version", func() {
+var _ = Describe("ResourceBinding Default Version", Serial, func() {
 	const (
 		assetsPath     = "assets/resource-binding-default-version"
 		promiseName    = "rbversion"
@@ -27,6 +27,7 @@ var _ = Describe("ResourceBinding Default Version", func() {
 		SetDefaultEventuallyPollingInterval(2 * time.Second)
 		kubeutils.SetTimeoutAndInterval(4*time.Minute, 2*time.Second)
 
+		platform.EventuallyKubectlDelete("promise", promiseName)
 		platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise.yaml"))
 		Eventually(func() string {
 			return platform.Kubectl("get", "promise", promiseName)

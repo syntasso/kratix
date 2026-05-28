@@ -1306,6 +1306,18 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 						binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 						Expect(binding.Spec.Version).To(Equal(promiseVersion))
+
+						By("running the promise workflows successfully", func() {
+							setReconcileConfigureWorkflowToReturnFinished()
+							result, err := t.reconcileUntilCompletion(reconciler, resReq)
+							Expect(err).NotTo(HaveOccurred())
+							Expect(result).To(Equal(ctrl.Result{}))
+						})
+
+						By("setting the binding version in the resource status", func() {
+							Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+							Expect(resourceutil.GetStatus(resReq, "resourceBindingVersion")).To(Equal(promiseVersion))
+						})
 					})
 				})
 
