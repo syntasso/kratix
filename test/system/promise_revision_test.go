@@ -282,7 +282,7 @@ var _ = FDescribe("Promise Revisions", func() {
 			}, 3*time.Second, 300*time.Millisecond).Should(ContainSubstring("False"))
 		})
 
-		By("retrying when labeled for manual reconciliation", func() {
+		By("retrying when labelled for manual reconciliation", func() {
 			configureJobCount := jobCountForResourcePipeline(promiseName, "resource-configure")
 			platform.Kubectl("label", "--overwrite", "--namespace=default", name, "kratix.io/manual-reconciliation=true")
 			Eventually(func(g Gomega) {

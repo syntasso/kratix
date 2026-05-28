@@ -379,7 +379,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 				Expect(fakeK8sClient.Update(ctx, &resourceBinding)).To(Succeed())
 			})
 
-			DescribeTable("retries when the binding is labeled for manual reconciliation",
+			DescribeTable("retries when the binding is labelled for manual reconciliation",
 				func(rrVersion string, condStatus metav1.ConditionStatus, condReason, failedVersion string) {
 					rr = createResourceRequestWithVersion(ctx, resourceRequestPath, rrVersion)
 					setUpgradeCondition(condStatus, condReason, failedVersion)
