@@ -53,6 +53,10 @@ var _ = SynchronizedBeforeSuite(func() {
 	worker = &kubeutils.Cluster{
 		Context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
 		Name:    getEnvOrDefault("WORKER_NAME", "worker-1")}
+	kratixConfigPath = "./assets/kratix-config.yaml"
+	if getEnvOrDefault("UPGRADE_ENABLED", "false") == "true" {
+		kratixConfigPath = "./assets/kratix-config-upgrade.yaml"
+	}
 })
 
 func getEnvOrDefault(envVar, defaultValue string) string {

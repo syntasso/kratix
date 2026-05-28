@@ -81,6 +81,7 @@ type PromiseReconciler struct {
 	ReconciliationInterval    time.Duration
 	EventRecorder             record.EventRecorder
 	PromiseUpgrade            bool
+	ResourceBindingPinned     bool
 }
 
 const (
@@ -1141,6 +1142,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.NumberOfJobsToKeep = r.NumberOfJobsToKeep
 		dynamicController.ReconciliationInterval = r.ReconciliationInterval
 		dynamicController.PromiseUpgradeFeatFlag = r.PromiseUpgrade
+		dynamicController.ResourceBindingPinned = r.ResourceBindingPinned
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
 		if dynamicController.WatchStopped {
@@ -1171,6 +1173,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		ReconciliationInterval:      r.ReconciliationInterval,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
 		PromiseUpgradeFeatFlag:      r.PromiseUpgrade,
+		ResourceBindingPinned:       r.ResourceBindingPinned,
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}

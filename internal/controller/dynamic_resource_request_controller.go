@@ -82,6 +82,7 @@ type DynamicResourceRequestController struct {
 	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
 	PromiseUpgradeFeatFlag      bool
+	ResourceBindingPinned       bool
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
@@ -584,13 +585,13 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 		maps.Copy(mergedLabels, resourceBindingLabels(rr, promise))
 		resourceBinding.SetLabels(mergedLabels)
 		if resourceBinding.Spec.Version == "" {
-			resourceBinding.Spec.Version = LatestVersion
 			// if the resource binding got deleted, when we recreate the resource binding we infer what the resource binding
 			// version used to be from the resource request `status.resourceBindingVersion`
-			existingPromiseVersion := resourceutil.GetStatus(rr, resourceBindingVersionStatus)
-			if existingPromiseVersion != "" {
-				resourceBinding.Spec.Version = existingPromiseVersion
+			version, err := r.determineResourceBindingVersion(ctx, rr, promise)
+			if err != nil {
+				return err
 			}
+			resourceBinding.Spec.Version = version
 		}
 
 		resourceBinding.Spec.PromiseRef = v1alpha1.PromiseRef{Name: promise.GetName()}
@@ -623,6 +624,22 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 	}
 
 	return nil
+}
+
+func (r *DynamicResourceRequestController) determineResourceBindingVersion(ctx context.Context, rr *unstructured.Unstructured, promise *v1alpha1.Promise) (string, error) {
+	// if the resource binding got deleted, when we recreate the resource binding we infer what the resource binding
+	// version used to be from the resource request `status.resourceBindingVersion`
+	if existingVersion := resourceutil.GetStatus(rr, resourceBindingVersionStatus); existingVersion != "" {
+		return existingVersion, nil
+	}
+	if r.ResourceBindingPinned {
+		revision, err := latestRevision(ctx, r.Client, promise)
+		if err != nil {
+			return "", err
+		}
+		return revision.Spec.Version, nil
+	}
+	return LatestVersion, nil
 }
 
 func (r *DynamicResourceRequestController) ensureConfigureWorkflowStatus(
