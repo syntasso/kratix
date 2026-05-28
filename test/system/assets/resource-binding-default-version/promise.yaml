@@ -22,6 +22,7 @@ spec:
           schema:
             openAPIV3Schema:
               type: object
+              x-kubernetes-preserve-unknown-fields: true
           served: true
           storage: true
   workflows:

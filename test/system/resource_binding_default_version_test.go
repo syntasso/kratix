@@ -81,4 +81,7 @@ func restartController() {
 	GinkgoHelper()
 	platform.Kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
 	platform.Kubectl("wait", "-n", "kratix-platform-system", "deployments", "-l", "control-plane=controller-manager", "--for=condition=Available")
+	Eventually(func() string {
+		return platform.KubectlAllowFail("apply", "--dry-run=server", "-f", "assets/kratix-config/promise.yaml")
+	}).Should(ContainSubstring("dry run"))
 }
