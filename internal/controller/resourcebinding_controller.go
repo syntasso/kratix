@@ -148,7 +148,6 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			upgradeSucceededCond.Status != metav1.ConditionUnknown ||
 			upgradeSucceededCond.Reason != v1alpha1.UpgradeInProgressReason ||
 			resourceBinding.Status.FailedVersion != ""
-
 	}
 
 	labels := rr.GetLabels()
