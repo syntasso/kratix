@@ -13,7 +13,7 @@ import (
 	"github.com/syntasso/kratix/test/kubeutils"
 )
 
-var _ = FDescribe("Promise Revisions", func() {
+var _ = Describe("Promise Revisions", func() {
 
 	const assetsPath = "assets/promise-revision"
 
