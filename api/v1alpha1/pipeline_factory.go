@@ -203,58 +203,6 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 	}
 }
 
-func (p *PipelineFactory) workCreatorContainer() corev1.Container {
-	args := []string{
-		"work-creator",
-		"--input-directory", "/work-creator-files",
-		"--promise-name", p.Promise.GetName(),
-		"--pipeline-name", p.Pipeline.GetName(),
-		"--namespace", p.Namespace,
-		"--workflow-type", string(p.WorkflowType),
-	}
-
-	if p.ResourceWorkflow {
-		args = append(args, "--resource-name", p.ResourceRequest.GetName())
-	}
-
-	if p.ResourceWorkflow && p.Promise.WorkflowPipelineNamespaceSet() {
-		args = append(args, "--resource-namespace", p.ResourceRequest.GetNamespace())
-	}
-
-	return corev1.Container{
-		Name:    "work-writer",
-		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
-		Command: []string{"/bin/pipeline-adapter"},
-		Args:    args,
-		Env: []corev1.EnvVar{
-			{
-				Name: telemetry.TraceParentEnvVar,
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{
-						FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceParentAnnotation),
-					},
-				},
-			},
-			{
-				Name: telemetry.TraceStateEnvVar,
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{
-						FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceStateAnnotation),
-					},
-				},
-			},
-		},
-		VolumeMounts: []corev1.VolumeMount{
-			{MountPath: "/work-creator-files/input", Name: "shared-output"},
-			{MountPath: "/work-creator-files/metadata", Name: "shared-metadata"},
-			{MountPath: "/work-creator-files/kratix-system", Name: "promise-scheduling"}, // this volumemount is a configmap
-		},
-		SecurityContext: kratixSecurityContext,
-		ImagePullPolicy: DefaultImagePullPolicy,
-		Resources:       *DefaultResourceRequirements,
-	}
-}
-
 func (p *PipelineFactory) pipelineContainers() ([]corev1.Container, []corev1.Volume) {
 	volumes, defaultVolumeMounts := p.defaultPipelineVolumes()
 	pipeline := p.Pipeline
@@ -315,8 +263,6 @@ func (p *PipelineFactory) pipelineJob(
 
 	readerContainer := p.readerContainer()
 	pipelineContainers, pipelineVolumes := p.pipelineContainers()
-	workCreatorContainer := p.workCreatorContainer()
-	statusWriterContainer := p.statusWriterContainer(env)
 
 	volumes := append(p.defaultVolumes(schedulingConfigMap), pipelineVolumes...)
 	nodeSelector := p.Pipeline.Spec.NodeSelector
@@ -334,8 +280,7 @@ func (p *PipelineFactory) pipelineJob(
 	switch p.WorkflowAction {
 	case WorkflowActionConfigure:
 		initContainers = append(initContainers, pipelineContainers...)
-		initContainers = append(initContainers, workCreatorContainer)
-		containers = []corev1.Container{statusWriterContainer}
+		containers = []corev1.Container{p.postPipelineContainer(env)}
 	case WorkflowActionDelete:
 		initContainers = append(initContainers, pipelineContainers[0:len(pipelineContainers)-1]...)
 		containers = []corev1.Container{pipelineContainers[len(pipelineContainers)-1]}
@@ -387,17 +332,60 @@ func (p *PipelineFactory) pipelineJob(
 	return job, nil
 }
 
-func (p *PipelineFactory) statusWriterContainer(env []corev1.EnvVar) corev1.Container {
+// postPipelineContainer is the single main container that runs after all
+// user pipeline init containers complete. It builds the Work CR from
+// pipeline output and updates the requesting object's status, replacing
+// what used to be the separate work-writer init container and
+// status-writer main container.
+func (p *PipelineFactory) postPipelineContainer(env []corev1.EnvVar) corev1.Container {
+	args := []string{
+		"run",
+		"--input-directory", "/work-creator-files",
+		"--promise-name", p.Promise.GetName(),
+		"--pipeline-name", p.Pipeline.GetName(),
+		"--namespace", p.Namespace,
+		"--workflow-type", string(p.WorkflowType),
+	}
+
+	if p.ResourceWorkflow {
+		args = append(args, "--resource-name", p.ResourceRequest.GetName())
+	}
+
+	if p.ResourceWorkflow && p.Promise.WorkflowPipelineNamespaceSet() {
+		args = append(args, "--resource-namespace", p.ResourceRequest.GetNamespace())
+	}
+
+	containerEnv := append([]corev1.EnvVar{
+		{
+			Name: telemetry.TraceParentEnvVar,
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceParentAnnotation),
+				},
+			},
+		},
+		{
+			Name: telemetry.TraceStateEnvVar,
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceStateAnnotation),
+				},
+			},
+		},
+	}, env...)
+	containerEnv = append(containerEnv, p.defaultEnvVars()...)
+
 	return corev1.Container{
-		Name:    "status-writer",
+		Name:    "work-writer",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
 		Command: []string{"/bin/pipeline-adapter"},
-		Args:    []string{"update-status"},
-		Env:     append(env, p.defaultEnvVars()...),
-		VolumeMounts: []corev1.VolumeMount{{
-			MountPath: "/work-creator-files/metadata",
-			Name:      "shared-metadata",
-		}},
+		Args:    args,
+		Env:     containerEnv,
+		VolumeMounts: []corev1.VolumeMount{
+			{MountPath: "/work-creator-files/input", Name: "shared-output"},
+			{MountPath: "/work-creator-files/metadata", Name: "shared-metadata"},
+			{MountPath: "/work-creator-files/kratix-system", Name: "promise-scheduling"},
+		},
 		SecurityContext: kratixSecurityContext,
 		ImagePullPolicy: DefaultImagePullPolicy,
 		Resources:       *DefaultResourceRequirements,
