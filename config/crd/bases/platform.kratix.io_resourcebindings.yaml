@@ -25,9 +25,13 @@ spec:
       jsonPath: .spec.promiseRef.name
       name: Promise
       type: string
-    - description: Promise version used by the Resource
+    - description: Promise version the resource should be reconciled with
       jsonPath: .spec.version
-      name: Version
+      name: Desired
+      type: string
+    - description: Promise version the resource was last reconciled with
+      jsonPath: .status.lastAppliedVersion
+      name: Applied
       type: string
     name: v1alpha1
     schema:
@@ -153,6 +157,11 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              failedVersion:
+                description: |-
+                  The promise version that was being attempted when the last upgrade failure occurred.
+                  Cleared when an upgrade succeeds or a new upgrade attempt begins.
+                type: string
               lastAppliedVersion:
                 description: Reference to the Resource Request version
                 type: string

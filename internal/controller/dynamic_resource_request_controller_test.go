@@ -16,6 +16,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -1288,6 +1289,45 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					)))
 				})
 			})
+
+			When("ResourceBindingPinned is true", func() {
+				BeforeEach(func() {
+					reconciler.ResourceBindingPinned = true
+				})
+
+				When("there is a promise revision marked as latest", func() {
+					It("sets the binding version to the promise revision version, not latest", func() {
+						promiseVersion := "v1.1.0"
+						createPromiseRevision(fakeK8sClient, promise, promiseVersion)
+
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+
+						binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+						Expect(binding.Spec.Version).To(Equal(promiseVersion))
+
+						By("running the promise workflows successfully", func() {
+							setReconcileConfigureWorkflowToReturnFinished()
+							result, err := t.reconcileUntilCompletion(reconciler, resReq)
+							Expect(err).NotTo(HaveOccurred())
+							Expect(result).To(Equal(ctrl.Result{}))
+						})
+
+						By("setting the binding version in the resource status", func() {
+							Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+							Expect(resourceutil.GetStatus(resReq, "resourceBindingVersion")).To(Equal(promiseVersion))
+						})
+					})
+				})
+
+				When("there is no promise revision marked as latest", func() {
+					It("returns a reconciliation error", func() {
+						_, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).To(MatchError(ContainSubstring("cannot find any PromiseRevision for Promise redis with status.latest set to true")))
+					})
+				})
+			})
 		})
 
 		When("the resource was created from a revision but the resource binding doesn't exist", func() {
@@ -1330,6 +1370,24 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(binding.Spec.ResourceRef.Name).To(Equal(resReqNameNamespace.Name))
 					Expect(binding.Spec.ResourceRef.Namespace).To(Equal(resReqNameNamespace.Namespace))
 					Expect(binding.Spec.Version).To(Equal(promiseVersion))
+				})
+
+				When("ResourceBindingPinned is true", func() {
+					BeforeEach(func() {
+						reconciler.ResourceBindingPinned = true
+					})
+
+					It("restores the version from status regardless of the pinned strategy", func() {
+						resourceutil.SetStatus(resReq, l, "resourceBindingVersion", promiseVersion)
+						Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+
+						binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+						Expect(binding.Spec.Version).To(Equal(promiseVersion))
+					})
 				})
 			})
 
@@ -1488,6 +1546,50 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
+		Context("deleting the resource request", func() {
+			BeforeEach(func() {
+				// This Context is not nested under "updating an existing resource", so we must
+				// register a revision here for delete reconciliation (and for tests that pin an applied version).
+				createPromiseRevision(fakeK8sClient, promise, "v1.1.0")
+			})
+
+			It("also deletes the associated resource binding", func() {
+				Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
+				_, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).ToNot(HaveOccurred())
+				binding := listBindings(promise.GetName(), resReqNameNamespace)
+				Expect(binding.Items).To(BeEmpty())
+			})
+
+			When("the binding spec references a missing PromiseRevision but applied version is valid", func() {
+				It("deletes the resource request and removes the resource binding", func() {
+					appliedVersion := "v1.1.0"
+					badDesiredVersion := "v1.2.0"
+
+					resourceutil.SetStatus(resReq, l, "promiseVersion", appliedVersion)
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+					createResourceBinding(fakeK8sClient, promise, resReq, badDesiredVersion)
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					binding.Status.LastAppliedVersion = appliedVersion
+					Expect(fakeK8sClient.Status().Update(ctx, binding)).To(Succeed())
+
+					// Without Kratix finalizers, the fake client drops the RR immediately on Delete,
+					// so reconcile never runs deleteResources / ensureResourceBindingRemoved.
+					addResourceRequestDeleteFinalizers(resReq)
+
+					Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
+					setReconcileConfigureWorkflowToReturnFinished()
+					setReconcileDeleteWorkflowToReturnFinished(resReq)
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).ToNot(HaveOccurred())
+
+					bindings := listBindings(promise.GetName(), resReqNameNamespace)
+					Expect(bindings.Items).To(BeEmpty())
+				})
+			})
+		})
+
 		When("updating the resource binding version status", func() {
 			const promiseVersion = "v1.1.0"
 
@@ -1496,15 +1598,47 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			When("the resource binding Status.LastAppliedVersion does not yet reflect the current promise version", func() {
-				It("updates Status.LastAppliedVersion to track the current promise version", func() {
+				It("updates Status.LastAppliedVersion without setting UpgradeSucceeded on a fresh deployment", func() {
 					setReconcileConfigureWorkflowToReturnFinished()
-					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
 
 					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Spec.Version).To(Equal("latest"))
 					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).To(BeNil(), "fresh deployments should not set UpgradeSucceeded")
+				})
+			})
+
+			When("an upgrade is in progress", func() {
+				BeforeEach(func() {
+					createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					binding.Status.LastAppliedVersion = "v1.0.0"
+					apiMeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+						Type:   v1alpha1.UpgradeSucceededCondition,
+						Status: metav1.ConditionUnknown,
+						Reason: v1alpha1.UpgradeInProgressReason,
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, binding)).To(Succeed())
+				})
+
+				It("sets UpgradeSucceeded=True when the configure workflow succeeds", func() {
+					setReconcileConfigureWorkflowToReturnFinished()
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).NotTo(BeNil())
+					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionTrue)))
+					Expect(cond.Reason).To(Equal(v1alpha1.UpgradeCompleteReason))
 				})
 			})
 
@@ -1513,15 +1647,180 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
 				})
 
-				It("updates Status.LastAppliedVersion to reflect the current promise version", func() {
+				It("updates Status.LastAppliedVersion without setting UpgradeSucceeded on a fresh deployment", func() {
 					setReconcileConfigureWorkflowToReturnFinished()
-					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
 
 					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Spec.Version).To(Equal(promiseVersion))
 					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).To(BeNil(), "fresh deployments should not set UpgradeSucceeded")
+				})
+			})
+
+			When("the configure workflow failed", func() {
+				It("sets UpgradeSucceeded=False, records FailedVersion, and does not update LastAppliedVersion", func() {
+					setReconcileConfigureWorkflowToReturnFinished()
+					setConfigureWorkflowAsFailed(resReq, "pipeline-abc")
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Status.LastAppliedVersion).To(BeEmpty())
+					Expect(binding.Status.FailedVersion).To(Equal(promiseVersion))
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).NotTo(BeNil())
+					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionFalse)))
+					Expect(cond.Reason).To(Equal(v1alpha1.UpgradeFailedReason))
+					Expect(cond.Message).To(ContainSubstring("pipeline-abc"))
+				})
+			})
+
+			When("the configure workflow failed and reconcileConfigure returns passiveRequeue=true", func() {
+				It("sets UpgradeSucceeded=False and records FailedVersion even when the reconcile loop short-circuits", func() {
+					// The default test mock returns (true, nil) — matching the real production failure
+					// path where setFailedConditionAndEvents always returns passiveRequeue=true.
+					// This test verifies the fix: syncResourceBindingUpgradeStatus must be called
+					// before the passiveRequeue early-return, not after it.
+					setConfigureWorkflowAsFailed(resReq, "pipeline-abc")
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Status.LastAppliedVersion).To(BeEmpty())
+					Expect(binding.Status.FailedVersion).To(Equal(promiseVersion))
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).NotTo(BeNil())
+					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionFalse)))
+					Expect(cond.Reason).To(Equal(v1alpha1.UpgradeFailedReason))
+					Expect(cond.Message).To(ContainSubstring("pipeline-abc"))
+				})
+			})
+
+			When("the configure workflow succeeds after a previous failure", func() {
+				It("clears FailedVersion when UpgradeSucceeded goes to True", func() {
+					// First reconcile: creates the binding (reconcileConfigure returns passiveRequeue=true by default).
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					// Simulate a pre-existing failure on the now-existing binding.
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					binding.Status.FailedVersion = promiseVersion
+					apiMeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+						Type:   v1alpha1.UpgradeSucceededCondition,
+						Status: metav1.ConditionFalse,
+						Reason: v1alpha1.UpgradeFailedReason,
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, binding)).To(Succeed())
+
+					setReconcileConfigureWorkflowToReturnFinished()
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+					_, err = t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					binding = getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Status.FailedVersion).To(BeEmpty())
+					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).NotTo(BeNil())
+					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionTrue)))
+				})
+			})
+
+			When("the configure workflow fails again with a different message while FailedVersion is already set", func() {
+				It("updates the UpgradeSucceeded condition message to the latest failure", func() {
+					// First reconcile: creates the binding.
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					// Pre-set the binding with UpgradeSucceeded=False and FailedVersion already recorded.
+					// This simulates the state after a first failure: the binding already has
+					// FailedVersion=promiseVersion so needsFailedVersionUpdate will be false.
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					apiMeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+						Type:    v1alpha1.UpgradeSucceededCondition,
+						Status:  metav1.ConditionFalse,
+						Reason:  v1alpha1.UpgradeFailedReason,
+						Message: "A Configure Pipeline has failed: old-pipeline-xyz",
+					})
+					binding.Status.FailedVersion = promiseVersion
+					Expect(fakeK8sClient.Status().Update(ctx, binding)).To(Succeed())
+
+					// Update the RR's workflow condition to a new failure with a different message
+					// (e.g., a new job was started and failed differently — without changing the version).
+					setConfigureWorkflowAsFailed(resReq, "new-pipeline-abc")
+
+					_, err = t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					binding = getResourceBinding(promise.GetName(), resReqNameNamespace)
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).NotTo(BeNil())
+					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionFalse)))
+					Expect(cond.Message).To(ContainSubstring("new-pipeline-abc"),
+						"condition message should reflect the latest failure, not be silently dropped")
+				})
+			})
+
+			When("the promise has no configure pipeline", func() {
+				BeforeEach(func() {
+					// Simulate a prior successful reconcile that set rrPromiseVersion,
+					// then the pipeline was removed in a new promise version.
+					resourceutil.SetStatus(resReq, l, "promiseVersion", "v1.0.0")
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+					promise.Spec.Workflows.Resource.Configure = nil
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					// The outer BeforeEach created the PromiseRevision while the promise still
+					// had its configure pipeline. Update the revision's PromiseSpec to match the
+					// current (no-pipeline) promise spec, because resolvePromiseRevisionForRR
+					// replaces promise.Spec with revision.Spec.PromiseSpec — restoring the
+					// pipeline if we don't update the revision here.
+					revisionName := fmt.Sprintf("%s-%s", promise.GetName(), promiseVersion)
+					revision := &v1alpha1.PromiseRevision{}
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: revisionName}, revision)).To(Succeed())
+					revision.Spec.PromiseSpec = promise.Spec
+					Expect(fakeK8sClient.Update(ctx, revision)).To(Succeed())
+
+					// Without a pipeline, workflow.ReconcileConfigure returns (false, nil) in
+					// production. Mirror that here so reconcileAfterConfigure is entered.
+					setReconcileConfigureWorkflowToReturnFinished()
+				})
+
+				It("sets UpgradeSucceeded=True and updates rrPromiseVersion so the upgrade resolves", func() {
+					createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					binding.Status.FailedVersion = "v1.0.0"
+					apiMeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+						Type:   v1alpha1.UpgradeSucceededCondition,
+						Status: metav1.ConditionFalse,
+						Reason: v1alpha1.UpgradeFailedReason,
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, binding)).To(Succeed())
+
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					Expect(resourceutil.GetStatus(resReq, "promiseVersion")).To(Equal(promiseVersion),
+						"rrPromiseVersion must be updated so the ResourceBinding controller sees no mismatch")
+
+					binding = getResourceBinding(promise.GetName(), resReqNameNamespace)
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).NotTo(BeNil())
+					Expect(string(cond.Status)).To(Equal(string(metav1.ConditionTrue)),
+						"no-pipeline upgrade should be marked as succeeded immediately")
+					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
+					Expect(binding.Status.FailedVersion).To(BeEmpty(),
+						"stale FailedVersion from a prior pipeline failure should be cleared")
 				})
 			})
 		})
@@ -1605,7 +1904,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(binding.GetLabels()).To(HaveKeyWithValue("kratix.io/resource-name", resReq.GetName()))
 			})
 		})
-
 	})
 })
 
@@ -1654,6 +1952,18 @@ func createPromiseRevision(fakeK8sClient client.Client, promise *v1alpha1.Promis
 	promiseRevision.SetLatestRevisionLabel()
 	Expect(fakeK8sClient.Create(ctx, promiseRevision)).To(Succeed())
 	Expect(fakeK8sClient.Status().Update(ctx, promiseRevision)).To(Succeed())
+}
+
+func addResourceRequestDeleteFinalizers(rr *unstructured.Unstructured) {
+	GinkgoHelper()
+	Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(rr), rr)).To(Succeed())
+	rr.SetFinalizers([]string{
+		v1alpha1.KratixPrefix + "work-cleanup",
+		v1alpha1.KratixPrefix + "workflows-cleanup",
+		v1alpha1.KratixPrefix + "delete-workflows",
+		v1alpha1.KratixPrefix + "resource-binding-cleanup",
+	})
+	Expect(fakeK8sClient.Update(ctx, rr)).To(Succeed())
 }
 
 func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *unstructured.Unstructured, version string) {
@@ -1710,6 +2020,20 @@ func setConfigureWorkflowAsRunning(resReq *unstructured.Unstructured) {
 		Status:             v1.ConditionFalse,
 		Message:            "Pipelines are still in progress",
 		Reason:             "PipelinesInProgress",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+}
+
+func setConfigureWorkflowAsFailed(resReq *unstructured.Unstructured, pipeline string) {
+	if resReq.Object["status"] == nil {
+		resReq.Object["status"] = map[string]interface{}{}
+	}
+	resourceutil.SetCondition(resReq, &clusterv1.Condition{
+		Type:               resourceutil.ConfigureWorkflowCompletedCondition,
+		Status:             v1.ConditionFalse,
+		Reason:             resourceutil.ConfigureWorkflowCompletedFailedReason,
+		Message:            fmt.Sprintf("A Configure Pipeline has failed: %s", pipeline),
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
@@ -1777,7 +2101,7 @@ func verifyPauseReconciliationStatus(rr *unstructured.Unstructured, rrNameNamesp
 	ExpectWithOffset(1, condition.Message).To(ContainSubstring("Paused"))
 }
 
-func getResourceBinding(promiseName string, resource types.NamespacedName) *v1alpha1.ResourceBinding {
+func listBindings(promiseName string, resource types.NamespacedName) *v1alpha1.ResourceBindingList {
 	GinkgoHelper()
 	bindingLabels := map[string]string{
 		"kratix.io/promise-name":  promiseName,
@@ -1788,7 +2112,12 @@ func getResourceBinding(promiseName string, resource types.NamespacedName) *v1al
 		Namespace:     resource.Namespace,
 		LabelSelector: labels.SelectorFromSet(bindingLabels),
 	})
+	return &bindingList
+}
 
+func getResourceBinding(promiseName string, resource types.NamespacedName) *v1alpha1.ResourceBinding {
+	GinkgoHelper()
+	bindingList := listBindings(promiseName, resource)
 	Expect(bindingList.Items).To(HaveLen(1), "found multiple resource bindings, expecting one")
 	return &bindingList.Items[0]
 }

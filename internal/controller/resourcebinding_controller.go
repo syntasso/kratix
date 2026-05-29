@@ -21,6 +21,8 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -102,6 +104,8 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	rrPromiseVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
+	// Unversioned promises have no upgrade lifecycle; manual reconciliation via the
+	// binding label is also unsupported until a promise version is recorded on the resource.
 	if rrPromiseVersion == "" || rrPromiseVersion == UnversionedPromiseVersion {
 		logging.Info(logger, "promise has no version; skipping version check")
 		return ctrl.Result{}, nil
@@ -116,17 +120,35 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		desiredVersion = provisionRevisionMarkedWithLatest.Spec.Version
 	}
 
-	if rrPromiseVersion == desiredVersion {
-		logging.Debug(logger, "resource request version is equal to the resource binding desired version", "resource binding version", resourceBinding.Spec.Version)
-		return ctrl.Result{}, nil
-	}
+	upgradeSucceededCond := apiMeta.FindStatusCondition(resourceBinding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
 
-	logging.Info(
-		logger,
-		"resource request version mismatch to the resource binding desired version, triggering manual reconciliation",
-		"resource request version", rrPromiseVersion,
-		"resource binding version", resourceBinding.Spec.Version,
-	)
+	manualReconciliationLabel := resourceBinding.GetLabels()[resourceutil.ManualReconciliationLabel] == "true"
+	var needsStatusUpdate bool
+	if manualReconciliationLabel {
+		logging.Info(logger, "manual reconciliation label is set, forcing resource reconciliation")
+		needsStatusUpdate = true
+	} else {
+		if rrPromiseVersion == desiredVersion {
+			logging.Debug(logger, "resource request version is equal to the resource binding desired version", "resource binding version", resourceBinding.Spec.Version)
+			return ctrl.Result{}, nil
+		}
+
+		logging.Info(
+			logger,
+			"resource request version mismatch to the resource binding desired version, triggering manual reconciliation",
+			"resource request version", rrPromiseVersion,
+			"resource binding version", resourceBinding.Spec.Version,
+		)
+		if upgradeSucceededCond != nil &&
+			upgradeSucceededCond.Status == metav1.ConditionFalse &&
+			resourceBinding.Status.FailedVersion == desiredVersion {
+			return ctrl.Result{}, nil
+		}
+		needsStatusUpdate = upgradeSucceededCond == nil ||
+			upgradeSucceededCond.Status != metav1.ConditionUnknown ||
+			upgradeSucceededCond.Reason != v1alpha1.UpgradeInProgressReason ||
+			resourceBinding.Status.FailedVersion != ""
+	}
 
 	labels := rr.GetLabels()
 	if labels == nil {
@@ -136,6 +158,32 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	rr.SetLabels(labels)
 	if err := r.Client.Update(ctx, rr); err != nil {
 		return ctrl.Result{}, err
+	}
+
+	if manualReconciliationLabel {
+		delete(resourceBinding.Labels, resourceutil.ManualReconciliationLabel)
+		if err := r.Client.Update(ctx, resourceBinding); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	if needsStatusUpdate {
+		statusMessage := fmt.Sprintf("Upgrade to version %s is in progress", desiredVersion)
+		if manualReconciliationLabel {
+			statusMessage = fmt.Sprintf("Reconciliation requested for version %s", desiredVersion)
+		}
+		apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
+			Type:               v1alpha1.UpgradeSucceededCondition,
+			Status:             metav1.ConditionUnknown,
+			Reason:             v1alpha1.UpgradeInProgressReason,
+			Message:            statusMessage,
+			LastTransitionTime: metav1.Now(),
+		})
+		resourceBinding.Status.FailedVersion = ""
+		if err := r.Client.Status().Update(ctx, resourceBinding); err != nil {
+			return ctrl.Result{}, err
+		}
+
 	}
 	return ctrl.Result{}, nil
 }

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kratix
+  namespace: kratix-platform-system
+data:
+  config: |
+    featureFlags:
+      promiseUpgrade: true
+    resourceBindingVersionStrategy: pinned
+    workflows:
+      jobOptions:
+        defaultBackoffLimit: 4
+      defaultContainerSecurityContext:
+        windowsOptions:
+          runAsUserName: "setInKratixConfig"

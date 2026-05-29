@@ -248,6 +248,85 @@ var _ = Describe("Promise Revisions", func() {
 			}).Should(Succeed())
 		})
 
+		failingPromiseVersion := "v0.3.0-FAILING"
+
+		By("setting UpgradeSucceeded to False when an upgrade pipeline fails", func() {
+			// rrOne is pinned to "latest"; applying a failing promise version triggers
+			// an upgrade attempt which will fail, setting UpgradeSucceeded=False on its binding.
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise-failing-version.yaml"))
+
+			upgradeSucceededCondition := `.status.conditions[?(@.type=="UpgradeSucceeded")]`
+			Eventually(func(g Gomega) {
+				name := getBindingName(promiseName, rrOneName)
+				g.Expect(
+					platform.Kubectl("get", "--namespace=default", name,
+						fmt.Sprintf(`-o=jsonpath='{%s.status}'`, upgradeSucceededCondition)),
+				).To(ContainSubstring("False"))
+				// lastAppliedVersion must remain at the last successfully applied version
+				g.Expect(
+					platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.lastAppliedVersion}'"),
+				).To(ContainSubstring(updatedPromiseVersion))
+				// failedVersion must record the version that was being attempted when the failure occurred
+				g.Expect(
+					platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.failedVersion}'"),
+				).To(ContainSubstring(failingPromiseVersion))
+			}).Should(Succeed())
+		})
+
+		name := getBindingName(promiseName, rrOneName)
+		upgradeSucceededCondition := `.status.conditions[?(@.type=="UpgradeSucceeded")]`
+		By("not re-triggering the upgrade when the binding version has not changed (oscillation check)", func() {
+			Consistently(func() string {
+				return platform.Kubectl("get", "--namespace=default", name,
+					fmt.Sprintf(`-o=jsonpath='{%s.status}'`, upgradeSucceededCondition))
+			}, 3*time.Second, 300*time.Millisecond).Should(ContainSubstring("False"))
+		})
+
+		By("retrying when labelled for manual reconciliation", func() {
+			configureJobCount := jobCountForResourcePipeline(promiseName, "resource-configure")
+			platform.Kubectl("label", "--overwrite", "--namespace=default", name, "kratix.io/manual-reconciliation=true")
+			Eventually(func(g Gomega) {
+				g.Expect(
+					platform.Kubectl("get", "--namespace=default", name,
+						`-o=jsonpath='{.metadata.labels.kratix\.io/manual-reconciliation}'`),
+				).To(Equal(`''`))
+			}).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(jobCountForResourcePipeline(promiseName, "resource-configure")).To(Equal(configureJobCount + 1))
+			}).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(
+					platform.Kubectl("get", "--namespace=default", name,
+						fmt.Sprintf(`-o=jsonpath='{%s.status}'`, upgradeSucceededCondition)),
+				).To(ContainSubstring("False"))
+				g.Expect(
+					platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.failedVersion}'"),
+				).To(ContainSubstring(failingPromiseVersion))
+			}).Should(Succeed())
+		})
+
+		By("recovering when a new (working) promise version is applied after the failure", func() {
+			// Re-apply the working promise version to move "latest" past the failing one.
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise-new-version.yaml"))
+
+			Eventually(func(g Gomega) {
+				name := getBindingName(promiseName, rrOneName)
+				upgradeSucceededCondition := `.status.conditions[?(@.type=="UpgradeSucceeded")]`
+				g.Expect(
+					platform.Kubectl("get", "--namespace=default", name,
+						fmt.Sprintf(`-o=jsonpath='{%s.status}'`, upgradeSucceededCondition)),
+				).To(ContainSubstring("True"))
+				// lastAppliedVersion must advance to the restored working version
+				g.Expect(
+					platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.lastAppliedVersion}'"),
+				).To(ContainSubstring(updatedPromiseVersion))
+				// failedVersion must be cleared after a successful upgrade
+				g.Expect(
+					platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.failedVersion}'"),
+				).To(Equal(`''`))
+			}).Should(Succeed())
+		})
+
 		By("restoring the bindings correctly when they are deleted", func() {
 			platform.EventuallyKubectlDelete("resourcebindings", "--all")
 

@@ -20,6 +20,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	UpgradeSucceededCondition = "UpgradeSucceeded"
+	UpgradeInProgressReason   = "UpgradeInProgress"
+	UpgradeCompleteReason     = "UpgradeComplete"
+	UpgradeFailedReason       = "UpgradeFailed"
+)
+
 // ResourceBindingSpec defines the desired state of ResourceBinding
 type ResourceBindingSpec struct {
 	// Version is the version of the Promise that this ResourceRequest was last reconciled with.
@@ -39,7 +46,8 @@ type ResourceBindingSpec struct {
 // +kubebuilder:resource:scope=Namespaced,path=resourcebindings,categories=kratix
 // +kubebuilder:printcolumn:name="Resource",type=string,JSONPath=".spec.resourceRef.name",description="Resource using a Promise"
 // +kubebuilder:printcolumn:name="Promise",type=string,JSONPath=".spec.promiseRef.name",description="Promise being used by the Resource"
-// +kubebuilder:printcolumn:name="Version",type=string,JSONPath=".spec.version",description="Promise version used by the Resource"
+// +kubebuilder:printcolumn:name="Desired",type=string,JSONPath=".spec.version",description="Promise version the resource should be reconciled with"
+// +kubebuilder:printcolumn:name="Applied",type=string,JSONPath=".status.lastAppliedVersion",description="Promise version the resource was last reconciled with"
 
 // ResourceBinding is the Schema for the resourcebindings API
 type ResourceBinding struct {
@@ -68,6 +76,10 @@ type ResourceBindingStatus struct {
 	// Reference to the Resource Request version
 	// +optional
 	LastAppliedVersion string `json:"lastAppliedVersion,omitempty"`
+	// The promise version that was being attempted when the last upgrade failure occurred.
+	// Cleared when an upgrade succeeds or a new upgrade attempt begins.
+	// +optional
+	FailedVersion string `json:"failedVersion,omitempty"`
 }
 
 // +kubebuilder:object:root=true

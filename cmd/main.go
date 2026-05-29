@@ -73,15 +73,26 @@ func init() {
 }
 
 type KratixConfig struct {
-	Workflows                Workflows             `json:"workflows"`
-	NumberOfJobsToKeep       int                   `json:"numberOfJobsToKeep,omitempty"`
-	ControllerLeaderElection *LeaderElectionConfig `json:"controllerLeaderElection,omitempty"`
-	SelectiveCache           bool                  `json:"selectiveCache,omitempty"`
-	ReconciliationInterval   *metav1.Duration      `json:"reconciliationInterval,omitempty"`
-	Telemetry                *telemetry.Config     `json:"telemetry,omitempty"`
-	Logging                  *LoggingConfig        `json:"logging,omitempty"`
-	FeatureFlags             *FeatureFlags         `json:"featureFlags,omitempty"`
+	Workflows                      Workflows                     `json:"workflows"`
+	NumberOfJobsToKeep             int                           `json:"numberOfJobsToKeep,omitempty"`
+	ControllerLeaderElection       *LeaderElectionConfig         `json:"controllerLeaderElection,omitempty"`
+	SelectiveCache                 bool                          `json:"selectiveCache,omitempty"`
+	ReconciliationInterval         *metav1.Duration              `json:"reconciliationInterval,omitempty"`
+	Telemetry                      *telemetry.Config             `json:"telemetry,omitempty"`
+	Logging                        *LoggingConfig                `json:"logging,omitempty"`
+	FeatureFlags                   *FeatureFlags                 `json:"featureFlags,omitempty"`
+	ResourceBindingVersionStrategy ResourceBindingDefaultVersion `json:"resourceBindingVersionStrategy,omitempty"`
 }
+
+// ResourceBindingDefaultVersion controls the version strategy for ResourceBindings.
+// "floating" sets spec.version to "latest"; "pinned" sets it to the current PromiseRevision version.
+// Defaults to "floating" when not set.
+type ResourceBindingDefaultVersion string
+
+const (
+	ResourceBindingDefaultVersionFloating ResourceBindingDefaultVersion = "floating"
+	ResourceBindingDefaultVersionPinned   ResourceBindingDefaultVersion = "pinned"
+)
 
 type FeatureFlags struct {
 	PromiseUpgrade *bool `json:"promiseUpgrade,omitempty"`
@@ -225,6 +236,8 @@ func main() {
 	}
 
 	podTTLAfterFinished := getPodTTLAfterFinished(kratixConfig)
+	resourceBindingDefaultVersion := getResourceBindingDefaultVersion(kratixConfig)
+	setupLog.Info("resource binding default version strategy configured", "defaultVersion", resourceBindingDefaultVersion)
 
 	telemetryShutdown := func(context.Context) error { return nil }
 	if shutdown, err := telemetry.SetupTracerProvider(context.Background(), ctrl.Log.WithName("telemetry"), "kratix-controller-manager", telemetryConfigFromKratixConfig(kratixConfig)); err != nil {
@@ -308,6 +321,7 @@ func main() {
 	}
 
 	if err = (&controller.PromiseReconciler{
+
 		ApiextensionsClient:              apiextensionsClient.ApiextensionsV1(),
 		Client:                           mgr.GetClient(),
 		Log:                              ctrl.Log.WithName("controllers").WithName("Promise"),
@@ -319,6 +333,8 @@ func main() {
 		PromiseUpgrade:                   promiseUpgradeEnabled(kratixConfig),
 		DynamicRRMaxConcurrentReconciles: dynamicRRMaxConcurrentReconciles,
 		DynamicRRFilterNoOpWrites:        dynamicRRFilterNoOpWrites,
+		ResourceBindingPinned:            resourceBindingDefaultVersion == ResourceBindingDefaultVersionPinned,
+
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
 		os.Exit(1)
@@ -525,6 +541,20 @@ func getPodTTLAfterFinished(kratixConfig *KratixConfig) *time.Duration {
 
 	ttl := time.Duration(podTTLSecondsAfterFinished) * time.Second
 	return &ttl
+}
+
+func getResourceBindingDefaultVersion(kratixConfig *KratixConfig) ResourceBindingDefaultVersion {
+	if kratixConfig == nil || kratixConfig.ResourceBindingVersionStrategy == "" {
+		return ResourceBindingDefaultVersionFloating
+	}
+	v := kratixConfig.ResourceBindingVersionStrategy
+	if v != ResourceBindingDefaultVersionFloating && v != ResourceBindingDefaultVersionPinned {
+		setupLog.Error(fmt.Errorf("invalid Kratix Config"),
+			"resourceBindingVersionStrategy must be 'floating' or 'pinned'; defaulting to 'floating'",
+			"resourceBindingVersionStrategy", v)
+		return ResourceBindingDefaultVersionFloating
+	}
+	return v
 }
 
 func getRegularReconciliationInterval(kratixConfig *KratixConfig) time.Duration {
