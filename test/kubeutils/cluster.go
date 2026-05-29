@@ -45,12 +45,18 @@ func (c Cluster) kubectlInternalG(g Gomega, checkExitCode bool, args ...string) 
 
 	fmt.Fprintf(GinkgoWriter, "Running: kubectl %s\n", strings.Join(args, " "))
 
-	g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
+	g.ExpectWithOffset(2, err).ShouldNot(HaveOccurred())
+
+	g.EventuallyWithOffset(2, session, timeout, interval).Should(gexec.Exit())
+
+	if session.ExitCode() != 0 {
+		fmt.Fprintf(GinkgoWriter, "kubectl %s exited %d\nstdout: %s\nstderr: %s\n",
+			strings.Join(args, " "), session.ExitCode(),
+			session.Out.Contents(), session.Err.Contents())
+	}
 
 	if checkExitCode {
-		g.EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit(0))
-	} else {
-		g.EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit())
+		g.ExpectWithOffset(2, session.ExitCode()).To(Equal(0))
 	}
 
 	return string(session.Out.Contents()) + string(session.Err.Contents())
