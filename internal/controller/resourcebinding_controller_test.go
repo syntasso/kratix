@@ -34,13 +34,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("ResourceBinding Controller", func() {
 	Describe("Reconciling a ResourceBinding", func() {
 		var (
-			reconciler *controller.ResourceBindingReconciler
-			// eventRecorder            *record.FakeRecorder
+			reconciler               *controller.ResourceBindingReconciler
 			ctx                      context.Context
 			resourceBinding          v1alpha1.ResourceBinding
 			resourceBindingNamespace string
@@ -95,22 +95,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 
 		When("the resource request has a version that does not match the spec.Version", func() {
 			BeforeEach(func() {
-				yamlFile, err := os.ReadFile(resourceRequestPath)
-				Expect(err).ToNot(HaveOccurred())
-
-				rr = &unstructured.Unstructured{}
-				Expect(yaml.Unmarshal(yamlFile, rr)).To(Succeed())
-				Expect(fakeK8sClient.Create(ctx, rr)).To(Succeed())
-				resNameNamespacedName := types.NamespacedName{
-					Name:      rr.GetName(),
-					Namespace: rr.GetNamespace(),
-				}
-
-				resourceutil.SetStatus(rr, logr.Discard(), "promiseVersion", "v0.0.1")
-
-				Expect(fakeK8sClient.Status().Update(ctx, rr)).To(Succeed())
-
-				Expect(fakeK8sClient.Get(ctx, resNameNamespacedName, rr)).To(Succeed())
+				rr = createResourceRequestWithVersion(ctx, resourceRequestPath, "v0.0.1")
 				Expect(resourceutil.GetStatus(rr, "promiseVersion")).To(Equal("v0.0.1"))
 			})
 
@@ -344,5 +329,103 @@ var _ = Describe("ResourceBinding Controller", func() {
 				})
 			})
 		})
+
+		When("the manual reconciliation label is applied to the binding", func() {
+			var bindingName types.NamespacedName
+
+			setUpgradeCondition := func(status metav1.ConditionStatus, reason, failedVersion string) {
+				GinkgoHelper()
+				Expect(fakeK8sClient.Get(ctx, bindingName, &resourceBinding)).To(Succeed())
+				apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
+					Type:   v1alpha1.UpgradeSucceededCondition,
+					Status: status,
+					Reason: reason,
+				})
+				resourceBinding.Status.FailedVersion = failedVersion
+				Expect(fakeK8sClient.Status().Update(ctx, &resourceBinding)).To(Succeed())
+			}
+
+			expectManualReconciliationRetry := func() {
+				GinkgoHelper()
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: bindingName})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(rr), rr)).To(Succeed())
+				Expect(rr.GetLabels()).To(
+					HaveKeyWithValue(resourceutil.ManualReconciliationLabel, "true"),
+				)
+
+				var rb v1alpha1.ResourceBinding
+				Expect(fakeK8sClient.Get(ctx, bindingName, &rb)).To(Succeed())
+				Expect(rb.GetLabels()).NotTo(HaveKey(resourceutil.ManualReconciliationLabel))
+				cond := apiMeta.FindStatusCondition(rb.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+				Expect(cond).NotTo(BeNil())
+				Expect(cond.Status).To(Equal(metav1.ConditionUnknown))
+				Expect(cond.Reason).To(Equal(v1alpha1.UpgradeInProgressReason))
+				Expect(cond.Message).To(Equal("Reconciliation requested for version v0.0.2"))
+				Expect(rb.Status.FailedVersion).To(BeEmpty())
+			}
+
+			BeforeEach(func() {
+				bindingName = types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}
+				Expect(fakeK8sClient.Get(ctx, bindingName, &resourceBinding)).To(Succeed())
+				labels := resourceBinding.GetLabels()
+				if labels == nil {
+					labels = make(map[string]string)
+				}
+				labels[resourceutil.ManualReconciliationLabel] = "true"
+				resourceBinding.SetLabels(labels)
+				Expect(fakeK8sClient.Update(ctx, &resourceBinding)).To(Succeed())
+			})
+
+			DescribeTable("retries when the binding is labelled for manual reconciliation",
+				func(rrVersion string, condStatus metav1.ConditionStatus, condReason, failedVersion string) {
+					rr = createResourceRequestWithVersion(ctx, resourceRequestPath, rrVersion)
+					setUpgradeCondition(condStatus, condReason, failedVersion)
+					expectManualReconciliationRetry()
+				},
+				Entry("when upgrade failed and resource version matches binding", "v0.0.2", metav1.ConditionFalse, v1alpha1.UpgradeFailedReason, "v0.0.2"),
+				Entry("when upgrade succeeded and resource version matches binding", "v0.0.2", metav1.ConditionTrue, v1alpha1.UpgradeCompleteReason, ""),
+				Entry("when upgrade failed and FailedVersion guard would block", "v0.0.1", metav1.ConditionFalse, v1alpha1.UpgradeFailedReason, "v0.0.2"),
+			)
+
+			It("does not retry when the resource promise version is unversioned", func() {
+				rr = createResourceRequestWithVersion(ctx, resourceRequestPath, controller.UnversionedPromiseVersion)
+				setUpgradeCondition(metav1.ConditionFalse, v1alpha1.UpgradeFailedReason, "v0.0.2")
+
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: bindingName})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(rr), rr)).To(Succeed())
+				Expect(rr.GetLabels()).NotTo(HaveKey(resourceutil.ManualReconciliationLabel))
+
+				var rb v1alpha1.ResourceBinding
+				Expect(fakeK8sClient.Get(ctx, bindingName, &rb)).To(Succeed())
+				Expect(rb.GetLabels()).To(HaveKeyWithValue(resourceutil.ManualReconciliationLabel, "true"))
+			})
+		})
 	})
 })
+
+func createResourceRequestWithVersion(ctx context.Context, resourceRequestPath string, version string) *unstructured.Unstructured {
+	GinkgoHelper()
+	yamlFile, err := os.ReadFile(resourceRequestPath)
+	Expect(err).ToNot(HaveOccurred())
+
+	rr := &unstructured.Unstructured{}
+	Expect(yaml.Unmarshal(yamlFile, rr)).To(Succeed())
+	Expect(fakeK8sClient.Create(ctx, rr)).To(Succeed())
+	resNameNamespacedName := types.NamespacedName{
+		Name:      rr.GetName(),
+		Namespace: rr.GetNamespace(),
+	}
+
+	resourceutil.SetStatus(rr, logr.Discard(), "promiseVersion", version)
+
+	Expect(fakeK8sClient.Status().Update(ctx, rr)).To(Succeed())
+
+	Expect(fakeK8sClient.Get(ctx, resNameNamespacedName, rr)).To(Succeed())
+	return rr
+}
