@@ -222,6 +222,9 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}
 
 	workLabels := resourceutil.GetWorkLabels(promiseName, resourceName, resourceNamespace, pipelineName, workflowType)
+	if os.Getenv(v1alpha1.KratixDryRunEnvVar) == "true" {
+		workLabels[v1alpha1.DryRunLabel] = "true"
+	}
 
 	work.SetLabels(
 		labels.Merge(
