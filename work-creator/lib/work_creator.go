@@ -485,11 +485,11 @@ func readDirFiles(dir string) (map[string]string, error) {
 
 // renderDiff produces a GitHub-flavoured markdown diff summary.
 func renderDiff(prev, next map[string]string) string {
+	delete(prev, "kratix-diff.md")
+	delete(next, "kratix-diff.md")
+
 	var added, removed, modified []string
 	for path := range next {
-		if path == "kratix-diff.md" {
-			continue
-		}
 		if _, exists := prev[path]; !exists {
 			added = append(added, path)
 		} else if prev[path] != next[path] {
