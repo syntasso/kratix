@@ -108,11 +108,11 @@ func MarkResourceRequestAsWorksSucceeded(obj *unstructured.Unstructured) {
 	})
 }
 
-func MarkResourceRequestAsDryRunWorksSucceeded(obj *unstructured.Unstructured) {
+func MarkReconciledAsDryRun(obj *unstructured.Unstructured) {
 	SetCondition(obj, &clusterv1.Condition{
-		Type:               WorksSucceededCondition,
+		Type:               ReconciledCondition,
 		Status:             v1.ConditionTrue,
-		Message:            "Dry-run completed: outputs written to dry-run destination",
+		Message:            "Dry run completed",
 		Reason:             DryRunWorksSucceededReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
