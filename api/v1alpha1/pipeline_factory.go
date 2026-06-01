@@ -486,7 +486,14 @@ func (p *PipelineFactory) getObjAndHash() (*unstructured.Unstructured, string, e
 		return nil, "", err
 	}
 
-	return p.ResourceRequest, hash.ComputeHash(fmt.Sprintf("%s-%s", promiseHash, resourceHash)), nil
+	// Include dry-run state so that toggling the label forces a new Job,
+	// ensuring the pipeline runs in the correct mode.
+	dryRunSuffix := ""
+	if p.IsDryRun() {
+		dryRunSuffix = "-dry-run"
+	}
+
+	return p.ResourceRequest, hash.ComputeHash(fmt.Sprintf("%s-%s%s", promiseHash, resourceHash, dryRunSuffix)), nil
 }
 
 func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
