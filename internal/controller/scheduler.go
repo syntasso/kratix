@@ -195,6 +195,7 @@ func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1
 
 	status := scheduledStatus
 	outcome := telemetry.WorkPlacementOutcomeScheduled
+	isDryRun := work.GetLabels()[v1alpha1.DryRunLabel] == "true"
 	if work.IsResourceRequest() {
 		// If the Work is for a Resource Request, only one Workplacement will be created per
 		// WorkloadGroup. If this Workplacement already exists, it will be updated.
@@ -202,7 +203,7 @@ func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1
 			var errored int
 			for _, existingWorkplacement := range existingWorkplacements {
 				logging.Debug(s.Log, "found existing workplacement; will update")
-				misplaced, err := s.updateWorkPlacement(ctx, workloadGroup, &existingWorkplacement, work.GetGeneration())
+				misplaced, err := s.updateWorkPlacement(ctx, workloadGroup, &existingWorkplacement, work.GetGeneration(), isDryRun)
 				if err != nil {
 					logging.Error(s.Log, err, "error updating workplacement for work", "workplacement", existingWorkplacement.Name, "work", work.Name, "workloadGroupID", workloadGroup.ID)
 					errored++
@@ -229,6 +230,9 @@ func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1
 	}
 
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup)
+	if isDryRun {
+		destinationSelectors = map[string]string{v1alpha1.DryRunLabel: "true"}
+	}
 	targetDestinationNames, err := s.getTargetDestinationNames(ctx, destinationSelectors, work)
 	if err != nil {
 		return "", err
@@ -279,9 +283,12 @@ func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1
 	return status, nil
 }
 
-func (s *Scheduler) updateWorkPlacement(ctx context.Context, workloadGroup v1alpha1.WorkloadGroup, workPlacement *v1alpha1.WorkPlacement, workGeneration int64) (bool, error) {
+func (s *Scheduler) updateWorkPlacement(ctx context.Context, workloadGroup v1alpha1.WorkloadGroup, workPlacement *v1alpha1.WorkPlacement, workGeneration int64, dryRun bool) (bool, error) {
 	misplaced := true
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup)
+	if dryRun {
+		destinationSelectors = map[string]string{v1alpha1.DryRunLabel: "true"}
+	}
 	destinations, err := s.getDestinationsForWorkloadGroup(ctx, destinationSelectors)
 	if err != nil {
 		return false, err
@@ -537,10 +544,15 @@ func (s *Scheduler) getDestinationsForWorkloadGroup(ctx context.Context, destina
 		return nil, err
 	}
 
+	isDryRunScheduling := destinationSelectors[v1alpha1.DryRunLabel] == "true"
 	destinations := []v1alpha1.Destination{}
 	for _, destination := range destinationList.Items {
 		if !destination.DeletionTimestamp.IsZero() ||
 			(len(destinationSelectors) == 0 && (destination.Spec.StrictMatchLabels && len(destination.GetLabels()) > 0)) {
+			continue
+		}
+		// Never route normal Works to the dry-run Destination
+		if !isDryRunScheduling && destination.GetLabels()[v1alpha1.DryRunLabel] == "true" {
 			continue
 		}
 		destinations = append(destinations, destination)
