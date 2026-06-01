@@ -49,6 +49,7 @@ const (
 	KratixObjectNamespaceEnvVar = "KRATIX_OBJECT_NAMESPACE"
 	KratixCrdPluralEnvVar       = "KRATIX_CRD_PLURAL"
 	KratixClusterScopedEnvVar   = "KRATIX_CLUSTER_SCOPED"
+	KratixDryRunEnvVar          = "KRATIX_DRY_RUN"
 
 	KratixCrdPlural     = "KRATIX_CRD_PLURAL"
 	KratixClusterScoped = "KRATIX_CLUSTER_SCOPED"
