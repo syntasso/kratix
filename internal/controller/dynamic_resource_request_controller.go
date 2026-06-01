@@ -824,11 +824,7 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 		return false
 	}
 	if cond == nil || cond.Status != v1.ConditionTrue {
-		if rr.GetLabels()[v1alpha1.DryRunLabel] == "true" {
-			resourceutil.MarkResourceRequestAsDryRunWorksSucceeded(rr)
-		} else {
-			resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
-		}
+		resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
 		r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "WorksSucceeded", "WorksSucceeded", "%s", "All works associated with this resource are ready")
 		return true
 	}
@@ -875,6 +871,9 @@ func (r *DynamicResourceRequestController) cleanupStaleDryRunWorks(
 			return false, err
 		}
 	}
+	if err := r.updateManualReconcileToTrue(ctx, rr); err != nil {
+		return false, err
+	}
 	return true, nil
 }
 
@@ -908,8 +907,17 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 		}
 	} else if workflowCompleted != nil && worksSucceeded != nil &&
 		workflowCompleted.Status == v1.ConditionTrue && worksSucceeded.Status == v1.ConditionTrue {
-		if reconciled == nil || reconciled.Status != v1.ConditionTrue {
-			resourceutil.MarkReconciledTrue(rr)
+		isDryRun := rr.GetLabels()[v1alpha1.DryRunLabel] == "true"
+		expectedReason := "Reconciled"
+		if isDryRun {
+			expectedReason = resourceutil.DryRunWorksSucceededReason
+		}
+		if reconciled == nil || reconciled.Status != v1.ConditionTrue || reconciled.Reason != expectedReason {
+			if isDryRun {
+				resourceutil.MarkReconciledAsDryRun(rr)
+			} else {
+				resourceutil.MarkReconciledTrue(rr)
+			}
 			updated = true
 			r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "ReconcileSucceeded", "ReconcileSucceeded", "%s", "Successfully reconciled")
 		}
