@@ -79,6 +79,12 @@ func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResource
 	}, nil
 }
 
+func (p *PipelineFactory) IsDryRun() bool {
+	return p.ResourceWorkflow &&
+		p.ResourceRequest != nil &&
+		p.ResourceRequest.GetLabels()[DryRunLabel] == "true"
+}
+
 func (p *PipelineFactory) serviceAccount() *corev1.ServiceAccount {
 	serviceAccountName := p.ID
 	if p.Pipeline.Spec.RBAC.ServiceAccount != "" {
@@ -171,7 +177,7 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 		objNamespace = p.ResourceRequest.GetNamespace()
 		objKind = p.ResourceRequest.GroupVersionKind().Kind
 	}
-	return []corev1.EnvVar{
+	envVars := []corev1.EnvVar{
 		{Name: KratixActionEnvVar, Value: string(p.WorkflowAction)},
 		{Name: KratixTypeEnvVar, Value: string(p.WorkflowType)},
 		{Name: KratixPromiseNameEnvVar, Value: p.Promise.GetName()},
@@ -184,6 +190,10 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 		{Name: KratixCrdPlural, Value: p.CRDPlural},
 		{Name: KratixClusterScoped, Value: strconv.FormatBool(p.ClusterScoped)},
 	}
+	if p.IsDryRun() {
+		envVars = append(envVars, corev1.EnvVar{Name: KratixDryRunEnvVar, Value: "true"})
+	}
+	return envVars
 }
 
 func (p *PipelineFactory) readerContainer() corev1.Container {
@@ -221,29 +231,34 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 		args = append(args, "--resource-namespace", p.ResourceRequest.GetNamespace())
 	}
 
+	env := []corev1.EnvVar{
+		{
+			Name: telemetry.TraceParentEnvVar,
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceParentAnnotation),
+				},
+			},
+		},
+		{
+			Name: telemetry.TraceStateEnvVar,
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceStateAnnotation),
+				},
+			},
+		},
+	}
+	if p.IsDryRun() {
+		env = append(env, corev1.EnvVar{Name: KratixDryRunEnvVar, Value: "true"})
+	}
+
 	return corev1.Container{
 		Name:    "work-writer",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
 		Command: []string{"/bin/pipeline-adapter"},
 		Args:    args,
-		Env: []corev1.EnvVar{
-			{
-				Name: telemetry.TraceParentEnvVar,
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{
-						FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceParentAnnotation),
-					},
-				},
-			},
-			{
-				Name: telemetry.TraceStateEnvVar,
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{
-						FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceStateAnnotation),
-					},
-				},
-			},
-		},
+		Env:     env,
 		VolumeMounts: []corev1.VolumeMount{
 			{MountPath: "/work-creator-files/input", Name: "shared-output"},
 			{MountPath: "/work-creator-files/metadata", Name: "shared-metadata"},
