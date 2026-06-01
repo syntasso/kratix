@@ -32,6 +32,11 @@ func updateStatusCmd() *cobra.Command {
 }
 
 func runUpdateStatus(ctx context.Context) error {
+	if os.Getenv(v1alpha1.KratixDryRunEnvVar) == "true" {
+		fmt.Println("dry-run mode: skipping status update")
+		return nil
+	}
+
 	workspaceDir := filepath.Join("/work-creator-files", "metadata")
 
 	params := helpers.GetParametersFromEnv()
