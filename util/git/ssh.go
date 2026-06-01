@@ -186,7 +186,7 @@ func newSSHAuthCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string
 	namespace := stateStoreSpec.SecretRef.Namespace
 	name := stateStoreSpec.SecretRef.Name
 	if !ok {
-		return nil, fmt.Errorf("sshKey not found in secret %s/%s", namespace, name)
+		return nil, fmt.Errorf("sshPrivateKey not found in secret %s/%s", namespace, name)
 	}
 	knownHosts, ok := creds["knownHosts"]
 	if !ok {
