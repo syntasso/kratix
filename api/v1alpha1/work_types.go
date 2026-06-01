@@ -47,6 +47,7 @@ const (
 	WorkTypePromise          = "promise"
 	WorkTypeResource         = "resource"
 	WorkTypeStaticDependency = "static-dependency"
+	DryRunLabel              = KratixPrefix + "dry-run"
 )
 
 // WorkStatus defines the observed state of Work
