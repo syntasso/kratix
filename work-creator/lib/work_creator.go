@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pmezard/go-difflib/difflib"
+	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"go.uber.org/zap/zapcore"
@@ -518,18 +518,36 @@ func renderDiff(prev, next map[string]string) string {
 		fmt.Fprintf(&b, "\n---\n\n## ➕ Added: `%s`\n\n```yaml\n%s\n```\n", path, strings.TrimRight(next[path], "\n"))
 	}
 	for _, path := range modified {
-		diff, _ := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
-			A:        difflib.SplitLines(prev[path]),
-			B:        difflib.SplitLines(next[path]),
-			FromFile: path + " (current)",
-			ToFile:   path + " (proposed)",
-			Context:  3,
-		})
-		fmt.Fprintf(&b, "\n---\n\n## ✏️ Modified: `%s`\n\n```diff\n%s```\n", path, diff)
+		fmt.Fprintf(&b, "\n---\n\n## ✏️ Modified: `%s`\n\n```diff\n%s```\n", path, lineDiff(prev[path], next[path]))
 	}
 	for _, path := range removed {
 		fmt.Fprintf(&b, "\n---\n\n## 🗑️ Removed: `%s`\n\n```yaml\n%s\n```\n", path, strings.TrimRight(prev[path], "\n"))
 	}
 
 	return b.String()
+}
+
+// lineDiff returns a unified-style diff string between two texts using
+// line-level diffing from sergi/go-diff.
+func lineDiff(old, new string) string {
+	dmp := diffmatchpatch.New()
+	a, b, lineArray := dmp.DiffLinesToChars(old, new)
+	diffs := dmp.DiffMain(a, b, false)
+	diffs = dmp.DiffCharsToLines(diffs, lineArray)
+
+	var sb strings.Builder
+	for _, d := range diffs {
+		lines := strings.Split(strings.TrimSuffix(d.Text, "\n"), "\n")
+		prefix := " "
+		switch d.Type {
+		case diffmatchpatch.DiffInsert:
+			prefix = "+"
+		case diffmatchpatch.DiffDelete:
+			prefix = "-"
+		}
+		for _, line := range lines {
+			fmt.Fprintf(&sb, "%s %s\n", prefix, line)
+		}
+	}
+	return sb.String()
 }
