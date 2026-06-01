@@ -165,6 +165,9 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if err := r.Client.Update(ctx, resourceBinding); err != nil {
 			return ctrl.Result{}, err
 		}
+		if err := r.Client.Get(ctx, req.NamespacedName, resourceBinding); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	if needsStatusUpdate {

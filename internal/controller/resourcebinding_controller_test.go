@@ -390,6 +390,16 @@ var _ = Describe("ResourceBinding Controller", func() {
 				Entry("when upgrade failed and FailedVersion guard would block", "v0.0.1", metav1.ConditionFalse, v1alpha1.UpgradeFailedReason, "v0.0.2"),
 			)
 
+			It("updates status using a fresh binding after removing the manual reconciliation label", func() {
+				rr = createResourceRequestWithVersion(ctx, resourceRequestPath, "v0.0.2")
+				setUpgradeCondition(metav1.ConditionFalse, v1alpha1.UpgradeFailedReason, "v0.0.2")
+				reconciler.Client = staleResourceVersionAfterBindingUpdateClient{
+					Client: fakeK8sClient,
+				}
+
+				expectManualReconciliationRetry()
+			})
+
 			It("does not retry when the resource promise version is unversioned", func() {
 				rr = createResourceRequestWithVersion(ctx, resourceRequestPath, controller.UnversionedPromiseVersion)
 				setUpgradeCondition(metav1.ConditionFalse, v1alpha1.UpgradeFailedReason, "v0.0.2")
@@ -428,4 +438,27 @@ func createResourceRequestWithVersion(ctx context.Context, resourceRequestPath s
 
 	Expect(fakeK8sClient.Get(ctx, resNameNamespacedName, rr)).To(Succeed())
 	return rr
+}
+
+type staleResourceVersionAfterBindingUpdateClient struct {
+	client.Client
+}
+
+func (c staleResourceVersionAfterBindingUpdateClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	previousResourceVersion := obj.GetResourceVersion()
+
+	if err := c.Client.Update(ctx, obj, opts...); err != nil {
+		return err
+	}
+
+	resourceBinding, isResourceBinding := obj.(*v1alpha1.ResourceBinding)
+	if !isResourceBinding {
+		return nil
+	}
+	if resourceBinding.GetLabels()[resourceutil.ManualReconciliationLabel] == "true" {
+		return nil
+	}
+
+	obj.SetResourceVersion(previousResourceVersion)
+	return nil
 }
