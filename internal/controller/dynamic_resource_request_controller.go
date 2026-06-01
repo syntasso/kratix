@@ -168,6 +168,14 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return r.deleteResources(opts, promise, rr)
 	}
 
+	// Clean up any stale dry-run Works when the dry-run label has been removed.
+	if cleaned, err := r.cleanupStaleDryRunWorks(ctx, logger, rr, promise); err != nil {
+		return ctrl.Result{}, err
+	} else if cleaned {
+		// Work deletion events will re-trigger reconciliation; nothing more to do here.
+		return ctrl.Result{}, nil
+	}
+
 	if r.promiseCannotFulfilResourceRequests(promise) {
 		return r.ensurePromiseIsUnavailable(ctx, rr, logger)
 	}
@@ -778,12 +786,59 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 		return false
 	}
 	if cond == nil || cond.Status != v1.ConditionTrue {
-		resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
+		if rr.GetLabels()[v1alpha1.DryRunLabel] == "true" {
+			resourceutil.MarkResourceRequestAsDryRunWorksSucceeded(rr)
+		} else {
+			resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
+		}
 		r.EventRecorder.Event(rr, v1.EventTypeNormal, "WorksSucceeded",
 			"All works associated with this resource are ready")
 		return true
 	}
 	return false
+}
+
+// cleanupStaleDryRunWorks deletes any Works labelled as dry-run when the RR
+// no longer carries the dry-run label. Returns true if any Works were deleted.
+func (r *DynamicResourceRequestController) cleanupStaleDryRunWorks(
+	ctx context.Context,
+	logger logr.Logger,
+	rr *unstructured.Unstructured,
+	promise *v1alpha1.Promise,
+) (bool, error) {
+	if rr.GetLabels()[v1alpha1.DryRunLabel] == "true" {
+		return false, nil
+	}
+
+	namespace := rr.GetNamespace()
+	if namespace == "" {
+		namespace = v1alpha1.SystemNamespace
+	}
+
+	workList := &v1alpha1.WorkList{}
+	selector := labels.Set{
+		v1alpha1.PromiseNameLabel:  promise.GetName(),
+		v1alpha1.ResourceNameLabel: rr.GetName(),
+		v1alpha1.DryRunLabel:       "true",
+	}.AsSelector()
+	if err := r.Client.List(ctx, workList, &client.ListOptions{
+		LabelSelector: selector,
+		Namespace:     namespace,
+	}); err != nil {
+		return false, err
+	}
+
+	if len(workList.Items) == 0 {
+		return false, nil
+	}
+
+	logging.Info(logger, "removing stale dry-run works", "count", len(workList.Items))
+	for i := range workList.Items {
+		if err := r.Client.Delete(ctx, &workList.Items[i]); err != nil && !apierrors.IsNotFound(err) {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured) bool {
