@@ -35,6 +35,7 @@ const (
 	ReconciledCondition                    = clusterv1.ConditionType("Reconciled")
 	pausedReconciliationReason             = "PausedReconciliation"
 	workflowSuspendedReason                = "WorkflowSuspended"
+	DryRunWorksSucceededReason             = "DryRunSucceeded"
 )
 
 func GetConfigureWorkflowCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
@@ -103,6 +104,16 @@ func MarkResourceRequestAsWorksSucceeded(obj *unstructured.Unstructured) {
 		Status:             v1.ConditionTrue,
 		Message:            "All works associated with this resource are ready",
 		Reason:             "WorksSucceeded",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
+func MarkResourceRequestAsDryRunWorksSucceeded(obj *unstructured.Unstructured) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               WorksSucceededCondition,
+		Status:             v1.ConditionTrue,
+		Message:            "Dry-run completed: outputs written to dry-run destination",
+		Reason:             DryRunWorksSucceededReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 }
