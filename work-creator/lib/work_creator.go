@@ -7,8 +7,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/pmezard/go-difflib/difflib"
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"go.uber.org/zap/zapcore"
@@ -115,6 +117,18 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	var directoriesToIgnoreForTheBaseScheduling []string
 	var defaultDestinationSelectors map[string]string
 	pipelineOutputDir := filepath.Join(rootDirectory, "input")
+
+	if os.Getenv(v1alpha1.KratixDryRunEnvVar) == "true" {
+		liveLabels := resourceutil.GetWorkLabels(promiseName, resourceName, resourceNamespace, pipelineName, workflowType)
+		liveWork, err := resourceutil.GetWork(w.K8sClient, namespace, liveLabels)
+		if err != nil {
+			return err
+		}
+		if err := w.writeDryRunDiff(pipelineOutputDir, liveWork); err != nil {
+			return err
+		}
+	}
+
 	for _, workflowDestinationSelector := range workflowScheduling {
 		directory := workflowDestinationSelector.Directory
 		if !isRootDirectory(directory) {
@@ -407,4 +421,115 @@ func containsDuplicateScheduling(schedulingConfig []v1alpha1.WorkflowDestination
 // Assumes Dir has already been filepath.Clean'd
 func isRootDirectory(dir string) bool {
 	return dir == v1alpha1.DefaultWorkloadGroupDirectory
+}
+
+// writeDryRunDiff compares the new pipeline output against the previous live
+// Work (if any) and writes a human-friendly markdown diff to kratix-diff.md
+// inside outputDir, so it is included in the dry-run Work and lands in the
+// state store alongside the normal output.
+func (w *WorkCreator) writeDryRunDiff(outputDir string, liveWork *v1alpha1.Work) error {
+	prevFiles, err := extractWorkFiles(liveWork)
+	if err != nil {
+		return fmt.Errorf("extracting files from live work: %w", err)
+	}
+
+	newFiles, err := readDirFiles(outputDir)
+	if err != nil {
+		return fmt.Errorf("reading output dir for diff: %w", err)
+	}
+
+	md := renderDiff(prevFiles, newFiles)
+	return os.WriteFile(filepath.Join(outputDir, "kratix-diff.md"), []byte(md), 0644)
+}
+
+// extractWorkFiles decompresses all workloads from a Work into a filepath→content map.
+// Returns an empty map when work is nil (first-time request).
+func extractWorkFiles(work *v1alpha1.Work) (map[string]string, error) {
+	files := map[string]string{}
+	if work == nil {
+		return files, nil
+	}
+	for _, group := range work.Spec.WorkloadGroups {
+		for _, wl := range group.Workloads {
+			content, err := compression.DecompressContent([]byte(wl.Content))
+			if err != nil {
+				return nil, fmt.Errorf("decompressing %s: %w", wl.Filepath, err)
+			}
+			files[wl.Filepath] = string(content)
+		}
+	}
+	return files, nil
+}
+
+// readDirFiles walks dir and returns a filepath→content map using paths
+// relative to dir (matching the format stored in Work workloads).
+func readDirFiles(dir string) (map[string]string, error) {
+	files := map[string]string{}
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		files[rel] = string(content)
+		return nil
+	})
+	return files, err
+}
+
+// renderDiff produces a GitHub-flavoured markdown diff summary.
+func renderDiff(prev, next map[string]string) string {
+	var added, removed, modified []string
+	for path := range next {
+		if path == "kratix-diff.md" {
+			continue
+		}
+		if _, exists := prev[path]; !exists {
+			added = append(added, path)
+		} else if prev[path] != next[path] {
+			modified = append(modified, path)
+		}
+	}
+	for path := range prev {
+		if _, exists := next[path]; !exists {
+			removed = append(removed, path)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(removed)
+	sort.Strings(modified)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Kratix Dry Run Diff\n\n")
+	fmt.Fprintf(&b, "**%d added · %d modified · %d removed**\n", len(added), len(modified), len(removed))
+
+	if len(added)+len(modified)+len(removed) == 0 {
+		b.WriteString("\nNo changes.\n")
+		return b.String()
+	}
+
+	for _, path := range added {
+		fmt.Fprintf(&b, "\n---\n\n## ➕ Added: `%s`\n\n```yaml\n%s\n```\n", path, strings.TrimRight(next[path], "\n"))
+	}
+	for _, path := range modified {
+		diff, _ := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
+			A:        difflib.SplitLines(prev[path]),
+			B:        difflib.SplitLines(next[path]),
+			FromFile: path + " (current)",
+			ToFile:   path + " (proposed)",
+			Context:  3,
+		})
+		fmt.Fprintf(&b, "\n---\n\n## ✏️ Modified: `%s`\n\n```diff\n%s```\n", path, diff)
+	}
+	for _, path := range removed {
+		fmt.Fprintf(&b, "\n---\n\n## 🗑️ Removed: `%s`\n\n```yaml\n%s\n```\n", path, strings.TrimRight(prev[path], "\n"))
+	}
+
+	return b.String()
 }
