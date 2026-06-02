@@ -793,7 +793,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
-		When("there are more old workflow execution than configured in workflow options ", func() {
+		When("the number of old workflows exceeds the number of jobs to keep ", func() {
 			It("deletes the oldest jobs", func() {
 				var updatedPromise v1alpha1.Promise
 				numberOfJobLimit := 7
