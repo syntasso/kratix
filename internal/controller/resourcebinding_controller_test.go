@@ -95,7 +95,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 
 		When("the resource request has a version that does not match the spec.Version", func() {
 			BeforeEach(func() {
-				rr = createResourceRequestWithVersion(ctx, resourceRequestPath, "v0.0.1")
+				rr = createResourceRequestWithVersion(ctx, "v0.0.1")
 				Expect(resourceutil.GetStatus(rr, "promiseVersion")).To(Equal("v0.0.1"))
 			})
 
@@ -381,7 +381,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 
 			DescribeTable("retries when the binding is labelled for manual reconciliation",
 				func(rrVersion string, condStatus metav1.ConditionStatus, condReason, failedVersion string) {
-					rr = createResourceRequestWithVersion(ctx, resourceRequestPath, rrVersion)
+					rr = createResourceRequestWithVersion(ctx, rrVersion)
 					setUpgradeCondition(condStatus, condReason, failedVersion)
 					expectManualReconciliationRetry()
 				},
@@ -391,7 +391,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 			)
 
 			It("updates status using a fresh binding after removing the manual reconciliation label", func() {
-				rr = createResourceRequestWithVersion(ctx, resourceRequestPath, "v0.0.2")
+				rr = createResourceRequestWithVersion(ctx, "v0.0.2")
 				setUpgradeCondition(metav1.ConditionFalse, v1alpha1.UpgradeFailedReason, "v0.0.2")
 				reconciler.Client = staleResourceVersionAfterBindingUpdateClient{
 					Client: fakeK8sClient,
@@ -401,7 +401,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 			})
 
 			It("does not retry when the resource promise version is unversioned", func() {
-				rr = createResourceRequestWithVersion(ctx, resourceRequestPath, controller.UnversionedPromiseVersion)
+				rr = createResourceRequestWithVersion(ctx, controller.UnversionedPromiseVersion)
 				setUpgradeCondition(metav1.ConditionFalse, v1alpha1.UpgradeFailedReason, "v0.0.2")
 
 				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: bindingName})
@@ -419,7 +419,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 	})
 })
 
-func createResourceRequestWithVersion(ctx context.Context, resourceRequestPath string, version string) *unstructured.Unstructured {
+func createResourceRequestWithVersion(ctx context.Context, version string) *unstructured.Unstructured {
 	GinkgoHelper()
 	yamlFile, err := os.ReadFile(resourceRequestPath)
 	Expect(err).ToNot(HaveOccurred())
