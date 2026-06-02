@@ -392,10 +392,7 @@ func (p *PipelineFactory) setReferences(owner metav1.Object, job *batchv1.Job) e
 		}
 		return controllerutil.SetOwnerReference(owner, job, scheme.Scheme)
 	}
-	if err := controllerutil.SetControllerReference(owner, job, scheme.Scheme); err != nil {
-		return err
-	}
-	return controllerutil.SetOwnerReference(owner, job, scheme.Scheme)
+	return controllerutil.SetControllerReference(owner, job, scheme.Scheme)
 }
 
 func (p *PipelineFactory) statusWriterContainer(env []corev1.EnvVar) corev1.Container {
