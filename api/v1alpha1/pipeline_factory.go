@@ -378,7 +378,9 @@ func (p *PipelineFactory) pipelineJob(
 		},
 	}
 
-	err = p.setReferences(obj, job)
+	if err = p.setReferences(obj, job); err != nil {
+		return nil, err
+	}
 
 	return job, nil
 }
