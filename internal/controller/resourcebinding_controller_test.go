@@ -328,6 +328,82 @@ var _ = Describe("ResourceBinding Controller", func() {
 					Expect(rb.Status.FailedVersion).To(BeEmpty())
 				})
 			})
+
+			When("an upgrade is already in flight targeting the desired version", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
+					apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
+						Type:    v1alpha1.UpgradeSucceededCondition,
+						Status:  metav1.ConditionUnknown,
+						Reason:  v1alpha1.UpgradeInProgressReason,
+						Message: "Upgrade to version v0.0.2 is in progress",
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, &resourceBinding)).To(Succeed())
+				})
+
+				It("does not re-apply the manual reconciliation label to the resource request", func() {
+					request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+					result, err := reconciler.Reconcile(ctx, request)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()}, rr)).To(Succeed())
+					Expect(rr.GetLabels()).NotTo(HaveKey(resourceutil.ManualReconciliationLabel))
+				})
+
+				When("the manual reconciliation label is set on the binding", func() {
+					BeforeEach(func() {
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
+						labels := resourceBinding.GetLabels()
+						if labels == nil {
+							labels = make(map[string]string)
+						}
+						labels[resourceutil.ManualReconciliationLabel] = "true"
+						resourceBinding.SetLabels(labels)
+						Expect(fakeK8sClient.Update(ctx, &resourceBinding)).To(Succeed())
+					})
+
+					It("doesn't apply the manual reconcil label to RR, but it does clear it from the binding", func() {
+						request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+						result, err := reconciler.Reconcile(ctx, request)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()}, rr)).To(Succeed())
+						Expect(rr.GetLabels()).NotTo(HaveKey(resourceutil.ManualReconciliationLabel))
+
+						var rb v1alpha1.ResourceBinding
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &rb)).To(Succeed())
+						Expect(rb.GetLabels()).NotTo(HaveKey(resourceutil.ManualReconciliationLabel))
+					})
+				})
+			})
+
+			When("an upgrade is in flight targeting a different version than desired", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
+					apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
+						Type:    v1alpha1.UpgradeSucceededCondition,
+						Status:  metav1.ConditionUnknown,
+						Reason:  v1alpha1.UpgradeInProgressReason,
+						Message: "Upgrade to version v0.0.1 is in progress",
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, &resourceBinding)).To(Succeed())
+				})
+
+				It("applies the manual reconciliation label to the resource request", func() {
+					request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+					result, err := reconciler.Reconcile(ctx, request)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()}, rr)).To(Succeed())
+					Expect(rr.GetLabels()).To(HaveKeyWithValue(resourceutil.ManualReconciliationLabel, "true"))
+				})
+			})
 		})
 
 		When("the manual reconciliation label is applied to the binding", func() {
