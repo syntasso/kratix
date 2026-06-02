@@ -1,0 +1,275 @@
+name: 'Kratix Dry Run'
+description: >
+  Stages a dry-run ResourceRequest via the GitOps repository, waits for the
+  Kratix pipeline to complete, posts the diff to the PR as a comment, then
+  removes the dry-run request so the PR is clean to merge.
+
+inputs:
+  gitops-token:
+    description: >
+      Token with push access to this repository. Used to commit the dry-run
+      request to the watched branch and to remove it on completion or cancellation.
+    required: true
+  rr-directory:
+    description: >
+      Directory (relative to repo root) containing ResourceRequest YAML files.
+      Only files changed in the PR and matching *.yaml or *.yml are staged.
+    required: false
+    default: resources
+  gitops-branch:
+    description: Branch that the GitOps operator watches.
+    required: false
+    default: main
+  output-repo:
+    description: >
+      HTTPS URL of the Git repository that Kratix writes dry-run pipeline output
+      to (i.e. the repo backed by the GitStateStore used by the dry-run
+      Destination). Example: https://github.com/my-org/kratix-output.
+    required: true
+  output-token:
+    description: >
+      Token with read + push access to the output repository. Required to delete
+      any stale summary before the pipeline runs and to poll for the new one.
+      Can be the same as gitops-token when output-repo is this repository.
+    required: true
+  output-branch:
+    description: Branch in the output repository that Kratix commits to.
+    required: false
+    default: main
+  output-path:
+    description: >
+      Path prefix in the output repository where the dry-run Destination writes
+      its files. Must match the path configured in the Kratix Destination.
+    required: false
+    default: dry-run
+  timeout-minutes:
+    description: Minutes to wait for the pipeline before failing the check.
+    required: false
+    default: '15'
+  github-token:
+    description: Token for posting PR comments. Defaults to the built-in GITHUB_TOKEN.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+
+    # -------------------------------------------------------------------------
+    # 1. Find which RR files changed in this PR
+    # -------------------------------------------------------------------------
+    - name: Find changed ResourceRequest files
+      id: rrs
+      shell: bash
+      run: |
+        base="${{ github.event.pull_request.base.sha }}"
+        head="${{ github.event.pull_request.head.sha }}"
+        dir="${{ inputs.rr-directory }}"
+
+        files=$(git diff --name-only --diff-filter=ACM "$base" "$head" -- "$dir" \
+                | grep -E '\.ya?ml$' || true)
+
+        if [ -z "$files" ]; then
+          echo "No ResourceRequest files changed — nothing to dry-run."
+          echo "found=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "Changed RR files:"
+          echo "$files"
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "files=$(echo "$files" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+        fi
+
+    # -------------------------------------------------------------------------
+    # 2. Remove stale summary from the output repo so we don't pick it up
+    #    before the new pipeline has a chance to write a fresh one.
+    # -------------------------------------------------------------------------
+    - name: Clear stale dry-run summary
+      if: github.event.action != 'closed' && steps.rrs.outputs.found == 'true'
+      shell: bash
+      env:
+        OUTPUT_TOKEN: ${{ inputs.output-token }}
+        OUTPUT_REPO: ${{ inputs.output-repo }}
+        OUTPUT_BRANCH: ${{ inputs.output-branch }}
+        OUTPUT_PATH: ${{ inputs.output-path }}
+      run: |
+        auth_url="${OUTPUT_REPO/https:\/\//https://x-access-token:${OUTPUT_TOKEN}@}"
+        git clone "$auth_url" /tmp/output-repo
+        cd /tmp/output-repo
+        git checkout "$OUTPUT_BRANCH"
+
+        summary="${OUTPUT_PATH}/kratix-dry-run-summary.md"
+
+        if git ls-files --error-unmatch "$summary" > /dev/null 2>&1; then
+          git config user.email "kratix-dry-run[bot]@users.noreply.github.com"
+          git config user.name "kratix-dry-run[bot]"
+          git rm "$summary"
+          git commit -m "chore: clear stale dry-run summary [skip ci]"
+          git push origin "$OUTPUT_BRANCH"
+          echo "Stale summary removed."
+        else
+          echo "No stale summary found."
+        fi
+
+    # -------------------------------------------------------------------------
+    # 3. Stamp dry-run label and commit to the watched branch
+    #    Runs on opened / synchronize / reopened — not on closed.
+    # -------------------------------------------------------------------------
+    - name: Stage dry-run ResourceRequests
+      if: github.event.action != 'closed' && steps.rrs.outputs.found == 'true'
+      shell: bash
+      env:
+        GITOPS_TOKEN: ${{ inputs.gitops-token }}
+        GITOPS_BRANCH: ${{ inputs.gitops-branch }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+        RR_FILES: ${{ steps.rrs.outputs.files }}
+        WORKSPACE: ${{ github.workspace }}
+      run: |
+        dry_run_dir=".kratix-dry-runs/pr-${PR_NUMBER}"
+
+        git clone \
+          "https://x-access-token:${GITOPS_TOKEN}@github.com/${REPO}.git" \
+          /tmp/gitops-repo
+        cd /tmp/gitops-repo
+        git checkout "$GITOPS_BRANCH"
+
+        # Wipe any previous dry-run state for this PR (re-run / force-push).
+        rm -rf "$dry_run_dir"
+        mkdir -p "$dry_run_dir"
+
+        # Stamp each changed RR with the dry-run label and copy into the
+        # staging directory.  Uses Python's built-in yaml rather than
+        # requiring yq so there are no extra tool installs.
+        for f in $RR_FILES; do
+          src="${WORKSPACE}/${f}"
+          dest="${dry_run_dir}/$(basename "$f")"
+          python3 - "$src" "$dest" <<'PYEOF'
+        import sys, yaml
+
+        src, dest = sys.argv[1], sys.argv[2]
+        with open(src) as fh:
+            doc = yaml.safe_load(fh)
+
+        meta = doc.setdefault("metadata", {})
+        labels = meta.setdefault("labels", {})
+        labels["kratix.io/dry-run"] = "true"
+
+        with open(dest, "w") as fh:
+            yaml.dump(doc, fh, default_flow_style=False)
+        PYEOF
+        done
+
+        git config user.email "kratix-dry-run[bot]@users.noreply.github.com"
+        git config user.name "kratix-dry-run[bot]"
+        git add "$dry_run_dir"
+        git commit -m "chore: stage dry-run for PR #${PR_NUMBER} [skip ci]"
+        git push origin "$GITOPS_BRANCH"
+
+    # -------------------------------------------------------------------------
+    # 4. Poll the output Git repo for the merged summary file
+    # -------------------------------------------------------------------------
+    - name: Wait for dry-run summary
+      id: wait
+      if: github.event.action != 'closed' && steps.rrs.outputs.found == 'true'
+      shell: bash
+      env:
+        OUTPUT_BRANCH: ${{ inputs.output-branch }}
+        OUTPUT_PATH: ${{ inputs.output-path }}
+        TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
+      run: |
+        summary_path="${OUTPUT_PATH}/kratix-dry-run-summary.md"
+        summary_file="/tmp/kratix-dry-run-summary.md"
+        timeout=$((TIMEOUT_MINUTES * 60))
+        elapsed=0
+
+        cd /tmp/output-repo
+        echo "Polling ${summary_path} in output repo (timeout: ${TIMEOUT_MINUTES}m)"
+
+        while [ "$elapsed" -lt "$timeout" ]; do
+          git pull origin "$OUTPUT_BRANCH" --rebase --quiet 2>/dev/null
+
+          if [ -f "$summary_path" ]; then
+            echo "Summary received after ${elapsed}s."
+            cp "$summary_path" "$summary_file"
+            echo "summary_file=${summary_file}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          sleep 15
+          elapsed=$((elapsed + 15))
+        done
+
+        echo "::error::Timed out after ${TIMEOUT_MINUTES}m waiting for ${summary_path}"
+        exit 1
+
+    # -------------------------------------------------------------------------
+    # 5. Post or update the PR comment with the diff summary
+    # -------------------------------------------------------------------------
+    - name: Post diff to PR
+      if: github.event.action != 'closed' && steps.rrs.outputs.found == 'true' && steps.wait.outputs.summary_file != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+        SUMMARY_FILE: ${{ steps.wait.outputs.summary_file }}
+      run: |
+        marker="<!-- kratix-dry-run -->"
+        body="${marker}
+        $(cat "$SUMMARY_FILE")"
+
+        # Update the existing comment if one was posted in a previous run,
+        # otherwise create a new one.
+        existing_id=$(gh api \
+          "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+          --jq "[.[] | select(.body | startswith(\"${marker}\"))] | first | .id // empty")
+
+        if [ -n "$existing_id" ]; then
+          echo "Updating existing comment ${existing_id}"
+          gh api "repos/${REPO}/issues/comments/${existing_id}" \
+            -X PATCH -f body="$body" --silent
+        else
+          echo "Creating new comment"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$body"
+        fi
+
+    # -------------------------------------------------------------------------
+    # 6. Remove the dry-run directory from the GitOps watched branch.
+    #    Runs on every outcome (success, failure, cancellation, closed event)
+    #    so the platform cluster is always left clean.
+    # -------------------------------------------------------------------------
+    - name: Remove dry-run ResourceRequests
+      if: always()
+      shell: bash
+      env:
+        GITOPS_TOKEN: ${{ inputs.gitops-token }}
+        GITOPS_BRANCH: ${{ inputs.gitops-branch }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+      run: |
+        dry_run_dir=".kratix-dry-runs/pr-${PR_NUMBER}"
+
+        # Reuse the clone from the staging step if it exists; otherwise clone
+        # fresh (e.g. closed event where staging was skipped).
+        if [ -d /tmp/gitops-repo/.git ]; then
+          cd /tmp/gitops-repo
+          git pull origin "$GITOPS_BRANCH" --rebase --quiet
+        else
+          git clone \
+            "https://x-access-token:${GITOPS_TOKEN}@github.com/${REPO}.git" \
+            /tmp/gitops-repo
+          cd /tmp/gitops-repo
+          git checkout "$GITOPS_BRANCH"
+        fi
+
+        if ! git ls-files --error-unmatch "$dry_run_dir" > /dev/null 2>&1; then
+          echo "No dry-run directory to remove."
+          exit 0
+        fi
+
+        git config user.email "kratix-dry-run[bot]@users.noreply.github.com"
+        git config user.name "kratix-dry-run[bot]"
+        git rm -rf "$dry_run_dir"
+        git commit -m "chore: remove dry-run for PR #${PR_NUMBER} [skip ci]"
+        git push origin "$GITOPS_BRANCH"
+        echo "Dry-run directory removed."
