@@ -2279,7 +2279,7 @@ func markPromiseWorkflowAsRunning(client client.Client, p *v1alpha1.Promise) {
 			Type:               string(resourceutil.ConfigureWorkflowCompletedCondition),
 			Status:             metav1.ConditionFalse,
 			Message:            "Pipelines are still in progress",
-			Reason:             "PipelinesInProgress",
+			Reason:             resourceutil.PipelinesInProgressReason,
 			LastTransitionTime: metav1.NewTime(time.Now()),
 		},
 	}

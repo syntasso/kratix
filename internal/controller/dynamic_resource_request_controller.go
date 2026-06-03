@@ -845,7 +845,7 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 
 	var updated bool
 	if workflowCompleted != nil &&
-		workflowCompleted.Status == v1.ConditionFalse && workflowCompleted.Reason == "PipelinesInProgress" {
+		workflowCompleted.Status == v1.ConditionFalse && workflowCompleted.Reason == resourceutil.PipelinesInProgressReason {
 		if reconciled == nil || reconciled.Status != v1.ConditionUnknown {
 			resourceutil.MarkReconciledPending(rr, "WorkflowPending")
 			updated = true
@@ -1239,7 +1239,7 @@ func workflowCompletedWithFailure(workflowCompletedCondition *clusterv1.Conditio
 func workflowInProgress(workflowCompletedCondition *clusterv1.Condition) bool {
 	return workflowCompletedCondition != nil &&
 		workflowCompletedCondition.Status == v1.ConditionFalse &&
-		workflowCompletedCondition.Reason == "PipelinesInProgress"
+		workflowCompletedCondition.Reason == resourceutil.PipelinesInProgressReason
 }
 
 func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) ctrl.Result {

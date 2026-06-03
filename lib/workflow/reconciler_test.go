@@ -491,7 +491,7 @@ var _ = Describe("Workflow Reconciler", func() {
 							condition := apimeta.FindStatusCondition(updatedPromise.Status.Conditions, string(resourceutil.ConfigureWorkflowCompletedCondition))
 							Expect(condition).NotTo(BeNil())
 							Expect(condition.Status).To(Equal(metav1.ConditionFalse))
-							Expect(condition.Reason).To(Equal("PipelinesInProgress"))
+							Expect(condition.Reason).To(Equal(resourceutil.PipelinesInProgressReason))
 						})
 					})
 
@@ -760,7 +760,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					HaveKeyWithValue("type", "ConfigureWorkflowCompleted"),
 					HaveKeyWithValue("status", "False"),
 					HaveKeyWithValue("message", "Pipelines are still in progress"),
-					HaveKeyWithValue("reason", "PipelinesInProgress"),
+					HaveKeyWithValue("reason", resourceutil.PipelinesInProgressReason),
 					HaveKeyWithValue("lastTransitionTime", Not(BeEmpty())),
 				))
 			})

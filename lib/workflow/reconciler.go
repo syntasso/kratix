@@ -698,7 +698,7 @@ func shouldMarkConfigureWorkflowAsRunning(obj *unstructured.Unstructured) bool {
 	if condition.Status != v1.ConditionFalse {
 		return true
 	}
-	return condition.Reason != "PipelinesInProgress"
+	return condition.Reason != resourceutil.PipelinesInProgressReason
 }
 
 func getMostRecentDeletePipelineJob(opts Opts, namespace string, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {

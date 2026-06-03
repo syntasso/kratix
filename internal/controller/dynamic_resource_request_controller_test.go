@@ -2072,7 +2072,7 @@ func setConfigureWorkflowAsRunning(resReq *unstructured.Unstructured) {
 		Type:               resourceutil.ConfigureWorkflowCompletedCondition,
 		Status:             v1.ConditionFalse,
 		Message:            "Pipelines are still in progress",
-		Reason:             "PipelinesInProgress",
+		Reason:             resourceutil.PipelinesInProgressReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
