@@ -48,6 +48,7 @@ const (
 	WorkTypeStaticDependency = "static-dependency"
 	DryRunLabel        = KratixPrefix + "dry-run"
 	DryRunSummaryLabel = KratixPrefix + "dry-run-summary"
+	DryRunOwnerLabel   = KratixPrefix + "dry-run-owner"
 )
 
 // WorkStatus defines the observed state of Work
