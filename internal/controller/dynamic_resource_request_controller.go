@@ -583,7 +583,7 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 			mergedLabels = make(map[string]string)
 		}
 		maps.Copy(mergedLabels, resourceBindingLabels(rr, promise))
-		//if a binding is in middle of an upgrade, where the manual label is used, preserve it.
+		// If a binding is in the middle of an upgrade where the manual label is used, preserve it.
 		if resourceBinding.GetLabels()[resourceutil.ManualReconciliationLabel] == "true" {
 			mergedLabels[resourceutil.ManualReconciliationLabel] = "true"
 		}
