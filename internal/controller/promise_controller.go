@@ -1197,6 +1197,9 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 				if !labelExists || work.Labels[v1alpha1.PromiseNameLabel] != promise.GetName() {
 					return nil
 				}
+				if work.Labels[v1alpha1.DryRunSummaryLabel] == "true" {
+					return nil
+				}
 
 				return []reconcile.Request{{
 					NamespacedName: types.NamespacedName{
