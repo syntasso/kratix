@@ -143,7 +143,7 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return ctrl.Result{}, nil
 		}
 
-		needsStatusUpdate = !bindingAlreadyAdvertisesUpgradeInProgress(resourceBinding)
+		needsStatusUpdate = !bindingAlreadyAdvertisesUpgradeInProgress(resourceBinding) || resourceBinding.InFlightVersion() != desiredVersion
 	}
 
 	if resourceBinding.InFlightVersion() != desiredVersion {
