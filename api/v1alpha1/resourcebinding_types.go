@@ -17,6 +17,10 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"strings"
+	"unicode"
+
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -93,4 +97,34 @@ type ResourceBindingList struct {
 
 func init() {
 	SchemeBuilder.Register(&ResourceBinding{}, &ResourceBindingList{})
+}
+
+// InFlightVersion returns the promise version of the resource configure
+// workflow that is currently being attempted for this binding, or an empty
+// string if no upgrade is in flight.
+//
+// It is inferred from the UpgradeSucceeded condition: while an upgrade is in
+// progress that condition is set to Unknown with reason UpgradeInProgress, and
+// its message embeds the desired version after the literal token "version ".
+// The controller is the sole writer of that condition, so coupling the parser
+// to the message format is acceptable as long as both stay in step.
+func (rb *ResourceBinding) InFlightVersion() string {
+	cond := apiMeta.FindStatusCondition(rb.Status.Conditions, UpgradeSucceededCondition)
+	if cond == nil {
+		return ""
+	}
+	if cond.Status != metav1.ConditionUnknown || cond.Reason != UpgradeInProgressReason {
+		return ""
+	}
+
+	const marker = "version "
+	idx := strings.Index(cond.Message, marker)
+	if idx == -1 {
+		return ""
+	}
+	rest := cond.Message[idx+len(marker):]
+	if i := strings.IndexFunc(rest, unicode.IsSpace); i != -1 {
+		rest = rest[:i]
+	}
+	return rest
 }

@@ -95,7 +95,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 
 		When("the resource request has a version that does not match the spec.Version", func() {
 			BeforeEach(func() {
-				rr = createResourceRequestWithVersion(ctx, resourceRequestPath, "v0.0.1")
+				rr = createResourceRequestWithVersion(ctx, "v0.0.1")
 				Expect(resourceutil.GetStatus(rr, "promiseVersion")).To(Equal("v0.0.1"))
 			})
 
@@ -328,6 +328,82 @@ var _ = Describe("ResourceBinding Controller", func() {
 					Expect(rb.Status.FailedVersion).To(BeEmpty())
 				})
 			})
+
+			When("an upgrade is already in flight targeting the desired version", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
+					apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
+						Type:    v1alpha1.UpgradeSucceededCondition,
+						Status:  metav1.ConditionUnknown,
+						Reason:  v1alpha1.UpgradeInProgressReason,
+						Message: "Upgrade to version v0.0.2 is in progress",
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, &resourceBinding)).To(Succeed())
+				})
+
+				It("does not re-apply the manual reconciliation label to the resource request", func() {
+					request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+					result, err := reconciler.Reconcile(ctx, request)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()}, rr)).To(Succeed())
+					Expect(rr.GetLabels()).NotTo(HaveKey(resourceutil.ManualReconciliationLabel))
+				})
+
+				When("the manual reconciliation label is set on the binding", func() {
+					BeforeEach(func() {
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
+						labels := resourceBinding.GetLabels()
+						if labels == nil {
+							labels = make(map[string]string)
+						}
+						labels[resourceutil.ManualReconciliationLabel] = "true"
+						resourceBinding.SetLabels(labels)
+						Expect(fakeK8sClient.Update(ctx, &resourceBinding)).To(Succeed())
+					})
+
+					It("doesn't apply the manual reconciliation label to RR, but it does clear it from the binding", func() {
+						request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+						result, err := reconciler.Reconcile(ctx, request)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()}, rr)).To(Succeed())
+						Expect(rr.GetLabels()).NotTo(HaveKey(resourceutil.ManualReconciliationLabel))
+
+						var rb v1alpha1.ResourceBinding
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &rb)).To(Succeed())
+						Expect(rb.GetLabels()).NotTo(HaveKey(resourceutil.ManualReconciliationLabel))
+					})
+				})
+			})
+
+			When("an upgrade is in flight targeting a different version than desired", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
+					apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
+						Type:    v1alpha1.UpgradeSucceededCondition,
+						Status:  metav1.ConditionUnknown,
+						Reason:  v1alpha1.UpgradeInProgressReason,
+						Message: "Upgrade to version v0.0.1 is in progress",
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, &resourceBinding)).To(Succeed())
+				})
+
+				It("applies the manual reconciliation label to the resource request", func() {
+					request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+					result, err := reconciler.Reconcile(ctx, request)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()}, rr)).To(Succeed())
+					Expect(rr.GetLabels()).To(HaveKeyWithValue(resourceutil.ManualReconciliationLabel, "true"))
+				})
+			})
 		})
 
 		When("the manual reconciliation label is applied to the binding", func() {
@@ -381,7 +457,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 
 			DescribeTable("retries when the binding is labelled for manual reconciliation",
 				func(rrVersion string, condStatus metav1.ConditionStatus, condReason, failedVersion string) {
-					rr = createResourceRequestWithVersion(ctx, resourceRequestPath, rrVersion)
+					rr = createResourceRequestWithVersion(ctx, rrVersion)
 					setUpgradeCondition(condStatus, condReason, failedVersion)
 					expectManualReconciliationRetry()
 				},
@@ -391,7 +467,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 			)
 
 			It("does not retry when the resource promise version is unversioned", func() {
-				rr = createResourceRequestWithVersion(ctx, resourceRequestPath, controller.UnversionedPromiseVersion)
+				rr = createResourceRequestWithVersion(ctx, controller.UnversionedPromiseVersion)
 				setUpgradeCondition(metav1.ConditionFalse, v1alpha1.UpgradeFailedReason, "v0.0.2")
 
 				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: bindingName})
@@ -409,7 +485,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 	})
 })
 
-func createResourceRequestWithVersion(ctx context.Context, resourceRequestPath string, version string) *unstructured.Unstructured {
+func createResourceRequestWithVersion(ctx context.Context, version string) *unstructured.Unstructured {
 	GinkgoHelper()
 	yamlFile, err := os.ReadFile(resourceRequestPath)
 	Expect(err).ToNot(HaveOccurred())
