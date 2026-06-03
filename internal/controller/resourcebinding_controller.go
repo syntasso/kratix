@@ -120,11 +120,10 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		desiredVersion = provisionRevisionMarkedWithLatest.Spec.Version
 	}
 
-	upgradeSucceededCond := apiMeta.FindStatusCondition(resourceBinding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+	manualReconciliationRequested := resourceBinding.GetLabels()[resourceutil.ManualReconciliationLabel] == "true"
 
-	manualReconciliationLabel := resourceBinding.GetLabels()[resourceutil.ManualReconciliationLabel] == "true"
 	var needsStatusUpdate bool
-	if manualReconciliationLabel {
+	if manualReconciliationRequested {
 		logging.Info(logger, "manual reconciliation label is set, forcing resource reconciliation")
 		needsStatusUpdate = true
 	} else {
@@ -139,37 +138,47 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			"resource request version", rrPromiseVersion,
 			"resource binding version", resourceBinding.Spec.Version,
 		)
-		if upgradeSucceededCond != nil &&
-			upgradeSucceededCond.Status == metav1.ConditionFalse &&
-			resourceBinding.Status.FailedVersion == desiredVersion {
+
+		if lastUpgradeAttemptFailedForVersion(resourceBinding, desiredVersion) {
 			return ctrl.Result{}, nil
 		}
-		needsStatusUpdate = upgradeSucceededCond == nil ||
-			upgradeSucceededCond.Status != metav1.ConditionUnknown ||
-			upgradeSucceededCond.Reason != v1alpha1.UpgradeInProgressReason ||
-			resourceBinding.Status.FailedVersion != ""
+
+		needsStatusUpdate = !bindingAlreadyAdvertisesUpgradeInProgress(resourceBinding) || resourceBinding.InFlightVersion() != desiredVersion
 	}
 
-	labels := rr.GetLabels()
-	if labels == nil {
-		labels = make(map[string]string)
-	}
-	labels[resourceutil.ManualReconciliationLabel] = "true"
-	rr.SetLabels(labels)
-	if err := r.Client.Update(ctx, rr); err != nil {
-		return ctrl.Result{}, err
+	if resourceBinding.InFlightVersion() != desiredVersion {
+		labels := rr.GetLabels()
+		if labels == nil {
+			labels = make(map[string]string)
+		}
+		labels[resourceutil.ManualReconciliationLabel] = "true"
+		rr.SetLabels(labels)
+		if err := r.Client.Update(ctx, rr); err != nil {
+			return ctrl.Result{}, err
+		}
+	} else {
+		logging.Debug(
+			logger,
+			"in-flight workflow already targets desired version; skipping applying manual reconciliation label to resource request",
+			"version", desiredVersion,
+		)
 	}
 
-	if manualReconciliationLabel {
+	if manualReconciliationRequested {
 		delete(resourceBinding.Labels, resourceutil.ManualReconciliationLabel)
 		if err := r.Client.Update(ctx, resourceBinding); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		//refetch so that we can update the status successfully afterwards without hitting a resource version conflict
+		if err := r.Client.Get(ctx, req.NamespacedName, resourceBinding); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
 	if needsStatusUpdate {
 		statusMessage := fmt.Sprintf("Upgrade to version %s is in progress", desiredVersion)
-		if manualReconciliationLabel {
+		if manualReconciliationRequested {
 			statusMessage = fmt.Sprintf("Reconciliation requested for version %s", desiredVersion)
 		}
 		apiMeta.SetStatusCondition(&resourceBinding.Status.Conditions, metav1.Condition{
@@ -186,6 +195,31 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	}
 	return ctrl.Result{}, nil
+}
+
+// lastUpgradeAttemptFailedForVersion reports whether the binding's last
+// recorded upgrade attempt failed against this exact version, so we should
+// stop hammering it until something changes.
+func lastUpgradeAttemptFailedForVersion(binding *v1alpha1.ResourceBinding, version string) bool {
+	cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+	if cond == nil {
+		return false
+	}
+	return cond.Status == metav1.ConditionFalse && binding.Status.FailedVersion == version
+}
+
+// bindingAlreadyAdvertisesUpgradeInProgress reports whether the binding's
+// status already reflects an upgrade-in-progress with a clean slate (no stale
+// FailedVersion left over from a previous attempt).
+func bindingAlreadyAdvertisesUpgradeInProgress(binding *v1alpha1.ResourceBinding) bool {
+	if binding.Status.FailedVersion != "" {
+		return false
+	}
+	cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+	if cond == nil {
+		return false
+	}
+	return cond.Status == metav1.ConditionUnknown && cond.Reason == v1alpha1.UpgradeInProgressReason
 }
 
 // SetupWithManager sets up the controller with the Manager.

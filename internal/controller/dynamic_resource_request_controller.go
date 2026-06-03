@@ -630,6 +630,11 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 			mergedLabels = make(map[string]string)
 		}
 		maps.Copy(mergedLabels, resourceBindingLabels(rr, promise))
+		// If a binding is in the middle of an upgrade where the manual label is used, preserve it.
+		if resourceBinding.GetLabels()[resourceutil.ManualReconciliationLabel] == "true" {
+			mergedLabels[resourceutil.ManualReconciliationLabel] = "true"
+		}
+
 		resourceBinding.SetLabels(mergedLabels)
 		if resourceBinding.Spec.Version == "" {
 			// if the resource binding got deleted, when we recreate the resource binding we infer what the resource binding
