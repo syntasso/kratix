@@ -364,7 +364,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 						Expect(fakeK8sClient.Update(ctx, &resourceBinding)).To(Succeed())
 					})
 
-					It("doesn't apply the manual reconcil label to RR, but it does clear it from the binding", func() {
+					It("doesn't apply the manual reconciliation label to RR, but it does clear it from the binding", func() {
 						request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
 
 						result, err := reconciler.Reconcile(ctx, request)
