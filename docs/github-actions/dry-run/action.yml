@@ -143,19 +143,38 @@ runs:
         for f in $RR_FILES; do
           src="${WORKSPACE}/${f}"
           dest="${dry_run_dir}/$(basename "$f")"
-          python3 - "$src" "$dest" <<'PYEOF'
+          python3 - "$src" "$dest" "$PR_NUMBER" <<'PYEOF'
         import sys, yaml
 
-        src, dest = sys.argv[1], sys.argv[2]
+        src, dest, pr_number = sys.argv[1], sys.argv[2], sys.argv[3]
         with open(src) as fh:
             doc = yaml.safe_load(fh)
 
-        meta = doc.setdefault("metadata", {})
-        labels = meta.setdefault("labels", {})
-        labels["kratix.io/dry-run"] = "true"
+        rr_name      = doc['metadata']['name']
+        rr_namespace = doc['metadata'].get('namespace', 'default')
+        # Convention: promise name = lowercase Kind.
+        # Override with annotation kratix.io/promise-name if the promise is named differently.
+        promise_name = doc['metadata'].get('annotations', {}).get(
+            'kratix.io/promise-name', doc['kind'].lower()
+        )
+        spec = doc.get('spec', {})
 
-        with open(dest, "w") as fh:
-            yaml.dump(doc, fh, default_flow_style=False)
+        dry_run = {
+            'apiVersion': 'platform.kratix.io/v1alpha1',
+            'kind': 'DryRun',
+            'metadata': {
+                'name': f"{rr_name}-pr-{pr_number}",
+                'namespace': rr_namespace,
+            },
+            'spec': {
+                'promiseRef': {'name': promise_name},
+                'resourceRequestRef': {'name': rr_name, 'namespace': rr_namespace},
+                'resource': spec,
+            },
+        }
+
+        with open(dest, 'w') as fh:
+            yaml.dump(dry_run, fh, default_flow_style=False)
         PYEOF
         done
 
