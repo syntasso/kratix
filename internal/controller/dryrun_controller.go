@@ -29,6 +29,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=dryruns,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=dryruns/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=dryruns/finalizers,verbs=update
+
 const dryRunCompletedCondition = "Completed"
 
 type DryRunReconciler struct {
