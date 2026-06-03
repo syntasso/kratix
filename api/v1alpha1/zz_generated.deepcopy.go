@@ -1736,3 +1736,115 @@ func (in *WorkloadGroupScheduling) DeepCopy() *WorkloadGroupScheduling {
 	in.DeepCopyInto(out)
 	return out
 }
+
+// DeepCopyInto copies all properties of this object into another object of the same type.
+func (in *DryRun) DeepCopyInto(out *DryRun) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	in.Spec.DeepCopyInto(&out.Spec)
+	in.Status.DeepCopyInto(&out.Status)
+}
+
+func (in *DryRun) DeepCopy() *DryRun {
+	if in == nil {
+		return nil
+	}
+	out := new(DryRun)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *DryRun) DeepCopyObject() runtime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+func (in *DryRunList) DeepCopyInto(out *DryRunList) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]DryRun, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+}
+
+func (in *DryRunList) DeepCopy() *DryRunList {
+	if in == nil {
+		return nil
+	}
+	out := new(DryRunList)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *DryRunList) DeepCopyObject() runtime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+func (in *DryRunSpec) DeepCopyInto(out *DryRunSpec) {
+	*out = *in
+	out.PromiseRef = in.PromiseRef
+	out.ResourceRequestRef = in.ResourceRequestRef
+	in.Resource.DeepCopyInto(&out.Resource)
+}
+
+func (in *DryRunSpec) DeepCopy() *DryRunSpec {
+	if in == nil {
+		return nil
+	}
+	out := new(DryRunSpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *DryRunStatus) DeepCopyInto(out *DryRunStatus) {
+	*out = *in
+	if in.Conditions != nil {
+		in, out := &in.Conditions, &out.Conditions
+		*out = make([]metav1.Condition, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+}
+
+func (in *DryRunStatus) DeepCopy() *DryRunStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(DryRunStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *DryRunPromiseRef) DeepCopyInto(out *DryRunPromiseRef) { *out = *in }
+
+func (in *DryRunPromiseRef) DeepCopy() *DryRunPromiseRef {
+	if in == nil {
+		return nil
+	}
+	out := new(DryRunPromiseRef)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *DryRunResourceRequestRef) DeepCopyInto(out *DryRunResourceRequestRef) { *out = *in }
+
+func (in *DryRunResourceRequestRef) DeepCopy() *DryRunResourceRequestRef {
+	if in == nil {
+		return nil
+	}
+	out := new(DryRunResourceRequestRef)
+	in.DeepCopyInto(out)
+	return out
+}
