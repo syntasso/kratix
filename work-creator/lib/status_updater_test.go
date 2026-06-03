@@ -495,5 +495,34 @@ var _ = Describe("StatusUpdater", func() {
 
 			Expect(err).To(MatchError(ContainSubstring("\"pipeline-b\" not found in status.kratix.workflows.pipelines")))
 		})
+
+		It("is a no-op when status.kratix is missing", func() {
+			status := map[string]any{"message": "Pending"}
+			result, err := lib.ClearPipelineSuspension(status, "promise-configure")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(status))
+		})
+
+		It("is a no-op when status.kratix.workflows is missing", func() {
+			status := map[string]any{
+				"kratix": map[string]any{"kind": "Jenkins"},
+			}
+			result, err := lib.ClearPipelineSuspension(status, "promise-configure")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(status))
+		})
+
+		It("is a no-op when status.kratix.workflows.pipelines is missing", func() {
+			status := map[string]any{
+				"kratix": map[string]any{
+					"workflows": map[string]any{
+						"suspendedGeneration": int64(3),
+					},
+				},
+			}
+			result, err := lib.ClearPipelineSuspension(status, "promise-configure")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(status))
+		})
 	})
 })
