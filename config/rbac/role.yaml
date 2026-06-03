@@ -100,6 +100,7 @@ rules:
   resources:
   - bucketstatestores/finalizers
   - destinations/finalizers
+  - dryruns/finalizers
   - gitstatestores/finalizers
   - healthrecords/finalizers
   - promisereleases/finalizers
@@ -115,6 +116,7 @@ rules:
   resources:
   - bucketstatestores/status
   - destinations/status
+  - dryruns/status
   - gitstatestores/status
   - healthrecords/status
   - promisereleases/status
@@ -127,6 +129,16 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - dryruns
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
