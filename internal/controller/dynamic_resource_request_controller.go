@@ -426,7 +426,8 @@ func (r *DynamicResourceRequestController) ensureResourceStatus(
 		return false, err
 	}
 
-	if rr.GetLabels()[v1alpha1.DryRunLabel] == "true" {
+	// Skip summary generation for ephemeral RRs owned by a DryRun object — DryRunReconciler handles those.
+	if rr.GetLabels()[v1alpha1.DryRunLabel] == "true" && rr.GetLabels()[v1alpha1.DryRunOwnerLabel] == "" {
 		worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 		if worksSucceeded != nil && worksSucceeded.Status == v1.ConditionTrue {
 			namespace := rr.GetNamespace()
