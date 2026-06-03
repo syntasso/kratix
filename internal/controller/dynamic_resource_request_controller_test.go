@@ -1642,6 +1642,59 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				})
 			})
 
+			When("a failed upgrade is retried and the configure workflow is running", func() {
+				It("sets UpgradeSucceeded=Unknown and clears FailedVersion", func() {
+					createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					binding.Status.LastAppliedVersion = "v1.0.0"
+					binding.Status.FailedVersion = promiseVersion
+					apiMeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+						Type:    v1alpha1.UpgradeSucceededCondition,
+						Status:  metav1.ConditionFalse,
+						Reason:  v1alpha1.UpgradeFailedReason,
+						Message: "A Configure Pipeline has failed: old-pipeline",
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, binding)).To(Succeed())
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					labels := resReq.GetLabels()
+					labels[resourceutil.ManualReconciliationLabel] = "true"
+					resReq.SetLabels(labels)
+					Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+					setConfigureWorkflowAsFailed(resReq, "old-pipeline")
+					controller.SetReconcileConfigureWorkflow(workflow.ReconcileConfigure)
+
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					binding = getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Status.LastAppliedVersion).To(Equal("v1.0.0"))
+					Expect(binding.Status.FailedVersion).To(BeEmpty())
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).NotTo(BeNil())
+					Expect(cond.Status).To(Equal(metav1.ConditionUnknown))
+					Expect(cond.Reason).To(Equal(v1alpha1.UpgradeInProgressReason))
+					Expect(cond.Message).To(Equal("Upgrade to version v1.1.0 is in progress"))
+				})
+			})
+
+			When("a fresh deployment configure workflow is running", func() {
+				It("does not set UpgradeSucceeded on the resource binding", func() {
+					setConfigureWorkflowAsRunning(resReq)
+
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Status.LastAppliedVersion).To(BeEmpty())
+					Expect(binding.Status.FailedVersion).To(BeEmpty())
+
+					cond := apiMeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+					Expect(cond).To(BeNil(), "fresh deployments should not set UpgradeSucceeded while running")
+				})
+			})
+
 			When("the resource binding is pinned to a specific promise version", func() {
 				BeforeEach(func() {
 					createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
