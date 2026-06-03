@@ -12,6 +12,7 @@ resources:
 - bases/platform.kratix.io_healthrecords.yaml
 - bases/platform.kratix.io_promiserevisions.yaml
 - bases/platform.kratix.io_resourcebindings.yaml
+- bases/platform.kratix.io_dryruns.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 labels:
