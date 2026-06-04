@@ -118,6 +118,24 @@ func (r *DryRunReconciler) ensureEphemeralRR(
 		existing[v1alpha1.DryRunLabel] = "true"
 		existing[v1alpha1.DryRunOwnerLabel] = dryRun.Name
 		rrObj.SetLabels(existing)
+
+		// Annotate with real resource coordinates so the reader can fetch it
+		// and give the pipeline correct metadata (name, namespace, labels, etc.).
+		ref := dryRun.Spec.ResourceRequestRef
+		if ref.Name != "" {
+			annotations := rrObj.GetAnnotations()
+			if annotations == nil {
+				annotations = map[string]string{}
+			}
+			realNamespace := ref.Namespace
+			if realNamespace == "" {
+				realNamespace = dryRun.Namespace
+			}
+			annotations[v1alpha1.DryRunResourceNameAnnotation] = ref.Name
+			annotations[v1alpha1.DryRunResourceNamespaceAnnotation] = realNamespace
+			rrObj.SetAnnotations(annotations)
+		}
+
 		if err := controllerutil.SetControllerReference(dryRun, rrObj, r.Scheme); err != nil {
 			return err
 		}
