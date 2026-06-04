@@ -75,7 +75,7 @@ func (r *Reader) resolveObject(ctx context.Context, client dynamic.Interface, pa
 	realObj, err := client.Resource(helpers.ObjectGVR(params)).Namespace(realNamespace).Get(ctx, realName, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			// New request — real resource doesn't exist yet; use the ephemeral RR.
+			// New request — real resource doesn't exist yet; use the ephemeral RR as-is.
 			fmt.Fprintln(r.Out, "dry-run: real resource not found, using ephemeral RR")
 			return ephemeral
 		}
@@ -84,6 +84,10 @@ func (r *Reader) resolveObject(ctx context.Context, client dynamic.Interface, pa
 		return ephemeral
 	}
 
-	fmt.Fprintf(r.Out, "dry-run: using real resource %s/%s as pipeline input\n", realNamespace, realName)
-	return realObj
+	// Use real resource metadata so the pipeline sees the correct name/namespace/labels,
+	// but apply the proposed spec from the ephemeral RR so the diff reflects the change.
+	merged := realObj.DeepCopy()
+	merged.Object["spec"] = ephemeral.Object["spec"]
+	fmt.Fprintf(r.Out, "dry-run: using real resource %s/%s metadata with proposed spec\n", realNamespace, realName)
+	return merged
 }
