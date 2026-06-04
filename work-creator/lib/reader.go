@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/work-creator/lib/helpers"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 )
 
@@ -37,6 +40,8 @@ func (r *Reader) writeObjectToFile(ctx context.Context, client dynamic.Interface
 		return fmt.Errorf("failed to get object: %w", err)
 	}
 
+	obj = r.resolveObject(ctx, client, params, obj)
+
 	objectFilePath := params.GetObjectPath()
 	if err := helpers.WriteToYaml(obj, objectFilePath); err != nil {
 		return fmt.Errorf("failed to write object to file: %w", err)
@@ -48,4 +53,37 @@ func (r *Reader) writeObjectToFile(ctx context.Context, client dynamic.Interface
 	}
 
 	return nil
+}
+
+// resolveObject returns the real resource when running inside a dry-run pipeline.
+// The ephemeral RR carries kratix.io/dry-run-resource-name and
+// kratix.io/dry-run-resource-namespace annotations; if present and the resource
+// exists, the pipeline sees the real object's metadata instead of the ephemeral
+// RR's generated name. Falls back to the ephemeral RR for new requests.
+func (r *Reader) resolveObject(ctx context.Context, client dynamic.Interface, params *helpers.Parameters, ephemeral *unstructured.Unstructured) *unstructured.Unstructured {
+	if os.Getenv(v1alpha1.KratixDryRunEnvVar) != "true" {
+		return ephemeral
+	}
+
+	annotations := ephemeral.GetAnnotations()
+	realName := annotations[v1alpha1.DryRunResourceNameAnnotation]
+	if realName == "" {
+		return ephemeral
+	}
+
+	realNamespace := annotations[v1alpha1.DryRunResourceNamespaceAnnotation]
+	realObj, err := client.Resource(helpers.ObjectGVR(params)).Namespace(realNamespace).Get(ctx, realName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// New request — real resource doesn't exist yet; use the ephemeral RR.
+			fmt.Fprintln(r.Out, "dry-run: real resource not found, using ephemeral RR")
+			return ephemeral
+		}
+		// Unexpected error: log and fall back rather than failing the pipeline.
+		fmt.Fprintf(r.Out, "dry-run: failed to fetch real resource %s/%s: %v; using ephemeral RR\n", realNamespace, realName, err)
+		return ephemeral
+	}
+
+	fmt.Fprintf(r.Out, "dry-run: using real resource %s/%s as pipeline input\n", realNamespace, realName)
+	return realObj
 }
