@@ -156,12 +156,11 @@ func (r *DryRunReconciler) writeSummary(
 		if liveNS == "" {
 			liveNS = dryRun.Namespace
 		}
+		// ResourceNamespaceLabel is only set on Works when WorkflowPipelineNamespaceSet;
+		// don't require it in the selector — the Namespace ListOption is sufficient.
 		liveSelector := labels.Set{
 			v1alpha1.PromiseNameLabel:  promiseName,
 			v1alpha1.ResourceNameLabel: ref.Name,
-		}
-		if ref.Namespace != "" {
-			liveSelector[v1alpha1.ResourceNamespaceLabel] = ref.Namespace
 		}
 		liveWorkList := &v1alpha1.WorkList{}
 		if err := r.Client.List(ctx, liveWorkList, &client.ListOptions{
@@ -344,7 +343,8 @@ func dryRunRenderDiff(prev, next map[string]string) string {
 		fmt.Fprintf(&b, "\n---\n\n## ➕ Added: `%s`\n\n```yaml\n%s\n```\n", path, strings.TrimRight(next[path], "\n"))
 	}
 	for _, path := range modified {
-		fmt.Fprintf(&b, "\n---\n\n## ✏️ Modified: `%s`\n\n```diff\n%s```\n", path, dryRunLineDiff(prev[path], next[path]))
+		diff := fmt.Sprintf("--- a/%s\n+++ b/%s\n%s", path, path, dryRunLineDiff(prev[path], next[path]))
+		fmt.Fprintf(&b, "\n---\n\n## ✏️ Modified: `%s`\n\n```diff\n%s```\n", path, diff)
 	}
 	for _, path := range removed {
 		fmt.Fprintf(&b, "\n---\n\n## 🗑️ Removed: `%s`\n\n```yaml\n%s\n```\n", path, strings.TrimRight(prev[path], "\n"))
@@ -370,7 +370,7 @@ func dryRunLineDiff(old, updated string) string {
 			prefix = "-"
 		}
 		for _, line := range lines {
-			fmt.Fprintf(&sb, "%s %s\n", prefix, line)
+			fmt.Fprintf(&sb, "%s%s\n", prefix, line)
 		}
 	}
 	return sb.String()
