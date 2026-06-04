@@ -128,17 +128,17 @@ func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg, retryAtTi
 func ClearPipelineSuspension(status map[string]any, pipelineName string) (map[string]any, error) {
 	kratix, ok := status["kratix"].(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("missing status.kratix while clearing suspension for pipeline %q", pipelineName)
+		return status, nil
 	}
 
 	workflows, ok := kratix["workflows"].(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("missing status.kratix.workflows while clearing suspension for pipeline %q", pipelineName)
+		return status, nil
 	}
 
 	pipelines, ok := workflows["pipelines"].([]any)
 	if !ok {
-		return nil, fmt.Errorf("missing status.kratix.workflows.pipelines while clearing suspension for pipeline %q", pipelineName)
+		return status, nil
 	}
 
 	for i, pipeline := range pipelines {

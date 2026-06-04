@@ -253,23 +253,35 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if passiveRequeue {
-		return ctrl.Result{}, r.maybeSyncBindingOnPipelineFailure(ctx, logger, promise.GetName(), rr, promiseRevisionUsed)
+		return ctrl.Result{}, r.syncResourceBindingUpgradeStatusOnPassiveRequeue(ctx, logger, promise.GetName(), rr, promiseRevisionUsed)
 	}
 
 	return r.reconcileAfterConfigure(ctx, logger, opts, rr, promise, pipelineResources, bindingVersion, promiseRevisionUsed)
 }
 
-func (r *DynamicResourceRequestController) maybeSyncBindingOnPipelineFailure(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured, promiseRevisionUsed *v1alpha1.PromiseRevision) error {
-	if !r.PromiseUpgradeFeatFlag {
+func (r *DynamicResourceRequestController) syncResourceBindingUpgradeStatusOnPassiveRequeue(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured, promiseRevisionUsed *v1alpha1.PromiseRevision) error {
+	if !r.PromiseUpgradeFeatFlag || promiseRevisionUsed == nil {
 		return nil
 	}
+
 	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
+	attemptedVersion := promiseRevisionUsed.Spec.Version
+	if workflowInProgress(workflowCompleted) {
+		if err := r.syncResourceBindingUpgradeInProgressStatus(ctx, logger, promiseName, rr, attemptedVersion); err != nil {
+			logging.Error(logger, err, "failed to update resource binding upgrade in-progress status")
+			return err
+		}
+		return nil
+	}
+
 	if workflowCompletedWithFailure(workflowCompleted) {
-		if err := r.syncResourceBindingUpgradeStatus(ctx, logger, promiseName, rr, promiseRevisionUsed.Spec.Version); err != nil {
+		if err := r.syncResourceBindingUpgradeStatus(ctx, logger, promiseName, rr, attemptedVersion); err != nil {
 			logging.Error(logger, err, "failed to update resource binding version status")
 			return err
 		}
+		return nil
 	}
+
 	return nil
 }
 
@@ -483,6 +495,41 @@ func (r *DynamicResourceRequestController) syncResourceBindingUpgradeStatus(ctx 
 	return r.applyResourceBindingUpgradeStatus(ctx, logger, resourceBinding, upgradeCondition, appliedVersion, attemptedVersion)
 }
 
+func (r *DynamicResourceRequestController) syncResourceBindingUpgradeInProgressStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured, attemptedVersion string) error {
+	if attemptedVersion == "" || attemptedVersion == UnversionedPromiseVersion {
+		return nil
+	}
+
+	resourceBinding, err := r.getResourceBindingForRR(ctx, promiseName, rr)
+	if err != nil {
+		return fmt.Errorf("failed to get resourceBinding: %w", err)
+	}
+
+	if !shouldMarkResourceBindingUpgradeInProgress(resourceBinding, attemptedVersion) {
+		return nil
+	}
+
+	return r.applyResourceBindingUpgradeStatus(ctx, logger, resourceBinding, metav1.Condition{
+		Status:  metav1.ConditionUnknown,
+		Reason:  v1alpha1.UpgradeInProgressReason,
+		Message: fmt.Sprintf("Upgrade to version %s is in progress", attemptedVersion),
+	}, attemptedVersion, attemptedVersion)
+}
+
+func shouldMarkResourceBindingUpgradeInProgress(resourceBinding *v1alpha1.ResourceBinding, attemptedVersion string) bool {
+	if resourceBinding.Status.FailedVersion != "" {
+		return true
+	}
+
+	existing := apiMeta.FindStatusCondition(resourceBinding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
+	if existing != nil && existing.Status == metav1.ConditionFalse {
+		return true
+	}
+
+	return resourceBinding.Status.LastAppliedVersion != "" &&
+		resourceBinding.Status.LastAppliedVersion != attemptedVersion
+}
+
 func (r *DynamicResourceRequestController) getResourceBindingForRR(ctx context.Context, promiseName string, rr *unstructured.Unstructured) (*v1alpha1.ResourceBinding, error) {
 	resourceBinding := &v1alpha1.ResourceBinding{}
 	err := r.Client.Get(ctx, types.NamespacedName{
@@ -504,7 +551,7 @@ func (r *DynamicResourceRequestController) applyResourceBindingUpgradeStatus(
 ) error {
 	needsVersionUpdate := upgradeCondition.Status == metav1.ConditionTrue && resourceBinding.Status.LastAppliedVersion != appliedVersion
 	needsFailedVersionUpdate := upgradeCondition.Status == metav1.ConditionFalse && resourceBinding.Status.FailedVersion != attemptedVersion
-	needsFailedVersionClear := upgradeCondition.Status == metav1.ConditionTrue && resourceBinding.Status.FailedVersion != ""
+	needsFailedVersionClear := upgradeCondition.Status != metav1.ConditionFalse && resourceBinding.Status.FailedVersion != ""
 
 	existing := apiMeta.FindStatusCondition(resourceBinding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)
 	recordCondition := shouldRecordUpgradeSucceededCondition(
@@ -595,6 +642,11 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 			mergedLabels = make(map[string]string)
 		}
 		maps.Copy(mergedLabels, resourceBindingLabels(rr, promise))
+		// If a binding is in the middle of an upgrade where the manual label is used, preserve it.
+		if resourceBinding.GetLabels()[resourceutil.ManualReconciliationLabel] == "true" {
+			mergedLabels[resourceutil.ManualReconciliationLabel] = "true"
+		}
+
 		resourceBinding.SetLabels(mergedLabels)
 		if resourceBinding.Spec.Version == "" {
 			// if the resource binding got deleted, when we recreate the resource binding we infer what the resource binding
@@ -805,7 +857,7 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 
 	var updated bool
 	if workflowCompleted != nil &&
-		workflowCompleted.Status == v1.ConditionFalse && workflowCompleted.Reason == "PipelinesInProgress" {
+		workflowCompleted.Status == v1.ConditionFalse && workflowCompleted.Reason == resourceutil.PipelinesInProgressReason {
 		if reconciled == nil || reconciled.Status != v1.ConditionUnknown {
 			resourceutil.MarkReconciledPending(rr, "WorkflowPending")
 			updated = true
@@ -1194,6 +1246,12 @@ func workflowCompletedWithFailure(workflowCompletedCondition *clusterv1.Conditio
 	return workflowCompletedCondition != nil &&
 		workflowCompletedCondition.Status == v1.ConditionFalse &&
 		workflowCompletedCondition.Reason == resourceutil.ConfigureWorkflowCompletedFailedReason
+}
+
+func workflowInProgress(workflowCompletedCondition *clusterv1.Condition) bool {
+	return workflowCompletedCondition != nil &&
+		workflowCompletedCondition.Status == v1.ConditionFalse &&
+		workflowCompletedCondition.Reason == resourceutil.PipelinesInProgressReason
 }
 
 func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) ctrl.Result {

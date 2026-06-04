@@ -518,7 +518,7 @@ func (r *PromiseReconciler) updateReconciledCondition(promise *v1alpha1.Promise)
 
 	var updated bool
 	if workflowCompleted != nil &&
-		workflowCompleted.Status == "False" && workflowCompleted.Reason == "PipelinesInProgress" {
+		workflowCompleted.Status == "False" && workflowCompleted.Reason == resourceutil.PipelinesInProgressReason {
 		if reconciled == nil || reconciled.Status != "Unknown" {
 			updateConditionOnPromise(promise, promiseReconciledPendingCondition("WorkflowPending"))
 			updated = true

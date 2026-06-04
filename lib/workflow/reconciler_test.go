@@ -483,6 +483,16 @@ var _ = Describe("Workflow Reconciler", func() {
 							Expect(jobList).To(HaveLen(2))
 							Expect(findByName(jobList, newWorkflowPipelines[0].Job.GetName())).To(BeTrue())
 						})
+
+						It("marks the configure workflow as running again", func() {
+							updatedPromise := &v1alpha1.Promise{}
+							Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, updatedPromise)).To(Succeed())
+
+							condition := apimeta.FindStatusCondition(updatedPromise.Status.Conditions, string(resourceutil.ConfigureWorkflowCompletedCondition))
+							Expect(condition).NotTo(BeNil())
+							Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+							Expect(condition.Reason).To(Equal(resourceutil.PipelinesInProgressReason))
+						})
 					})
 
 					When("the reconciliation is triggered and the previously failing job succeeds", func() {
@@ -750,7 +760,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					HaveKeyWithValue("type", "ConfigureWorkflowCompleted"),
 					HaveKeyWithValue("status", "False"),
 					HaveKeyWithValue("message", "Pipelines are still in progress"),
-					HaveKeyWithValue("reason", "PipelinesInProgress"),
+					HaveKeyWithValue("reason", resourceutil.PipelinesInProgressReason),
 					HaveKeyWithValue("lastTransitionTime", Not(BeEmpty())),
 				))
 			})
@@ -793,7 +803,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
-		When("there are more old workflow execution than configured in workflow options ", func() {
+		When("the number of old workflows exceeds the number of jobs to keep ", func() {
 			It("deletes the oldest jobs", func() {
 				var updatedPromise v1alpha1.Promise
 				numberOfJobLimit := 7

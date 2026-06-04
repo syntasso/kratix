@@ -378,13 +378,21 @@ func (p *PipelineFactory) pipelineJob(
 		},
 	}
 
-	if !p.ResourceWorkflow {
-		if err = controllerutil.SetControllerReference(obj, job, scheme.Scheme); err != nil {
-			return nil, err
-		}
+	if err = p.setReferences(obj, job); err != nil {
+		return nil, err
 	}
 
 	return job, nil
+}
+
+func (p *PipelineFactory) setReferences(owner metav1.Object, job *batchv1.Job) error {
+	if p.ResourceWorkflow {
+		if owner.GetNamespace() != job.GetNamespace() {
+			return nil
+		}
+		return controllerutil.SetOwnerReference(owner, job, scheme.Scheme)
+	}
+	return controllerutil.SetControllerReference(owner, job, scheme.Scheme)
 }
 
 func (p *PipelineFactory) statusWriterContainer(env []corev1.EnvVar) corev1.Container {

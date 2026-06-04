@@ -664,6 +664,59 @@ var _ = Describe("Pipeline", func() {
 				})
 			})
 
+			Describe("Owner references", func() {
+				When("building a job for a promise workflow", func() {
+					BeforeEach(func() {
+						promise.SetUID("promise-uid")
+						var err error
+						resources, err = factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+					})
+
+					It("sets the promise as the owner reference on the job", func() {
+						Expect(resources.Job.GetOwnerReferences()).To(HaveLen(1))
+						ownerRef := resources.Job.GetOwnerReferences()[0]
+						Expect(string(ownerRef.UID)).To(Equal("promise-uid"))
+						Expect(ownerRef.Name).To(Equal(promise.GetName()))
+						Expect(ownerRef.Kind).To(Equal("Promise"))
+					})
+				})
+
+				When("building a job for a resource workflow", func() {
+					BeforeEach(func() {
+						resourceRequest.SetUID("resource-uid")
+						factory.ResourceWorkflow = true
+						var err error
+						resources, err = factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+					})
+
+					It("sets the resource request as the owner reference on the job", func() {
+						Expect(resources.Job.GetOwnerReferences()).To(HaveLen(1))
+						ownerRef := resources.Job.GetOwnerReferences()[0]
+						Expect(string(ownerRef.UID)).To(Equal("resource-uid"))
+						Expect(ownerRef.Name).To(Equal(resourceRequest.GetName()))
+						Expect(ownerRef.Kind).To(Equal("promisecrd"))
+						Expect(ownerRef.Controller).To(BeNil())
+					})
+				})
+
+				When("the pipeline namespace differs from the resource request namespace", func() {
+					BeforeEach(func() {
+						factory.ResourceWorkflow = true
+						factory.Namespace = "pipeline-namespace"
+						resourceRequest.SetNamespace("resource-namespace")
+						var err error
+						resources, err = factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+					})
+
+					It("does not set an owner reference on the job", func() {
+						Expect(resources.Job.GetOwnerReferences()).To(BeEmpty())
+					})
+				})
+			})
+
 			Describe("Default Volumes", func() {
 				It("returns a list of volumes that contains default volumes", func() {
 					volumes := resources.Job.Spec.Template.Spec.Volumes

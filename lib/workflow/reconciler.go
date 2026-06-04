@@ -665,15 +665,10 @@ func setPipelineStartingStatus(opts Opts, pipelineIndex int, obj *unstructured.U
 		updated = true
 	}
 
-	switch resourceutil.GetConfigureWorkflowCompletedConditionStatus(obj) {
-	case v1.ConditionTrue:
-		fallthrough
-	case v1.ConditionUnknown:
+	if shouldMarkConfigureWorkflowAsRunning(obj) {
 		logging.Debug(opts.logger, "marking ConfigureWorkflowCompleted as running")
 		resourceutil.MarkConfigureWorkflowAsRunning(opts.logger, obj)
 		updated = true
-	default:
-		// The Condition is false (running); no need to update anything
 	}
 
 	if resourceutil.GetCurrentPipelinePhase(obj, job) != v1alpha1.WorkflowPhaseRunning {
@@ -691,6 +686,17 @@ func setPipelineStartingStatus(opts Opts, pipelineIndex int, obj *unstructured.U
 		}
 	}
 	return nil
+}
+
+func shouldMarkConfigureWorkflowAsRunning(obj *unstructured.Unstructured) bool {
+	condition := resourceutil.GetCondition(obj, resourceutil.ConfigureWorkflowCompletedCondition)
+	if condition == nil {
+		return true
+	}
+	if condition.Status != v1.ConditionFalse {
+		return true
+	}
+	return condition.Reason != resourceutil.PipelinesInProgressReason
 }
 
 func getMostRecentDeletePipelineJob(opts Opts, namespace string, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {

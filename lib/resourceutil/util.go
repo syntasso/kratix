@@ -23,6 +23,7 @@ const (
 	DeleteWorkflowCompletedCondition       = clusterv1.ConditionType("DeleteWorkflowCompleted")
 	DeleteWorkflowCompletedFailedReason    = "DeleteWorkflowFailed"
 	PipelinesExecutedSuccessfully          = "PipelinesExecutedSuccessfully"
+	PipelinesInProgressReason              = "PipelinesInProgress"
 	ManualReconciliationLabel              = "kratix.io/manual-reconciliation"
 	WorkflowRunFromStartLabel              = "internal.workflows.kratix.io/run-from-start"
 	ReconcileResourcesLabel                = "kratix.io/reconcile-resources"
@@ -50,10 +51,10 @@ func MarkConfigureWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstru
 		Type:               ConfigureWorkflowCompletedCondition,
 		Status:             v1.ConditionFalse,
 		Message:            "Pipelines are still in progress",
-		Reason:             "PipelinesInProgress",
+		Reason:             PipelinesInProgressReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
-	logging.Info(logger, "marking configure workflow as running", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", "PipelinesInProgress")
+	logging.Info(logger, "marking configure workflow as running", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", PipelinesInProgressReason)
 }
 
 func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured, failedPipeline string) {
