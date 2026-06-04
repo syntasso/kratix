@@ -56,6 +56,7 @@ import (
 	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
 
 	"github.com/go-logr/logr"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -259,6 +260,11 @@ func main() {
 		setLeaderElectConfig(&mgrOptions, kratixConfig)
 	}
 
+	setupLog.Info("Filtering Job informer cache to Kratix-managed Jobs only")
+	mgrOptions.Cache.ByObject = map[client.Object]cache.ByObject{
+		&batchv1.Job{}: {Label: jobCacheSelector()},
+	}
+
 	if kratixConfig != nil && kratixConfig.SelectiveCache {
 		setupLog.Info("Building selective cache for Secrets to limit memory usage; Please ensure Secrets used by kratix are created with label: app.kubernetes.io/part-of=kratix.")
 		kratixLabel, labelErr := labels.NewRequirement("app.kubernetes.io/part-of", selection.Equals, []string{"kratix"})
@@ -267,9 +273,7 @@ func main() {
 			os.Exit(1)
 		}
 		kratixSelector := labels.NewSelector().Add(*kratixLabel)
-		mgrOptions.Cache.ByObject = map[client.Object]cache.ByObject{
-			&corev1.Secret{}: {Label: kratixSelector},
-		}
+		mgrOptions.Cache.ByObject[&corev1.Secret{}] = cache.ByObject{Label: kratixSelector}
 	}
 
 	mgr, err := ctrl.NewManager(config, mgrOptions)
@@ -636,6 +640,18 @@ func setLeaderElectConfig(mgrOptions *ctrl.Options, kConfig *KratixConfig) {
 		mgrOptions.RetryPeriod = &kConfig.ControllerLeaderElection.RetryPeriod.Duration
 		setupLog.Info("controller leader election configured", "RetryPeriod", mgrOptions.RetryPeriod)
 	}
+}
+
+func jobCacheSelector() labels.Selector {
+	requirement, err := labels.NewRequirement(
+		platformv1alpha1.ManagedByLabel,
+		selection.Equals,
+		[]string{platformv1alpha1.ManagedByLabelValue},
+	)
+	if err != nil {
+		panic(fmt.Sprintf("failed to build job cache label selector: %v", err))
+	}
+	return labels.NewSelector().Add(*requirement)
 }
 
 func promiseUpgradeEnabled(kConfig *KratixConfig) bool {

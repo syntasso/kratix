@@ -417,6 +417,7 @@ var _ = Describe("Pipeline", func() {
 									HaveKeyWithValue(v1alpha1.WorkflowActionLabel, string(factory.WorkflowAction)),
 									HaveKeyWithValue(v1alpha1.PipelineNameLabel, pipeline.GetName()),
 									HaveKeyWithValue(v1alpha1.KratixResourceHashLabel, promiseHash(promise)),
+									HaveKeyWithValue(v1alpha1.ManagedByLabel, v1alpha1.ManagedByLabelValue),
 									Not(HaveKey(v1alpha1.ResourceNameLabel)),
 									Not(HaveKey(v1alpha1.ResourceNamespaceLabel)),
 								))
@@ -516,6 +517,7 @@ var _ = Describe("Pipeline", func() {
 									HaveKeyWithValue(v1alpha1.WorkflowActionLabel, string(factory.WorkflowAction)),
 									HaveKeyWithValue(v1alpha1.PipelineNameLabel, pipeline.GetName()),
 									HaveKeyWithValue(v1alpha1.KratixResourceHashLabel, combinedHash(promiseHash(promise), resourceHash(resourceRequest))),
+									HaveKeyWithValue(v1alpha1.ManagedByLabel, v1alpha1.ManagedByLabelValue),
 									HaveKeyWithValue(v1alpha1.ResourceNameLabel, resourceRequest.GetName()),
 									Not(HaveKey(v1alpha1.ResourceNamespaceLabel)),
 								))
