@@ -21,6 +21,13 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+var _ = Describe("jobCacheSelector", func() {
+	It("returns a selector matching managed-by=Kratix", func() {
+		selector := jobCacheSelector()
+		Expect(selector.String()).To(Equal("app.kubernetes.io/managed-by=Kratix"))
+	})
+})
+
 var _ = Describe("getResourceBindingDefaultVersion", func() {
 	It("returns floating when config is nil", func() {
 		Expect(getResourceBindingDefaultVersion(nil)).To(Equal(ResourceBindingDefaultVersionFloating))
