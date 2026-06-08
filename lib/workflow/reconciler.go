@@ -103,6 +103,20 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	}
 
 	if mostRecentJob == nil || isManualReconciliation {
+		configureLabels := labelsForJobs(opts)
+		configureLabels[v1alpha1.WorkflowActionLabel] = string(v1alpha1.WorkflowActionConfigure)
+		configureJobs, listErr := getJobsWithLabels(opts, configureLabels, opts.namespace)
+		if listErr != nil {
+			return false, listErr
+		}
+		for i := range configureJobs {
+			if isRunning(&configureJobs[i]) {
+				logging.Info(opts.logger, "configure pipeline still running; "+
+					"waiting for completion before starting delete pipeline",
+					"runningJob", configureJobs[i].Name)
+				return true, nil
+			}
+		}
 		return createDeletePipeline(opts, pipeline)
 	}
 

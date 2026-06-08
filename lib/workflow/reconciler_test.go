@@ -2298,6 +2298,48 @@ var _ = Describe("Workflow Reconciler", func() {
 					})
 				})
 			})
+
+			When("there are running configure pipeline", func() {
+				var deleteWorkflowPipelines []v1alpha1.PipelineJobResources
+
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
+
+					generatedResources, err := pipelines[0].ForPromise(&promise, v1alpha1.WorkflowActionDelete).Resources(nil)
+					Expect(err).NotTo(HaveOccurred())
+					generatedResources.Job.SetCreationTimestamp(nextTimestamp())
+					deleteWorkflowPipelines = append(deleteWorkflowPipelines, generatedResources)
+				})
+
+				It("waits for configure pipeline to finish before starting delete pipeline", func() {
+					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, deleteWorkflowPipelines, "promise", 5, namespace)
+					requeue, err := workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeue).To(BeTrue())
+
+					By("not creating any delete jobs")
+					jobList := listJobs(namespace)
+					Expect(jobList).To(HaveLen(1))
+					Expect(findByName(jobList, workflowPipelines[0].Job.Name)).To(BeTrue())
+				})
+
+				It("creates the delete pipeline once the configure pipeline completes", func() {
+					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, deleteWorkflowPipelines, "promise", 5, namespace)
+					requeue, err := workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeue).To(BeTrue())
+
+					markJobAsComplete(workflowPipelines[0].Job.Name)
+
+					requeue, err = workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeue).To(BeTrue())
+
+					jobList := listJobs(namespace)
+					Expect(jobList).To(HaveLen(2))
+					Expect(findByName(jobList, deleteWorkflowPipelines[0].Job.Name)).To(BeTrue())
+				})
+			})
 		})
 	})
 })
