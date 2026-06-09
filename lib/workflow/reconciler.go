@@ -331,11 +331,14 @@ func executeReconcileAction(opts Opts, state *workflowState, pipeline v1alpha1.P
 	}
 
 	if isRunning(state.mostRecentJob) {
-		logging.Info(opts.logger, "job already inflight for another workflow; suspending it", "job", state.mostRecentJob.Name)
-		err = suspendJob(opts.ctx, opts.client, state.mostRecentJob)
-		if err != nil {
-			logging.Error(opts.logger, err, "failed to suspend job", "job", state.mostRecentJob.GetName())
+		if state.manualReconcile {
+			logging.Info(opts.logger, "suspending job for manual reconciliation", "job", state.mostRecentJob.Name)
+			if err = suspendJob(opts.ctx, opts.client, state.mostRecentJob); err != nil {
+				logging.Error(opts.logger, err, "failed to suspend job", "job", state.mostRecentJob.GetName())
+			}
+			return true, err
 		}
+		logging.Info(opts.logger, "job already inflight for another workflow; waiting for completion", "job", state.mostRecentJob.Name)
 		return true, nil
 	}
 

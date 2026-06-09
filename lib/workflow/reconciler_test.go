@@ -641,7 +641,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(passiveRequeue).To(BeTrue())
 				})
 
-				It("suspends the previous job", func() {
+				It("waits for the previous job to complete without suspending it", func() {
 					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", 5, namespace)
 					_, err := workflow.ReconcileConfigure(opts)
 					Expect(err).NotTo(HaveOccurred())
@@ -649,8 +649,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					job := &batchv1.Job{}
 					Expect(fakeK8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: workflowPipelines[0].Job.Name}, job)).To(Succeed())
 
-					Expect(job.Spec.Suspend).NotTo(BeNil())
-					Expect(*job.Spec.Suspend).To(BeTrue())
+					Expect(job.Spec.Suspend).To(BeNil())
 				})
 
 				When("the outdated job completes", func() {
