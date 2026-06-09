@@ -1100,7 +1100,6 @@ func setNewPipelineStatus(promise *v1alpha1.Promise) {
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.GroupVersionKind) error {
-	//label all rr with manual reconciliation
 	rrs := &unstructured.UnstructuredList{}
 	rrListGVK := *rrGVK
 	rrListGVK.Kind = rrListGVK.Kind + "List"
@@ -1114,7 +1113,7 @@ func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.G
 		if newLabels == nil {
 			newLabels = make(map[string]string)
 		}
-		newLabels[resourceutil.ManualReconciliationLabel] = "true"
+		newLabels[resourceutil.WorkflowRunFromStartLabel] = "true"
 		rr.SetLabels(newLabels)
 		if err := r.Client.Update(ctx, &rr); err != nil {
 			return err

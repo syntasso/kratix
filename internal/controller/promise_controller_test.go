@@ -1518,7 +1518,7 @@ var _ = Describe("PromiseController", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				By("labelling manual reconciliation on resources", func() {
+				By("labelling run-from-start on resources", func() {
 					updatedRR := &unstructured.Unstructured{}
 					updatedRR.SetGroupVersionKind(schema.GroupVersionKind{
 						Group:   "marketplace.kratix.io",
@@ -1529,7 +1529,7 @@ var _ = Describe("PromiseController", func() {
 						Name:      resReq.GetName(),
 						Namespace: resReq.GetNamespace(),
 					}, updatedRR)).To(Succeed())
-					Expect(updatedRR.GetLabels()).To(HaveKeyWithValue(resourceutil.ManualReconciliationLabel, "true"))
+					Expect(updatedRR.GetLabels()).To(HaveKeyWithValue(resourceutil.WorkflowRunFromStartLabel, "true"))
 				})
 
 				By("removing ReconcileResources label from promise", func() {
