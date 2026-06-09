@@ -195,6 +195,11 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		}
 	}
 
+	if !promise.DeletionTimestamp.IsZero() {
+		logging.Info(logger, "promise is being deleted; skipping configure workflow")
+		return ctrl.Result{}, nil
+	}
+
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	forcePipelineRun := shouldForcePipelineRun(completedCond, r.ReconciliationInterval) &&

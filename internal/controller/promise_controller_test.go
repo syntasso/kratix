@@ -1234,6 +1234,52 @@ var _ = Describe("PromiseController", func() {
 					Expect(result).To(Equal(ctrl.Result{}))
 				})
 
+				When("a resource configure job is still running", func() {
+					var resourceJob *batchv1.Job
+
+					BeforeEach(func() {
+						resourceJob = &batchv1.Job{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "resource-configure-job",
+								Namespace: "kratix-platform-system",
+								Labels: map[string]string{
+									v1alpha1.WorkflowTypeLabel:   string(v1alpha1.WorkflowTypeResource),
+									v1alpha1.WorkflowActionLabel: string(v1alpha1.WorkflowActionConfigure),
+									v1alpha1.PromiseNameLabel:    promise.GetName(),
+								},
+							},
+						}
+						Expect(fakeK8sClient.Create(ctx, resourceJob)).To(Succeed())
+						Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+					})
+
+					It("waits for the resource configure job to complete before running delete workflows", func() {
+						deleteWorkflowCalled := false
+						controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+							deleteWorkflowCalled = true
+							return false, nil
+						})
+
+						result, err := t.reconcileUntilCompletion(reconciler, promise)
+						Expect(err).To(MatchError("reconcile loop detected"))
+						Expect(result).To(Equal(ctrl.Result{RequeueAfter: 15 * time.Second}))
+						Expect(deleteWorkflowCalled).To(BeFalse())
+					})
+
+					It("runs the delete workflow once the resource configure job completes", func() {
+						resourceJob.Status.Conditions = []batchv1.JobCondition{
+							{Type: batchv1.JobComplete, Status: v1.ConditionTrue},
+						}
+						resourceJob.Status.Succeeded = 1
+						Expect(fakeK8sClient.Status().Update(ctx, resourceJob)).To(Succeed())
+
+						setReconcileDeleteWorkflowToReturnFinished(promise)
+						result, err := t.reconcileUntilCompletion(reconciler, promise)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+					})
+				})
+
 				When("the delete pipeline fails", func() {
 					BeforeEach(func() {
 						setReconcileDeleteWorkflowToReturnError(promise)

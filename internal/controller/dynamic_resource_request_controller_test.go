@@ -287,6 +287,26 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 	})
 
+	When("the promise is being deleted", func() {
+		BeforeEach(func() {
+			setReconcileConfigureWorkflowToReturnFinished()
+			_, err := t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName()}, promise)).To(Succeed())
+			promise.SetFinalizers(append(promise.GetFinalizers(), "kratix.io/test-finalizer"))
+			Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+			Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+		})
+
+		It("skips the configure workflow", func() {
+			reconcileConfigureOptsArg = workflow.Opts{}
+			_, err := t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+		})
+	})
+
 	When("resource is being deleted", func() {
 		BeforeEach(func() {
 			setReconcileConfigureWorkflowToReturnFinished()
