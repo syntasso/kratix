@@ -1460,15 +1460,9 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	}
 
 	if controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer) {
-		running, err := r.resourceConfigureJobsRunning(o, promise)
-		if err != nil {
-			return ctrl.Result{}, err
+		if result, err := r.waitForResourceConfigureJobs(o, promise); result != nil || err != nil {
+			return *result, err
 		}
-		if running {
-			logging.Info(o.logger, "resource configure pipeline still running; waiting for completion before starting promise delete workflow")
-			return defaultRequeue, nil
-		}
-
 		logging.Info(o.logger, "running promise delete workflows")
 		unstructuredPromise, err := promise.ToUnstructured()
 		if err != nil {
@@ -1577,7 +1571,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	return fastRequeue, nil
 }
 
-func (r *PromiseReconciler) resourceConfigureJobsRunning(o opts, promise *v1alpha1.Promise) (bool, error) {
+func (r *PromiseReconciler) waitForResourceConfigureJobs(o opts, promise *v1alpha1.Promise) (*ctrl.Result, error) {
 	jobLabels := map[string]string{
 		v1alpha1.WorkflowTypeLabel:   string(v1alpha1.WorkflowTypeResource),
 		v1alpha1.WorkflowActionLabel: string(v1alpha1.WorkflowActionConfigure),
@@ -1585,15 +1579,20 @@ func (r *PromiseReconciler) resourceConfigureJobsRunning(o opts, promise *v1alph
 	}
 	selector, err := labels.Parse(labels.FormatLabels(jobLabels))
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
 	jobs := &batchv1.JobList{}
 	if err := r.Client.List(o.ctx, jobs, &client.ListOptions{LabelSelector: selector}); err != nil {
-		return false, err
+		return nil, err
 	}
 
-	return resourceutil.IsThereAPipelineRunning(o.logger, jobs.Items), nil
+	if resourceutil.IsThereAPipelineRunning(o.logger, jobs.Items) {
+		logging.Info(o.logger, "resource configure pipeline still running; waiting for completion before starting promise delete workflow")
+		result := defaultRequeue
+		return &result, nil
+	}
+	return nil, nil
 }
 
 func (r *PromiseReconciler) deletePromiseWorkflowJobs(o opts, promise *v1alpha1.Promise, finalizer string) error {
