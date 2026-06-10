@@ -1100,7 +1100,6 @@ func setNewPipelineStatus(promise *v1alpha1.Promise) {
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.GroupVersionKind) error {
-	//label all rr with manual reconciliation
 	rrs := &unstructured.UnstructuredList{}
 	rrListGVK := *rrGVK
 	rrListGVK.Kind = rrListGVK.Kind + "List"
@@ -1114,7 +1113,7 @@ func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.G
 		if newLabels == nil {
 			newLabels = make(map[string]string)
 		}
-		newLabels[resourceutil.ManualReconciliationLabel] = "true"
+		newLabels[resourceutil.WorkflowRunFromStartLabel] = "true"
 		rr.SetLabels(newLabels)
 		if err := r.Client.Update(ctx, &rr); err != nil {
 			return err
@@ -1461,6 +1460,9 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	}
 
 	if controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer) {
+		if result, err := r.waitForResourceConfigureJobs(o, promise); result != nil || err != nil {
+			return *result, err
+		}
 		logging.Info(o.logger, "running promise delete workflows")
 		unstructuredPromise, err := promise.ToUnstructured()
 		if err != nil {
@@ -1567,6 +1569,32 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	}
 
 	return fastRequeue, nil
+}
+
+func (r *PromiseReconciler) waitForResourceConfigureJobs(o opts, promise *v1alpha1.Promise) (*ctrl.Result, error) {
+	jobLabels := map[string]string{
+		v1alpha1.WorkflowTypeLabel:   string(v1alpha1.WorkflowTypeResource),
+		v1alpha1.WorkflowActionLabel: string(v1alpha1.WorkflowActionConfigure),
+		v1alpha1.PromiseNameLabel:    promise.GetName(),
+	}
+	selector, err := labels.Parse(labels.FormatLabels(jobLabels))
+	if err != nil {
+		return nil, err
+	}
+
+	jobs := &batchv1.JobList{}
+	if err := r.Client.List(o.ctx, jobs, &client.ListOptions{LabelSelector: selector}); err != nil {
+		return nil, err
+	}
+
+	logging.Debug(o.logger, "found resource configure pipelines", "count", len(jobs.Items))
+
+	if resourceutil.IsThereAPipelineRunning(o.logger, jobs.Items) {
+		logging.Info(o.logger, "resource configure pipeline still running; waiting for completion before starting promise delete workflow")
+		result := defaultRequeue
+		return &result, nil
+	}
+	return nil, nil
 }
 
 func (r *PromiseReconciler) deletePromiseWorkflowJobs(o opts, promise *v1alpha1.Promise, finalizer string) error {
