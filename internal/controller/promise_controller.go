@@ -1587,6 +1587,8 @@ func (r *PromiseReconciler) waitForResourceConfigureJobs(o opts, promise *v1alph
 		return nil, err
 	}
 
+	logging.Debug(o.logger, "found resource configure pipelines", "count", len(jobs.Items))
+
 	if resourceutil.IsThereAPipelineRunning(o.logger, jobs.Items) {
 		logging.Info(o.logger, "resource configure pipeline still running; waiting for completion before starting promise delete workflow")
 		result := defaultRequeue
