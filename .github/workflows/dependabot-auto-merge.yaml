@@ -53,10 +53,16 @@ jobs:
           PR="${{ github.event.pull_request.number }}"
           REPO="${{ github.repository }}"
           for i in $(seq 1 30); do
-            STATUS=$(gh pr checks "$PR" --repo "$REPO" --json name,state,conclusion 2>/dev/null)
+            STATUS=$(gh pr checks "$PR" --repo "$REPO" --json name,state,conclusion 2>/dev/null || echo "[]")
+            TOTAL=$(echo "$STATUS" | jq 'length')
+            if [ "$TOTAL" -eq 0 ]; then
+              echo "Round $i: no checks registered yet"
+              sleep 30
+              continue
+            fi
             FAILED=$(echo "$STATUS" | jq '[.[] | select(.name != "auto-merge") | select(.conclusion == "failure" or .conclusion == "cancelled")] | length')
             PENDING=$(echo "$STATUS" | jq '[.[] | select(.name != "auto-merge") | select(.state == "pending")] | length')
-            echo "Round $i: failed=$FAILED pending=$PENDING"
+            echo "Round $i: failed=$FAILED pending=$PENDING total=$TOTAL"
             if [ "$FAILED" -gt 0 ]; then
               echo "CI checks failed"
               exit 1
