@@ -1,0 +1,73 @@
+name: Dependabot Auto-merge
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine eligibility
+        id: eligible
+        run: |
+          TYPE="${{ steps.metadata.outputs.update-type }}"
+          PREV="${{ steps.metadata.outputs.previous-version }}"
+          NEW="${{ steps.metadata.outputs.new-version }}"
+
+          echo "Update type: $TYPE"
+          echo "Version: $PREV → $NEW"
+
+          if [[ "$TYPE" == "version-update:semver-patch" ]]; then
+            echo "result=true" >> "$GITHUB_OUTPUT"
+            echo "reason=patch bump ($PREV → $NEW)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$TYPE" == "version-update:semver-minor" ]]; then
+            echo "result=true" >> "$GITHUB_OUTPUT"
+            echo "reason=minor bump ($PREV → $NEW)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "result=false" >> "$GITHUB_OUTPUT"
+          echo "reason=major bump — manual review required" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for CI checks
+        if: steps.eligible.outputs.result == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Give unit-test workflow time to register
+          sleep 20
+          gh pr checks ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --watch \
+            --interval 30
+        timeout-minutes: 15
+
+      - name: Merge
+        if: steps.eligible.outputs.result == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Auto-merging: ${{ steps.eligible.outputs.reason }}"
+          gh pr merge ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --squash \
+            --delete-branch
+
+      - name: Skip — not eligible
+        if: steps.eligible.outputs.result != 'true'
+        run: echo "Not auto-merging — ${{ steps.eligible.outputs.reason }}"
