@@ -49,13 +49,27 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Give unit-test workflow time to register
           sleep 20
-          gh pr checks ${{ github.event.pull_request.number }} \
-            --repo ${{ github.repository }} \
-            --watch \
-            --interval 30
-        timeout-minutes: 15
+          PR="${{ github.event.pull_request.number }}"
+          REPO="${{ github.repository }}"
+          for i in $(seq 1 30); do
+            STATUS=$(gh pr checks "$PR" --repo "$REPO" --json name,state,conclusion 2>/dev/null)
+            FAILED=$(echo "$STATUS" | jq '[.[] | select(.name != "auto-merge") | select(.conclusion == "failure" or .conclusion == "cancelled")] | length')
+            PENDING=$(echo "$STATUS" | jq '[.[] | select(.name != "auto-merge") | select(.state == "pending")] | length')
+            echo "Round $i: failed=$FAILED pending=$PENDING"
+            if [ "$FAILED" -gt 0 ]; then
+              echo "CI checks failed"
+              exit 1
+            fi
+            if [ "$PENDING" -eq 0 ]; then
+              echo "All checks passed"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "Timed out waiting for CI checks"
+          exit 1
+        timeout-minutes: 20
 
       - name: Merge
         if: steps.eligible.outputs.result == 'true'
