@@ -264,10 +264,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 }
 
 func (r *DynamicResourceRequestController) syncResourceBindingUpgradeStatusOnPassiveRequeue(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured, promiseRevisionUsed *v1alpha1.PromiseRevision) error {
-	if promiseRevisionUsed == nil {
-		return nil
-	}
-
 	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	attemptedVersion := promiseRevisionUsed.Spec.Version
 	if workflowInProgress(workflowCompleted) {
@@ -375,9 +371,6 @@ func (r *DynamicResourceRequestController) resolvePromiseRevisionForRR(
 	promise *v1alpha1.Promise,
 	baseLogger logr.Logger,
 ) (*v1alpha1.PromiseRevision, string, error) {
-	logging.Trace(baseLogger,
-		"reconciling with a PromiseRevision.")
-
 	var (
 		promiseRevisionUsed *v1alpha1.PromiseRevision
 		binding             *v1alpha1.ResourceBinding
@@ -874,10 +867,6 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 
 func (r *DynamicResourceRequestController) updatePromiseVersionStatus(logger logr.Logger, rr *unstructured.Unstructured, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) bool {
 	logging.Trace(logger, "Checking if we need to update the promise version in the status")
-	if promiseRevision == nil {
-		logging.Trace(logger, "No PromiseRevision: no update promise version required")
-		return false
-	}
 
 	versionUpdated := false
 	currentVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
@@ -1091,8 +1080,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 }
 
 // ensureResourceBindingRemoved deletes the ResourceBinding for this resource request if it exists.
-// It is used when the RR never had resourceBindingFinalizer (for example, resources created before ResourceBindings)
-// and at the end of delete reconciliation once all RR finalizers are cleared.
+// It is used at the end of delete reconciliation once all RR finalizers are cleared.
 func (r *DynamicResourceRequestController) ensureResourceBindingRemoved(o opts, rr *unstructured.Unstructured, promise *v1alpha1.Promise) error {
 	resourceBinding := &v1alpha1.ResourceBinding{}
 	namespacedName := types.NamespacedName{

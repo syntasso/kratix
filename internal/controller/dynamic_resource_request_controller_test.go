@@ -1224,12 +1224,12 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-				Expect(resReq.GetLabels()).ToNot(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+				Expect(resReq.GetLabels()).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
 			})
 		})
 	})
 
-	When("reconciling with promise revisions and resource bindings", func() {
+	Describe("PromiseRevision and ResourceBinding behaviour", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
 			resReq = createResourceRequest(resourceRequestPath)
