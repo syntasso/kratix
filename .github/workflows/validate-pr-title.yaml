@@ -1,0 +1,19 @@
+name: PR title follows Conventional Commits
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - edited
+      - synchronize
+
+permissions:
+  pull-requests: read
+
+jobs:
+  validate-pr-title:
+    name: Validate PR title
+    uses: syntasso/ci/.github/workflows/validate-pr-title.yaml@main
+    secrets:
+      repo_token: ${{ secrets.GITHUB_TOKEN }}
