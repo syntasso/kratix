@@ -61,6 +61,7 @@ import (
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/fetchers"
 	//+kubebuilder:scaffold:imports
@@ -489,7 +490,7 @@ func warnIfDeprecatedPromiseUpgradeFlagConfigured(logger logr.Logger, config str
 		return
 	}
 
-	logger.Info("featureFlags.promiseUpgrade is deprecated and ignored; Promise Revisions and Resource Bindings are always enabled")
+	logging.Warn(logger, "featureFlags.promiseUpgrade is deprecated and ignored; Promise Revisions and Resource Bindings are always enabled")
 }
 
 func getNumJobsToKeep(kratixConfig *KratixConfig) int {

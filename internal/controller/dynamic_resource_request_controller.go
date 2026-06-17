@@ -1091,7 +1091,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 }
 
 // ensureResourceBindingRemoved deletes the ResourceBinding for this resource request if it exists.
-// It is used when the RR never had resourceBindingFinalizer (e.g. upgrade flag enabled after creation)
+// It is used when the RR never had resourceBindingFinalizer (for example, resources created before ResourceBindings)
 // and at the end of delete reconciliation once all RR finalizers are cleared.
 func (r *DynamicResourceRequestController) ensureResourceBindingRemoved(o opts, rr *unstructured.Unstructured, promise *v1alpha1.Promise) error {
 	resourceBinding := &v1alpha1.ResourceBinding{}
