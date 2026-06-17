@@ -80,7 +80,6 @@ type PromiseReconciler struct {
 	NumberOfJobsToKeep        int
 	ReconciliationInterval    time.Duration
 	EventRecorder             record.EventRecorder
-	PromiseUpgrade            bool
 	ResourceBindingPinned     bool
 }
 
@@ -370,10 +369,6 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 			promise.Status.Kratix.Version = promiseVersion
 			return r.updatePromiseStatus(ctx, promise)
 		}
-	}
-
-	if !r.PromiseUpgrade {
-		return ctrl.Result{}, nil
 	}
 
 	if promiseVersion == "" {
@@ -1140,7 +1135,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.EventRecorder = r.Manager.GetEventRecorderFor("ResourceRequestController")
 		dynamicController.NumberOfJobsToKeep = r.NumberOfJobsToKeep
 		dynamicController.ReconciliationInterval = r.ReconciliationInterval
-		dynamicController.PromiseUpgradeFeatFlag = r.PromiseUpgrade
 		dynamicController.ResourceBindingPinned = r.ResourceBindingPinned
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
@@ -1171,7 +1165,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
 		ReconciliationInterval:      r.ReconciliationInterval,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
-		PromiseUpgradeFeatFlag:      r.PromiseUpgrade,
 		ResourceBindingPinned:       r.ResourceBindingPinned,
 	}
 
@@ -1803,9 +1796,7 @@ func (r *PromiseReconciler) promiseFinalizers(promise *v1alpha1.Promise) []strin
 	desired[removeAllWorkflowJobsFinalizer] = struct{}{}
 
 	desired[dependenciesCleanupFinalizer] = struct{}{}
-	if r.PromiseUpgrade {
-		desired[revisionCleanupFinalizer] = struct{}{}
-	}
+	desired[revisionCleanupFinalizer] = struct{}{}
 
 	if promise.ContainsAPI() {
 		desired[resourceRequestCleanupFinalizer] = struct{}{}
