@@ -61,6 +61,7 @@ import (
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/fetchers"
 	//+kubebuilder:scaffold:imports
@@ -81,7 +82,6 @@ type KratixConfig struct {
 	ReconciliationInterval         *metav1.Duration              `json:"reconciliationInterval,omitempty"`
 	Telemetry                      *telemetry.Config             `json:"telemetry,omitempty"`
 	Logging                        *LoggingConfig                `json:"logging,omitempty"`
-	FeatureFlags                   *FeatureFlags                 `json:"featureFlags,omitempty"`
 	ResourceBindingVersionStrategy ResourceBindingDefaultVersion `json:"resourceBindingVersionStrategy,omitempty"`
 }
 
@@ -94,10 +94,6 @@ const (
 	ResourceBindingDefaultVersionFloating ResourceBindingDefaultVersion = "floating"
 	ResourceBindingDefaultVersionPinned   ResourceBindingDefaultVersion = "pinned"
 )
-
-type FeatureFlags struct {
-	PromiseUpgrade *bool `json:"promiseUpgrade,omitempty"`
-}
 
 type LoggingConfig struct {
 	Structured *bool   `json:"structured,omitempty"`
@@ -299,7 +295,6 @@ func main() {
 		NumberOfJobsToKeep:     getNumJobsToKeep(kratixConfig),
 		ReconciliationInterval: getRegularReconciliationInterval(kratixConfig),
 		EventRecorder:          mgr.GetEventRecorderFor("PromiseController"),
-		PromiseUpgrade:         promiseUpgradeEnabled(kratixConfig),
 		ResourceBindingPinned:  resourceBindingDefaultVersion == ResourceBindingDefaultVersionPinned,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
@@ -403,9 +398,8 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.PromiseRevisionReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		PromiseUpgrade: promiseUpgradeEnabled(kratixConfig),
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PromiseRevision")
 		os.Exit(1)
@@ -474,9 +468,29 @@ func readKratixConfig(logger logr.Logger, kClient client.Client) (*KratixConfig,
 		return nil, fmt.Errorf("failed to unmarshal ConfigMap kratix-platform-system/kratix into Kratix config: %w", err)
 	}
 
+	warnIfDeprecatedPromiseUpgradeFlagConfigured(logger, config)
+
 	logger.Info("Kratix config loaded", "config", kratixConfig)
 
 	return kratixConfig, nil
+}
+
+func warnIfDeprecatedPromiseUpgradeFlagConfigured(logger logr.Logger, config string) {
+	rawConfig := map[string]any{}
+	if err := yaml.Unmarshal([]byte(config), &rawConfig); err != nil {
+		return
+	}
+
+	featureFlags, ok := rawConfig["featureFlags"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	if _, ok := featureFlags["promiseUpgrade"]; !ok {
+		return
+	}
+
+	logging.Warn(logger, "featureFlags.promiseUpgrade is deprecated and ignored; Promise Revisions and Resource Bindings are always enabled")
 }
 
 func getNumJobsToKeep(kratixConfig *KratixConfig) int {
@@ -652,13 +666,4 @@ func jobCacheSelector() labels.Selector {
 		panic(fmt.Sprintf("failed to build job cache label selector: %v", err))
 	}
 	return labels.NewSelector().Add(*requirement)
-}
-
-func promiseUpgradeEnabled(kConfig *KratixConfig) bool {
-	if kConfig != nil &&
-		kConfig.FeatureFlags != nil &&
-		kConfig.FeatureFlags.PromiseUpgrade != nil {
-		return *kConfig.FeatureFlags.PromiseUpgrade
-	}
-	return false
 }

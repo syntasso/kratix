@@ -5,8 +5,6 @@ metadata:
   namespace: kratix-platform-system
 data:
   config: |
-    featureFlags:
-      promiseUpgrade: true
     resourceBindingVersionStrategy: pinned
     workflows:
       jobOptions:

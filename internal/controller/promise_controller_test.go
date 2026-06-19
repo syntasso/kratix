@@ -261,6 +261,7 @@ var _ = Describe("PromiseController", func() {
 							"kratix.io/dependencies-cleanup",
 							"kratix.io/resource-request-cleanup",
 							"kratix.io/api-crd-cleanup",
+							"kratix.io/revision-cleanup",
 						))
 					})
 
@@ -779,6 +780,7 @@ var _ = Describe("PromiseController", func() {
 						v1alpha1.KratixPrefix+"api-crd-cleanup",
 						v1alpha1.KratixPrefix+"dependencies-cleanup",
 						v1alpha1.KratixPrefix+"workflows-cleanup",
+						v1alpha1.KratixPrefix+"revision-cleanup",
 					))
 				})
 			})
@@ -1052,6 +1054,7 @@ var _ = Describe("PromiseController", func() {
 						"kratix.io/resource-request-cleanup",
 						"kratix.io/api-crd-cleanup",
 						"kratix.io/workflows-cleanup",
+						"kratix.io/revision-cleanup",
 					))
 				})
 
@@ -1206,6 +1209,7 @@ var _ = Describe("PromiseController", func() {
 						"kratix.io/api-crd-cleanup",
 						"kratix.io/workflows-cleanup",
 						"kratix.io/delete-workflows",
+						"kratix.io/revision-cleanup",
 					))
 				})
 
@@ -1332,6 +1336,7 @@ var _ = Describe("PromiseController", func() {
 							"kratix.io/resource-request-cleanup",
 							"kratix.io/api-crd-cleanup",
 							"kratix.io/workflows-cleanup",
+							"kratix.io/revision-cleanup",
 						))
 					})
 				})
@@ -1935,7 +1940,7 @@ var _ = Describe("PromiseController", func() {
 				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
 
 				crd, err := fakeApiExtensionsClient.CustomResourceDefinitions().Get(ctx, expectedCRDName, metav1.GetOptions{})
-				Expect(err).ToNot(HaveOccurred())
+				Expect(err).NotTo(HaveOccurred())
 				Expect(crd.Spec.Versions).To(HaveLen(1))
 
 				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns).To(HaveLen(2))
@@ -1953,7 +1958,7 @@ var _ = Describe("PromiseController", func() {
 				promise = createPromise(promisePath)
 
 				_, promiseCrd, err := promise.GetAPI()
-				Expect(err).ToNot(HaveOccurred())
+				Expect(err).NotTo(HaveOccurred())
 				promiseCrd.Spec.Versions[0].AdditionalPrinterColumns = []apiextensionsv1.CustomResourceColumnDefinition{
 					{
 						Name:     "MyField",
@@ -1975,7 +1980,7 @@ var _ = Describe("PromiseController", func() {
 				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
 
 				crd, err := fakeApiExtensionsClient.CustomResourceDefinitions().Get(ctx, expectedCRDName, metav1.GetOptions{})
-				Expect(err).ToNot(HaveOccurred())
+				Expect(err).NotTo(HaveOccurred())
 
 				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns).To(HaveLen(1))
 				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[0].Name).To(Equal("MyField"))
@@ -1986,10 +1991,6 @@ var _ = Describe("PromiseController", func() {
 	})
 
 	Describe("Promise Revisions", func() {
-		BeforeEach(func() {
-			reconciler.PromiseUpgrade = true
-		})
-
 		When("the Promise has a version label", func() {
 			var revision *v1alpha1.PromiseRevision
 			var revisionRef types.NamespacedName
@@ -2407,12 +2408,12 @@ func createAndUpdateWork(work *v1alpha1.Work, status metav1.ConditionStatus, mes
 }
 
 // aggregate events from the event recorder channel
-// increase event limits if we are sending more than 20
+// increase event limits if we are sending more than 50
 func aggregateEvents(events <-chan string) string {
 	allEvents := []string{}
 	deadline := time.After(1 * time.Second)
 
-	for len(allEvents) < 20 {
+	for len(allEvents) < 50 {
 		select {
 		case e := <-events:
 			allEvents = append(allEvents, e)

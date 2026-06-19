@@ -19,10 +19,6 @@ var _ = Describe("ResourceBinding Default Version", Serial, func() {
 	)
 
 	BeforeEach(func() {
-		if getEnvOrDefault("UPGRADE_ENABLED", "false") != "true" {
-			Skip("skipping resource binding default version tests because UPGRADE_ENABLED is not set to true")
-		}
-
 		SetDefaultEventuallyTimeout(4 * time.Minute)
 		SetDefaultEventuallyPollingInterval(2 * time.Second)
 		kubeutils.SetTimeoutAndInterval(4*time.Minute, 2*time.Second)
@@ -35,10 +31,6 @@ var _ = Describe("ResourceBinding Default Version", Serial, func() {
 	})
 
 	AfterEach(func() {
-		if getEnvOrDefault("UPGRADE_ENABLED", "false") != "true" {
-			return
-		}
-
 		platform.EventuallyKubectlDelete(promiseKind, rrName)
 		platform.EventuallyKubectlDelete("promise", promiseName)
 

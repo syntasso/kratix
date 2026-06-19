@@ -28,19 +28,11 @@ var _ = Describe("Promise Revisions", func() {
 	})
 
 	AfterEach(func() {
-		if getEnvOrDefault("UPGRADE_ENABLED", "false") != "true" {
-			return
-		}
-
 		platform.EventuallyKubectlDelete("upgrades", rrTwoName)
 		platform.EventuallyKubectlDelete("promise", promiseName)
 	})
 
 	It("is used to manage the lifecycle of resources", func() {
-		if getEnvOrDefault("UPGRADE_ENABLED", "false") != "true" {
-			Skip("skipping upgrade test suite because UPGRADE_ENABLED is not set to true")
-		}
-
 		initialPromiseVersion := "v0.1.0-BETA"
 		updatedPromiseVersion := "v0.2.0-NEXTVERSION"
 

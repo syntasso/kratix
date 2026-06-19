@@ -34,9 +34,6 @@ var _ = SynchronizedBeforeSuite(func() {
 
 	kubeutils.SetTimeoutAndInterval(30*time.Second, 2*time.Second)
 	kratixConfigPath = "./assets/kratix-config.yaml"
-	if getEnvOrDefault("UPGRADE_ENABLED", "false") == "true" {
-		kratixConfigPath = "./assets/kratix-config-upgrade.yaml"
-	}
 
 	platform.Kubectl("apply", "-f", kratixConfigPath)
 	platform.Kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
@@ -54,9 +51,6 @@ var _ = SynchronizedBeforeSuite(func() {
 		Context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
 		Name:    getEnvOrDefault("WORKER_NAME", "worker-1")}
 	kratixConfigPath = "./assets/kratix-config.yaml"
-	if getEnvOrDefault("UPGRADE_ENABLED", "false") == "true" {
-		kratixConfigPath = "./assets/kratix-config-upgrade.yaml"
-	}
 })
 
 func getEnvOrDefault(envVar, defaultValue string) string {

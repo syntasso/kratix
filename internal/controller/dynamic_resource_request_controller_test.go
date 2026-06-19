@@ -70,6 +70,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 		resReq = createResourceRequest(resourceRequestPath)
 		resReqNameNamespace = client.ObjectKeyFromObject(resReq)
+		createPromiseRevision(fakeK8sClient, promise, "v1.0.0")
 	})
 
 	When("resource is being created", func() {
@@ -165,6 +166,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					"kratix.io/work-cleanup",
 					"kratix.io/workflows-cleanup",
 					"kratix.io/delete-workflows",
+					"kratix.io/resource-binding-cleanup",
 				))
 			})
 
@@ -208,12 +210,11 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			By("publishing events", func() {
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					"Normal WorksSucceeded All works associated with this resource are ready",
-				)))
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					"Normal ReconcileSucceeded Successfully reconciled",
-				)))
+				events := aggregateEvents(eventRecorder.Events)
+				Expect(events).To(SatisfyAll(
+					ContainSubstring("Normal WorksSucceeded All works associated with this resource are ready"),
+					ContainSubstring("Normal ReconcileSucceeded Successfully reconciled"),
+				))
 			})
 		})
 
@@ -318,6 +319,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				"kratix.io/work-cleanup",
 				"kratix.io/workflows-cleanup",
 				"kratix.io/delete-workflows",
+				"kratix.io/resource-binding-cleanup",
 			))
 			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
 			_, err = t.reconcileUntilCompletion(reconciler, resReq)
@@ -361,12 +363,11 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			It("records an event on the resource request", func() {
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					"Normal WorksSucceeded All works associated with this resource are ready",
-				)))
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					"Warning Failed Pipeline The Delete Pipeline has failed",
-				)))
+				events := aggregateEvents(eventRecorder.Events)
+				Expect(events).To(SatisfyAll(
+					ContainSubstring("Normal WorksSucceeded All works associated with this resource are ready"),
+					ContainSubstring("Warning Failed Pipeline The Delete Pipeline has failed"),
+				))
 			})
 		})
 	})
@@ -411,10 +412,10 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				// Reconcile until the reconciliation loop reaches observed generation update
 				// first reconcile will return at updating workflow execution phases to 'pending'
 				result, err = reconciler.Reconcile(ctx, request)
-				Expect(err).ToNot(HaveOccurred())
+				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 				result, err = reconciler.Reconcile(ctx, request)
-				Expect(err).ToNot(HaveOccurred())
+				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
@@ -423,13 +424,17 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			By("running the configure workflows successfully", func() {
 				result, err = reconciler.Reconcile(ctx, request)
-				Expect(err).ToNot(HaveOccurred())
+				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 			})
 
 			By("requeuing on the Default Reconciliation Schedule", func() {
 				result, err = reconciler.Reconcile(ctx, request)
-				Expect(err).ToNot(HaveOccurred())
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				result, err = reconciler.Reconcile(ctx, request)
+				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
 			})
 
@@ -631,9 +636,9 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(condition.Reason).To(Equal("WorksFailing"))
 					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource failed: [test]"))
 
-					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+					Expect(aggregateEvents(eventRecorder.Events)).To(ContainSubstring(
 						"Warning WorksFailing Some works associated with this resource failed: [test]",
-					)))
+					))
 				})
 
 				It("set to false when works are misplaced", func() {
@@ -664,9 +669,9 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(condition.Reason).To(Equal("WorksMisplaced"))
 					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource are misplaced: [test]"))
 
-					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+					Expect(aggregateEvents(eventRecorder.Events)).To(ContainSubstring(
 						"Warning WorksMisplaced Some works associated with this resource are misplaced: [test]",
-					)))
+					))
 				})
 
 				It("set to true when works are ready", func() {
@@ -840,6 +845,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				It("sets all workflows counter status to 0", func() {
 					promise.Spec.Workflows.Resource.Configure = nil
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+					createPromiseRevision(fakeK8sClient, promise, "v1.1.0")
+
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
@@ -1054,6 +1061,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				"kratix.io/work-cleanup",
 				"kratix.io/workflows-cleanup",
 				"kratix.io/delete-workflows",
+				"kratix.io/resource-binding-cleanup",
 			})
 			resourceLabels := resReq.GetLabels()
 			if resourceLabels == nil {
@@ -1097,9 +1105,9 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			By("publishing an event", func() {
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+				Expect(aggregateEvents(eventRecorder.Events)).To(ContainSubstring(
 					"Warning WorkflowSuspended 'kratix.io/workflow-suspended' label set to 'true' for resource request; skipping reconciliation",
-				)))
+				))
 			})
 		})
 
@@ -1165,7 +1173,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
 				By("removing the workflow-suspended label")
-				Expect(resReq.GetLabels()).ToNot(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+				Expect(resReq.GetLabels()).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
 
 				By("setting the workflow-run-from-start label")
 				Expect(resReq.GetLabels()).To(HaveKeyWithValue(resourceutil.WorkflowRunFromStartLabel, "true"))
@@ -1216,15 +1224,14 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-				Expect(resReq.GetLabels()).ToNot(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+				Expect(resReq.GetLabels()).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
 			})
 		})
 	})
 
-	When("promise upgrade feature is on", func() {
+	Describe("PromiseRevision and ResourceBinding behaviour", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
-			reconciler.PromiseUpgradeFeatFlag = true
 			resReq = createResourceRequest(resourceRequestPath)
 			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 		})
@@ -1302,6 +1309,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			When("there is no promise revision marked as latest", func() {
 				It("returns a reconciliation error", func() {
+					deletePromiseRevisionsForPromise(promise.GetName())
+
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).To(MatchError(ContainSubstring("cannot find any PromiseRevision for Promise redis with status.latest set to true")))
 					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
@@ -1343,6 +1352,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 				When("there is no promise revision marked as latest", func() {
 					It("returns a reconciliation error", func() {
+						deletePromiseRevisionsForPromise(promise.GetName())
+
 						_, err := t.reconcileUntilCompletion(reconciler, resReq)
 						Expect(err).To(MatchError(ContainSubstring("cannot find any PromiseRevision for Promise redis with status.latest set to true")))
 					})
@@ -1413,8 +1424,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			When("the PromiseRevision from resource status doesn't exist", func() {
 				It("returns a reconciliation error", func() {
-					createPromiseRevision(fakeK8sClient, promise, "v1.0.0")
-
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 					resourceutil.SetStatus(resReq, l, "promiseVersion", "v2.0.0")
 					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
@@ -2025,6 +2034,22 @@ func createPromiseRevision(fakeK8sClient client.Client, promise *v1alpha1.Promis
 	promiseRevision.SetLatestRevisionLabel()
 	Expect(fakeK8sClient.Create(ctx, promiseRevision)).To(Succeed())
 	Expect(fakeK8sClient.Status().Update(ctx, promiseRevision)).To(Succeed())
+}
+
+func deletePromiseRevisionsForPromise(promiseName string) {
+	GinkgoHelper()
+
+	revisionList := v1alpha1.PromiseRevisionList{}
+	Expect(fakeK8sClient.List(ctx, &revisionList, &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(map[string]string{
+			v1alpha1.PromiseNameLabel: promiseName,
+		}),
+	})).To(Succeed())
+
+	for i := range revisionList.Items {
+		revision := &revisionList.Items[i]
+		Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
+	}
 }
 
 func addResourceRequestDeleteFinalizers(rr *unstructured.Unstructured) {
