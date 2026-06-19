@@ -22,6 +22,7 @@ import (
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -181,7 +182,10 @@ type WorkList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Work{}, &WorkList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &Work{}, &WorkList{})
+		return nil
+	})
 }
 
 // Returns the WorkloadGroupScheduling for the given source and directory

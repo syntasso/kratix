@@ -81,5 +81,8 @@ type HealthRecordList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&HealthRecord{}, &HealthRecordList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &HealthRecord{}, &HealthRecordList{})
+		return nil
+	})
 }

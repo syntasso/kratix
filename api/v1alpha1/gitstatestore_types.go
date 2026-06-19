@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -139,5 +140,8 @@ type GitStateStoreList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&GitStateStore{}, &GitStateStoreList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &GitStateStore{}, &GitStateStoreList{})
+		return nil
+	})
 }

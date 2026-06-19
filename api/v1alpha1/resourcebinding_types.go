@@ -22,6 +22,7 @@ import (
 
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -96,7 +97,10 @@ type ResourceBindingList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&ResourceBinding{}, &ResourceBindingList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &ResourceBinding{}, &ResourceBindingList{})
+		return nil
+	})
 }
 
 // InFlightVersion returns the promise version of the resource configure

@@ -443,7 +443,10 @@ type PromiseList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Promise{}, &PromiseList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &Promise{}, &PromiseList{})
+		return nil
+	})
 }
 
 func (p *Promise) GetWorkloadGroupScheduling() []WorkloadGroupScheduling {
