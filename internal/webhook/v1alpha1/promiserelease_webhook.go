@@ -21,11 +21,9 @@ import (
 	"fmt"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -37,7 +35,7 @@ var (
 func SetupPromiseReleaseWebhookWithManager(mgr ctrl.Manager, c client.Client, pf v1alpha1.PromiseFetcher) error {
 	k8sClient = c
 	promiseFetcher = pf
-	return ctrl.NewWebhookManagedBy(mgr).For(&v1alpha1.PromiseRelease{}).
+	return ctrl.NewWebhookManagedBy(mgr, &v1alpha1.PromiseRelease{}).
 		WithValidator(&PromiseReleaseCustomValidator{}).
 		Complete()
 }
@@ -46,14 +44,9 @@ func SetupPromiseReleaseWebhookWithManager(mgr ctrl.Manager, c client.Client, pf
 
 type PromiseReleaseCustomValidator struct{}
 
-var _ webhook.CustomValidator = &PromiseReleaseCustomValidator{}
+var _ admission.Validator[*v1alpha1.PromiseRelease] = &PromiseReleaseCustomValidator{}
 
-func (p PromiseReleaseCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
-	r, ok := obj.(*v1alpha1.PromiseRelease)
-	if !ok {
-		return nil, fmt.Errorf("expected a PromiseRelease object but got %T", obj)
-	}
-
+func (p PromiseReleaseCustomValidator) ValidateCreate(ctx context.Context, r *v1alpha1.PromiseRelease) (warnings admission.Warnings, err error) {
 	promisereleaselog.Info("validate create", "name", r.Name)
 
 	if err = validate(r); err != nil {
@@ -89,11 +82,8 @@ func (p PromiseReleaseCustomValidator) ValidateCreate(ctx context.Context, obj r
 	return nil, nil
 }
 
-func (p PromiseReleaseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
-	r, ok := newObj.(*v1alpha1.PromiseRelease)
-	if !ok {
-		return nil, fmt.Errorf("expected a PromiseRelease object but got %T", newObj)
-	}
+func (p PromiseReleaseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj *v1alpha1.PromiseRelease) (warnings admission.Warnings, err error) {
+	r := newObj
 
 	promisereleaselog.Info("validate update", "name", r.Name)
 
@@ -104,7 +94,7 @@ func (p PromiseReleaseCustomValidator) ValidateUpdate(ctx context.Context, oldOb
 	return nil, nil
 }
 
-func (p PromiseReleaseCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+func (p PromiseReleaseCustomValidator) ValidateDelete(ctx context.Context, obj *v1alpha1.PromiseRelease) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
 

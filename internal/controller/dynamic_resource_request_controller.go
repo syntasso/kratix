@@ -388,7 +388,7 @@ func (r *DynamicResourceRequestController) resolvePromiseRevisionForRR(
 	promise.Spec = promiseRevisionUsed.Spec.PromiseSpec
 	logging.Debug(baseLogger,
 		"Found PromiseRevision from ResourceRequest", "revision name", promiseRevisionUsed.Name)
-	r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ReconcileStarted",
+	r.EventRecorder.Event(rr, v1.EventTypeNormal, "ReconcileStarted",
 		fmt.Sprintf("reconciling resource request with promise revision %s", promiseRevisionUsed.Name))
 
 	return promiseRevisionUsed, binding.Spec.Version, nil
@@ -1337,7 +1337,7 @@ func getPromiseRevisionForReconcile(ctx context.Context, rr *unstructured.Unstru
 	promiseRevisionToUse, err = fetchRevision(ctx, r.Client, promise, resourceBinding, statusPromiseVersion)
 	if err != nil {
 		baseLogger.Error(err, "failed to fetch PromiseRevision for ResourceRequest")
-		r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, err.Error())
+		r.EventRecorder.Event(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, err.Error())
 		return nil, nil, err
 	}
 
@@ -1366,7 +1366,7 @@ func getPromiseRevisionForDelete(ctx context.Context, rr *unstructured.Unstructu
 	promiseRevisionToUse, err := fetchRevisionForDelete(ctx, r.Client, promise, rr, resourceBinding)
 	if err != nil {
 		baseLogger.Error(err, "failed to fetch PromiseRevision for ResourceRequest delete")
-		r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, err.Error())
+		r.EventRecorder.Event(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, err.Error())
 		return nil, nil, err
 	}
 

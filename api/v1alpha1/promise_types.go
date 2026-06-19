@@ -382,6 +382,11 @@ func (p *Promise) ToUnstructured() (*unstructured.Unstructured, error) {
 		return nil, err
 	}
 	unstructuredPromise := &unstructured.Unstructured{Object: objMap}
+	// A typed Promise is not guaranteed to carry TypeMeta: a known upstream
+	// controller-runtime behaviour leaves the GVK unset on objects returned from
+	// some client operations (e.g. Create/Status().Update). Set it explicitly so
+	// the unstructured form always has a kind, which clients require.
+	unstructuredPromise.SetGroupVersionKind(GroupVersion.WithKind("Promise"))
 
 	return unstructuredPromise, nil
 }

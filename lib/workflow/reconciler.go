@@ -771,12 +771,15 @@ func applyResources(opts Opts, resources ...client.Object) {
 	logging.Debug(opts.logger, "reconciling pipeline resources")
 
 	for _, resource := range resources {
-		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", resource.GetObjectKind().GroupVersionKind().String(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
+		// Capture the GVK before calling Create: the client clears TypeMeta on
+		// typed objects, so resource.GetObjectKind() is empty afterwards.
+		gvk := resource.GetObjectKind().GroupVersionKind()
+		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", gvk.String(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
 
 		logging.Debug(logger, "reconciling resource")
 		if err := opts.client.Create(opts.ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
-				if resource.GetObjectKind().GroupVersionKind().Kind == rbacv1.ServiceAccountKind {
+				if gvk.Kind == rbacv1.ServiceAccountKind {
 					serviceAccount := &v1.ServiceAccount{}
 					if err := opts.client.Get(opts.ctx, client.ObjectKey{Namespace: resource.GetNamespace(), Name: resource.GetName()}, serviceAccount); err != nil {
 						logging.Error(logger, err, "error getting service account")

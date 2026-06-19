@@ -216,7 +216,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		// therefore we need to produce an event to inform of this transition
 		if originalStatus == v1alpha1.PromiseStatusAvailable {
 			msg := "Promise no longer available: Requirements have changed"
-			r.EventRecorder.Eventf(
+			r.EventRecorder.Event(
 				promise, "Warning", "Unavailable", msg)
 			logging.Info(r.Log, msg)
 		}
@@ -395,7 +395,7 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 	}
 
 	if op == controllerutil.OperationResultCreated {
-		r.EventRecorder.Eventf(promise, v1.EventTypeNormal, "RevisionCreated", fmt.Sprintf("Revision %s created", revision.GetName()))
+		r.EventRecorder.Event(promise, v1.EventTypeNormal, "RevisionCreated", fmt.Sprintf("Revision %s created", revision.GetName()))
 	}
 	return ctrl.Result{}, nil
 }
@@ -879,20 +879,20 @@ func (r *PromiseReconciler) evaluateRequirement(ctx context.Context, promise *v1
 	case apierrors.IsNotFound(err):
 		state = requirementStateNotInstalled
 		updateConditionNotFulfilled(condition, "RequirementsNotInstalled", "Requirements not fulfilled")
-		r.EventRecorder.Eventf(promise, v1.EventTypeNormal,
+		r.EventRecorder.Event(promise, v1.EventTypeNormal,
 			"RequirementsNotInstalled", fmt.Sprintf("Required Promise %s not installed or unknown state", req.Name))
 
 	case err != nil:
 		state = requirementUnknownInstallationState
 		updateConditionNotFulfilled(condition, "RequirementsNotInstalled", "Unable to determine if requirements are fulfilled")
-		r.EventRecorder.Eventf(promise, v1.EventTypeNormal,
+		r.EventRecorder.Event(promise, v1.EventTypeNormal,
 			"RequirementsNotInstalled", fmt.Sprintf("Required Promise %s not installed or unknown state", required.Name))
 
 	default:
 		if required.Status.Version != req.Version || required.Status.Status != v1alpha1.PromiseStatusAvailable {
 			condition.Reason, state = generateRequirementState(required.Status.Version, req.Version, required.Status.Status)
 			updateConditionNotFulfilled(condition, condition.Reason, "Requirements not fulfilled")
-			r.EventRecorder.Eventf(promise, v1.EventTypeNormal,
+			r.EventRecorder.Event(promise, v1.EventTypeNormal,
 				condition.Reason, fmt.Sprintf("Waiting for required Promise %s: %s ", required.Name, state))
 		} else {
 			state = requirementStateInstalled

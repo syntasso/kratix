@@ -94,8 +94,6 @@ func (fake *FakePromiseFetcher) FromURLReturnsOnCall(i int, result1 *v1alpha1.Pr
 func (fake *FakePromiseFetcher) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.fromURLMutex.RLock()
-	defer fake.fromURLMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -20,7 +18,7 @@ var promiserevisionlog = logf.Log.WithName("promiserevision-resource")
 
 // SetupPromiseRevisionWebhookWithManager registers the webhook for PromiseRevision in the manager.
 func SetupPromiseRevisionWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&platformv1alpha1.PromiseRevision{}).
+	return ctrl.NewWebhookManagedBy(mgr, &platformv1alpha1.PromiseRevision{}).
 		WithValidator(&PromiseRevisionCustomValidator{}).
 		Complete()
 }
@@ -29,24 +27,20 @@ func SetupPromiseRevisionWebhookWithManager(mgr ctrl.Manager) error {
 
 type PromiseRevisionCustomValidator struct{}
 
-var _ webhook.CustomValidator = &PromiseRevisionCustomValidator{}
+var _ admission.Validator[*platformv1alpha1.PromiseRevision] = &PromiseRevisionCustomValidator{}
 
-// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type PromiseRevision.
-func (v *PromiseRevisionCustomValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
+// ValidateCreate implements admission.Validator so a webhook will be registered for the type PromiseRevision.
+func (v *PromiseRevisionCustomValidator) ValidateCreate(_ context.Context, obj *platformv1alpha1.PromiseRevision) (admission.Warnings, error) {
 	return nil, nil
 }
 
-// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type PromiseRevision.
-func (v *PromiseRevisionCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+// ValidateUpdate implements admission.Validator so a webhook will be registered for the type PromiseRevision.
+func (v *PromiseRevisionCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj *platformv1alpha1.PromiseRevision) (admission.Warnings, error) {
 	return nil, nil
 }
 
-// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type PromiseRevision.
-func (v *PromiseRevisionCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	revision, ok := obj.(*platformv1alpha1.PromiseRevision)
-	if !ok {
-		return nil, fmt.Errorf("expected a PromiseRevision object but got %T", obj)
-	}
+// ValidateDelete implements admission.Validator so a webhook will be registered for the type PromiseRevision.
+func (v *PromiseRevisionCustomValidator) ValidateDelete(ctx context.Context, revision *platformv1alpha1.PromiseRevision) (admission.Warnings, error) {
 	promiserevisionlog.Info("Validation for PromiseRevision upon deletion", "name", revision.GetName())
 
 	req, err := admission.RequestFromContext(ctx)

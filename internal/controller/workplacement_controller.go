@@ -253,7 +253,7 @@ func (w *workPlacementReconcileContext) updateResourceStatus(versionID string, e
 
 func (w *workPlacementReconcileContext) publishWriteEvent(reason, versionID string, err error) {
 	if err != nil {
-		w.eventRecorder.Eventf(w.workPlacement, v1.EventTypeWarning, reason,
+		w.eventRecorder.Event(w.workPlacement, v1.EventTypeWarning, reason,
 			fmt.Sprintf("failed writing to Destination: %s with error: %s; check kubectl get destination for more info", w.workPlacement.Spec.TargetDestinationName, err.Error()))
 		return
 	}

@@ -96,8 +96,6 @@ func (fake *FakeWorkScheduler) ReconcileWorkReturnsOnCall(i int, result1 []strin
 func (fake *FakeWorkScheduler) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.reconcileWorkMutex.RLock()
-	defer fake.reconcileWorkMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

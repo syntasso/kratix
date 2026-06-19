@@ -18,12 +18,9 @@ package v1alpha1
 
 import (
 	"context"
-	"fmt"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	v1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -32,7 +29,7 @@ import (
 var bucketstatestorelog = logf.Log.WithName("bucketstatestore-resource")
 
 func SetupBucketStateStoreWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&v1alpha1.BucketStateStore{}).
+	return ctrl.NewWebhookManagedBy(mgr, &v1alpha1.BucketStateStore{}).
 		WithValidator(&BucketStateStoreCustomValidator{}).
 		Complete()
 }
@@ -44,13 +41,9 @@ func SetupBucketStateStoreWebhookWithManager(mgr ctrl.Manager) error {
 type BucketStateStoreCustomValidator struct {
 }
 
-var _ webhook.CustomValidator = &BucketStateStoreCustomValidator{}
+var _ admission.Validator[*v1alpha1.BucketStateStore] = &BucketStateStoreCustomValidator{}
 
-func (v *BucketStateStoreCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	bucket, ok := obj.(*v1alpha1.BucketStateStore)
-	if !ok {
-		return nil, fmt.Errorf("expected a BucketStateStore object but got %T", obj)
-	}
+func (v *BucketStateStoreCustomValidator) ValidateCreate(ctx context.Context, bucket *v1alpha1.BucketStateStore) (admission.Warnings, error) {
 	bucketstatestorelog.Info("Validation for BucketStateStore upon creation", "name", bucket.GetName())
 
 	if err := bucket.ValidateSecretRef(); err != nil {
@@ -60,20 +53,16 @@ func (v *BucketStateStoreCustomValidator) ValidateCreate(ctx context.Context, ob
 	return nil, nil
 }
 
-func (v *BucketStateStoreCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	bucket, ok := newObj.(*v1alpha1.BucketStateStore)
-	if !ok {
-		return nil, fmt.Errorf("expected a BucketStateStore object for the newObj but got %T", newObj)
-	}
-	bucketstatestorelog.Info("Validation for BucketStateStore upon update", "name", bucket.GetName())
+func (v *BucketStateStoreCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj *v1alpha1.BucketStateStore) (admission.Warnings, error) {
+	bucketstatestorelog.Info("Validation for BucketStateStore upon update", "name", newObj.GetName())
 
-	if err := bucket.ValidateSecretRef(); err != nil {
+	if err := newObj.ValidateSecretRef(); err != nil {
 		return nil, err
 	}
 
 	return nil, nil
 }
 
-func (v *BucketStateStoreCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (v *BucketStateStoreCustomValidator) ValidateDelete(ctx context.Context, obj *v1alpha1.BucketStateStore) (admission.Warnings, error) {
 	return nil, nil
 }

@@ -182,11 +182,11 @@ func (reconcileCtx *stateStoreReconcileContext) recordReadyEvent() {
 		reconcileCtx.stateStore.GetObjectKind().GroupVersionKind().Kind,
 		reconcileCtx.stateStore.GetName(),
 	)
-	reconcileCtx.eventRecorder.Eventf(reconcileCtx.stateStore, v1.EventTypeNormal, "Ready", eventMessage)
+	reconcileCtx.eventRecorder.Event(reconcileCtx.stateStore, v1.EventTypeNormal, "Ready", eventMessage)
 }
 
 func (reconcileCtx *stateStoreReconcileContext) recordNotReadyEvent(err *StateStoreError) {
-	reconcileCtx.eventRecorder.Eventf(
+	reconcileCtx.eventRecorder.Event(
 		reconcileCtx.stateStore,
 		v1.EventTypeWarning,
 		"NotReady",
