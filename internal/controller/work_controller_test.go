@@ -30,7 +30,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	//+kubebuilder:scaffold:imports
@@ -41,7 +41,7 @@ var _ = Describe("WorkReconciler", func() {
 		ctx               context.Context
 		reconciler        *controller.WorkReconciler
 		fakeScheduler     *controllerfakes.FakeWorkScheduler
-		fakeEventRecorder *record.FakeRecorder
+		fakeEventRecorder *events.FakeRecorder
 		workName          types.NamespacedName
 		work              *v1alpha1.Work
 		workResourceName  = "work-controller-test-resource-request"
@@ -51,7 +51,7 @@ var _ = Describe("WorkReconciler", func() {
 		ctx = context.Background()
 		fakeScheduler = &controllerfakes.FakeWorkScheduler{}
 		fakeScheduler.ReconcileWorkReturns([]string{}, nil)
-		fakeEventRecorder = record.NewFakeRecorder(1024)
+		fakeEventRecorder = events.NewFakeRecorder(1024)
 		reconciler = &controller.WorkReconciler{
 			Client:        fakeK8sClient,
 			Log:           ctrl.Log.WithName("controllers").WithName("Work"),

@@ -21,7 +21,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -29,7 +29,7 @@ import (
 var _ = Describe("Controllers/Scheduler", func() {
 	var (
 		scheduler                                                                           *Scheduler
-		schedulerRecorder                                                                   *record.FakeRecorder
+		schedulerRecorder                                                                   *events.FakeRecorder
 		workPlacements                                                                      v1alpha1.WorkPlacementList
 		fakeCompressedContent                                                               []byte
 		devDestination, devDestination2, pciDestination, prodDestination, strictDestination v1alpha1.Destination
@@ -59,7 +59,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 		fakeCompressedContent, err = compression.CompressContent([]byte(string("fake: content")))
 		Expect(err).ToNot(HaveOccurred())
 
-		schedulerRecorder = record.NewFakeRecorder(1024)
+		schedulerRecorder = events.NewFakeRecorder(1024)
 		scheduler = &Scheduler{
 			Client:        fakeK8sClient,
 			Log:           ctrl.Log.WithName("controllers").WithName("Scheduler"),

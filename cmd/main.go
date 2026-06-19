@@ -283,7 +283,7 @@ func main() {
 	scheduler := controller.Scheduler{
 		Client:        mgr.GetClient(),
 		Log:           ctrl.Log.WithName("controllers").WithName("Scheduler"),
-		EventRecorder: mgr.GetEventRecorderFor("Scheduler"),
+		EventRecorder: mgr.GetEventRecorder("Scheduler"),
 	}
 
 	if err = (&controller.PromiseReconciler{
@@ -294,7 +294,7 @@ func main() {
 		Scheme:                 mgr.GetScheme(),
 		NumberOfJobsToKeep:     getNumJobsToKeep(kratixConfig),
 		ReconciliationInterval: getRegularReconciliationInterval(kratixConfig),
-		EventRecorder:          mgr.GetEventRecorderFor("PromiseController"),
+		EventRecorder:          mgr.GetEventRecorder("PromiseController"),
 		ResourceBindingPinned:  resourceBindingDefaultVersion == ResourceBindingDefaultVersionPinned,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
@@ -314,7 +314,7 @@ func main() {
 		Client:        mgr.GetClient(),
 		Log:           ctrl.Log.WithName("controllers").WithName("Work"),
 		Scheduler:     &scheduler,
-		EventRecorder: mgr.GetEventRecorderFor("WorkController"),
+		EventRecorder: mgr.GetEventRecorder("WorkController"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Work")
 		os.Exit(1)
@@ -324,7 +324,7 @@ func main() {
 		Client:          mgr.GetClient(),
 		Scheduler:       &scheduler,
 		Log:             ctrl.Log.WithName("controllers").WithName("DestinationController"),
-		EventRecorder:   mgr.GetEventRecorderFor("DestinationController"),
+		EventRecorder:   mgr.GetEventRecorder("DestinationController"),
 		RepositoryCache: repositoryCache,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Destination")
@@ -340,7 +340,7 @@ func main() {
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
 		PromiseFetcher: &fetchers.URLFetcher{},
-		EventRecorder:  mgr.GetEventRecorderFor("PromiseReleaseController"),
+		EventRecorder:  mgr.GetEventRecorder("PromiseReleaseController"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PromiseRelease")
 		os.Exit(1)
@@ -353,7 +353,7 @@ func main() {
 		Client:        mgr.GetClient(),
 		Scheme:        mgr.GetScheme(),
 		Log:           ctrl.Log.WithName("controllers").WithName("HealthRecordController"),
-		EventRecorder: mgr.GetEventRecorderFor("HealthRecordController"),
+		EventRecorder: mgr.GetEventRecorder("HealthRecordController"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "HealthRecord")
 		os.Exit(1)
@@ -366,7 +366,7 @@ func main() {
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
 		Log:             ctrl.Log.WithName("controllers").WithName("BucketStateStoreController"),
-		EventRecorder:   mgr.GetEventRecorderFor("BucketStateStoreController"),
+		EventRecorder:   mgr.GetEventRecorder("BucketStateStoreController"),
 		RepositoryCache: repositoryCache,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "BucketStateStore")
@@ -377,7 +377,7 @@ func main() {
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
 		Log:             ctrl.Log.WithName("controllers").WithName("GitStateStore"),
-		EventRecorder:   mgr.GetEventRecorderFor("GitStateStoreController"),
+		EventRecorder:   mgr.GetEventRecorder("GitStateStoreController"),
 		RepositoryCache: repositoryCache,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "GitStateStore")
@@ -388,7 +388,7 @@ func main() {
 		Log:             ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
 		VersionCache:    make(map[string]string),
 		RepositoryCache: repositoryCache,
-		EventRecorder:   mgr.GetEventRecorderFor("WorkPlacementController"),
+		EventRecorder:   mgr.GetEventRecorder("WorkPlacementController"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
 		os.Exit(1)

@@ -34,7 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,7 +54,7 @@ type WorkReconciler struct {
 	Client        client.Client
 	Log           logr.Logger
 	Scheduler     WorkScheduler
-	EventRecorder record.EventRecorder
+	EventRecorder events.EventRecorder
 }
 
 //counterfeiter:generate . WorkScheduler
@@ -146,11 +146,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 
 	if work.IsResourceRequest() && len(unscheduledWorkloadGroupIDs) > 0 {
 		logging.Warn(logger, "no available destinations for some workload groups; trying again shortly", "workloadGroupIDs", unscheduledWorkloadGroupIDs)
-		r.EventRecorder.Eventf(
-			work,
-			v1.EventTypeNormal,
-			"WaitingDestination",
-			"waiting for destination for workload group: [%s]",
+		r.EventRecorder.Eventf(work, nil, v1.EventTypeNormal, "WaitingDestination", "WaitingDestination", "waiting for destination for workload group: [%s]",
 			strings.Join(unscheduledWorkloadGroupIDs, ","),
 		)
 		return slowRequeue, nil
@@ -196,7 +192,7 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 		}
 		if apiMeta.SetStatusCondition(&work.Status.Conditions, scheduleCond) {
 			apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
-			r.EventRecorder.Eventf(work, v1.EventTypeWarning, "WorkplacementsFailing", "Workplacements failed to write: [%s]", strings.Join(failedWorkPlacements, ","))
+			r.EventRecorder.Eventf(work, nil, v1.EventTypeWarning, "WorkplacementsFailing", "WorkplacementsFailing", "Workplacements failed to write: [%s]", strings.Join(failedWorkPlacements, ","))
 			return r.Client.Status().Update(ctx, work)
 		}
 	}
@@ -217,8 +213,7 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, logger logr.Logger, wor
 	wpList.SetGroupVersionKind(workplacementGVK)
 	selector := labels.SelectorFromSet(map[string]string{workLabelKey: work.Name})
 	if err := r.Client.List(ctx, wpList, &client.ListOptions{LabelSelector: selector}); err != nil {
-		r.EventRecorder.Eventf(work, v1.EventTypeWarning, "FailedDelete",
-			"failed to list associated workplacements: %s", err.Error())
+		r.EventRecorder.Eventf(work, nil, v1.EventTypeWarning, "FailedDelete", "FailedDelete", "failed to list associated workplacements: %s", err.Error())
 		return err
 	}
 
@@ -234,8 +229,7 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, logger logr.Logger, wor
 				continue
 			}
 			deleteErrors = append(deleteErrors, err.Error())
-			r.EventRecorder.Eventf(work, v1.EventTypeWarning, "FailedDelete",
-				"deleting associated workplacement failed: %s", err.Error())
+			r.EventRecorder.Eventf(work, nil, v1.EventTypeWarning, "FailedDelete", "FailedDelete", "deleting associated workplacement failed: %s", err.Error())
 		}
 	}
 

@@ -26,7 +26,7 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,7 +53,7 @@ type PromiseReleaseReconciler struct {
 	Scheme         *runtime.Scheme
 	Log            logr.Logger
 	PromiseFetcher v1alpha1.PromiseFetcher
-	EventRecorder  record.EventRecorder
+	EventRecorder  events.EventRecorder
 }
 
 const promiseCleanupFinalizer = v1alpha1.KratixPrefix + "promise-cleanup"
@@ -196,8 +196,7 @@ func (r *PromiseReleaseReconciler) installPromise(o opts, promiseRelease *v1alph
 		}
 
 		// Add an event to PromiseRelease about the failure of installing the Promise
-		r.EventRecorder.Eventf(promiseRelease, "Warning", eventReason,
-			"Failed to install Promise %q: %v", promise.GetName(), err)
+		r.EventRecorder.Eventf(promiseRelease, nil, "Warning", eventReason, eventReason, "Failed to install Promise %q: %v", promise.GetName(), err)
 
 		return err
 	}

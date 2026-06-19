@@ -26,7 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"sigs.k8s.io/yaml"
@@ -57,7 +57,7 @@ type DestinationReconciler struct {
 	Client          client.Client
 	Log             logr.Logger
 	Scheduler       *Scheduler
-	EventRecorder   record.EventRecorder
+	EventRecorder   events.EventRecorder
 	RepositoryCache RepositoryCache
 }
 
@@ -67,7 +67,7 @@ type destinationReconcileContext struct {
 
 	logger        logr.Logger
 	client        client.Client
-	eventRecorder record.EventRecorder
+	eventRecorder events.EventRecorder
 
 	destination     *v1alpha1.Destination
 	repositoryCache RepositoryCache
@@ -394,20 +394,10 @@ func (d *destinationReconcileContext) getCanaryWorkloads() []v1alpha1.Workload {
 func (d *destinationReconcileContext) logAndRecordEvent(err error, message string) {
 	if err != nil {
 		logging.Error(d.logger, err, message)
-		d.eventRecorder.Event(
-			d.destination,
-			v1.EventTypeWarning,
-			v1alpha1.DestinationNotReadyReason,
-			fmt.Sprintf("%s: %s", message, err.Error()),
-		)
+		d.eventRecorder.Eventf(d.destination, nil, v1.EventTypeWarning, v1alpha1.DestinationNotReadyReason, v1alpha1.DestinationNotReadyReason, "%s", fmt.Sprintf("%s: %s", message, err.Error()))
 	} else {
 		logging.Info(d.logger, message)
-		d.eventRecorder.Event(
-			d.destination,
-			v1.EventTypeNormal,
-			v1alpha1.DestinationReadyReason,
-			message,
-		)
+		d.eventRecorder.Eventf(d.destination, nil, v1.EventTypeNormal, v1alpha1.DestinationReadyReason, v1alpha1.DestinationReadyReason, "%s", message)
 	}
 }
 

@@ -17,7 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -40,7 +40,7 @@ const (
 type Scheduler struct {
 	Client        client.Client
 	Log           logr.Logger
-	EventRecorder record.EventRecorder
+	EventRecorder events.EventRecorder
 }
 
 // Reconciles all WorkloadGroups in a Work by scheduling them to Destinations via
@@ -129,8 +129,7 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 			Reason:  "Misplaced",
 			Message: "Misplaced",
 		}
-		s.EventRecorder.Eventf(w, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason,
-			"Target destination no longer matches destinationSelectors for workloadGroups: [%s] ",
+		s.EventRecorder.Eventf(w, nil, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason, scheduleSucceededConditionMismatchReason, "Target destination no longer matches destinationSelectors for workloadGroups: [%s] ",
 			strings.Join(misplacedWorkloadGroupIDs, ","))
 	} else { // all works are scheduled and none is misplaced
 		readyCond = metav1.Condition{
@@ -145,8 +144,7 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 			Reason:  "AllWorkplacementsScheduled",
 			Message: "All workplacements scheduled successfully",
 		}
-		s.EventRecorder.Eventf(w, corev1.EventTypeNormal, "AllWorkplacementsScheduled",
-			"All workplacements scheduled successfully")
+		s.EventRecorder.Eventf(w, nil, corev1.EventTypeNormal, "AllWorkplacementsScheduled", "AllWorkplacementsScheduled", "All workplacements scheduled successfully")
 	}
 
 	if apimeta.SetStatusCondition(&w.Status.Conditions, scheduleSucceededCond) {
@@ -250,8 +248,7 @@ func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1
 
 	if len(targetDestinationMap) == 0 {
 		logging.Warn(s.Log, "no destinations can be selected for scheduling", "scheduling", destinationSelectors, "workloadGroupDirectory", workloadGroup.Directory, "workloadGroupID", workloadGroup.ID)
-		s.EventRecorder.Eventf(work, corev1.EventTypeNormal, "NoMatchingDestination",
-			"waiting for a destination with labels for workloadGroup: %s", workloadGroup.ID)
+		s.EventRecorder.Eventf(work, nil, corev1.EventTypeNormal, "NoMatchingDestination", "NoMatchingDestination", "waiting for a destination with labels for workloadGroup: %s", workloadGroup.ID)
 
 		telemetry.RecordWorkPlacementOutcome(
 			ctx,
@@ -408,8 +405,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(ctx context.Context
 			return false, err
 		}
 		logging.Info(s.Log, "workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", targetDestinationName)
-		s.EventRecorder.Eventf(work, corev1.EventTypeNormal, "WorkplacementReconciled",
-			"workplacement reconciled: %s, operation: %s", workPlacement.GetName(), op)
+		s.EventRecorder.Eventf(work, nil, corev1.EventTypeNormal, "WorkplacementReconciled", "WorkplacementReconciled", "workplacement reconciled: %s, operation: %s", workPlacement.GetName(), op)
 
 		outcome := telemetry.WorkPlacementOutcomeScheduled
 		if misscheduled {
@@ -446,8 +442,7 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 			Message: "Misplaced",
 		})
 		scheduleUpdated := apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond)
-		s.EventRecorder.Eventf(updatedwp, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason,
-			"labels for destination: %s no longer match the expected labels, marking this workplacement as misplaced", updatedwp.Spec.TargetDestinationName)
+		s.EventRecorder.Eventf(updatedwp, nil, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason, scheduleSucceededConditionMismatchReason, "labels for destination: %s no longer match the expected labels, marking this workplacement as misplaced", updatedwp.Spec.TargetDestinationName)
 		if scheduleUpdated || readyUpdated {
 			return s.Client.Status().Update(ctx, updatedwp)
 		}

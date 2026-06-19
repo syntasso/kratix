@@ -28,7 +28,7 @@ import (
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/go-logr/logr"
@@ -80,7 +80,7 @@ type DynamicResourceRequestController struct {
 	CanCreateResources          *bool
 	NumberOfJobsToKeep          int
 	ReconciliationInterval      time.Duration
-	EventRecorder               record.EventRecorder
+	EventRecorder               events.EventRecorder
 	ResourceBindingPinned       bool
 }
 
@@ -388,8 +388,7 @@ func (r *DynamicResourceRequestController) resolvePromiseRevisionForRR(
 	promise.Spec = promiseRevisionUsed.Spec.PromiseSpec
 	logging.Debug(baseLogger,
 		"Found PromiseRevision from ResourceRequest", "revision name", promiseRevisionUsed.Name)
-	r.EventRecorder.Event(rr, v1.EventTypeNormal, "ReconcileStarted",
-		fmt.Sprintf("reconciling resource request with promise revision %s", promiseRevisionUsed.Name))
+	r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "ReconcileStarted", "ReconcileStarted", "%s", fmt.Sprintf("reconciling resource request with promise revision %s", promiseRevisionUsed.Name))
 
 	return promiseRevisionUsed, binding.Spec.Version, nil
 }
@@ -655,11 +654,10 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 	)
 
 	if op == "created" {
-		r.EventRecorder.Event(rr, v1.EventTypeNormal, "BindingCreated",
-			fmt.Sprintf("Binding %s created for promise %s version %s",
-				resourceBinding.GetName(),
-				promise.GetName(),
-				resourceBinding.Spec.Version))
+		r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "BindingCreated", "BindingCreated", "%s", fmt.Sprintf("Binding %s created for promise %s version %s",
+			resourceBinding.GetName(),
+			promise.GetName(),
+			resourceBinding.Spec.Version))
 	}
 
 	return nil
@@ -749,7 +747,7 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 
 	msg := fmt.Sprintf("'%s' label set to 'true' for resource request; skipping reconciliation", v1alpha1.WorkflowSuspendedLabel)
 	logging.Info(logger, msg)
-	r.EventRecorder.Event(rr, v1.EventTypeWarning, workflowSuspendedReason, msg)
+	r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, workflowSuspendedReason, workflowSuspendedReason, "%s", msg)
 
 	nextRetryAtTime, err := nextRetryAtForResource(rr)
 	if err != nil {
@@ -794,8 +792,7 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 	if len(failed) > 0 {
 		if cond == nil || cond.Status == v1.ConditionTrue {
 			resourceutil.MarkResourceRequestAsWorksFailed(rr, failed)
-			r.EventRecorder.Event(rr, v1.EventTypeWarning, "WorksFailing",
-				fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(failed, ",")))
+			r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksFailing", "WorksFailing", "%s", fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(failed, ",")))
 			return true
 		}
 		return false
@@ -810,16 +807,14 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 	if len(misplaced) > 0 {
 		if cond == nil || cond.Status != v1.ConditionFalse || cond.Reason != "WorksMisplaced" {
 			resourceutil.MarkResourceRequestAsWorksMisplaced(rr, misplaced)
-			r.EventRecorder.Event(rr, v1.EventTypeWarning, "WorksMisplaced",
-				fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(misplaced, ",")))
+			r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksMisplaced", "WorksMisplaced", "%s", fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(misplaced, ",")))
 			return true
 		}
 		return false
 	}
 	if cond == nil || cond.Status != v1.ConditionTrue {
 		resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
-		r.EventRecorder.Event(rr, v1.EventTypeNormal, "WorksSucceeded",
-			"All works associated with this resource are ready")
+		r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "WorksSucceeded", "WorksSucceeded", "%s", "All works associated with this resource are ready")
 		return true
 	}
 	return false
@@ -858,8 +853,7 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 		if reconciled == nil || reconciled.Status != v1.ConditionTrue {
 			resourceutil.MarkReconciledTrue(rr)
 			updated = true
-			r.EventRecorder.Event(rr, v1.EventTypeNormal, "ReconcileSucceeded",
-				"Successfully reconciled")
+			r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "ReconcileSucceeded", "ReconcileSucceeded", "%s", "Successfully reconciled")
 		}
 	}
 	return updated
@@ -872,8 +866,7 @@ func (r *DynamicResourceRequestController) updatePromiseVersionStatus(logger log
 	currentVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
 	if currentVersion != promiseRevision.Spec.Version {
 		resourceutil.SetStatus(rr, logger, resourcePromiseVersionStatus, promiseRevision.Spec.Version)
-		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ReconcileSucceeded",
-			"Resource request reconciled with promise %s version %s",
+		r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "ReconcileSucceeded", "ReconcileSucceeded", "Resource request reconciled with promise %s version %s",
 			promiseRevision.Spec.PromiseRef.Name,
 			promiseRevision.Spec.Version)
 		versionUpdated = true
@@ -882,8 +875,7 @@ func (r *DynamicResourceRequestController) updatePromiseVersionStatus(logger log
 	currentBindingVersion := resourceutil.GetStatus(rr, resourceBindingVersionStatus)
 	if currentBindingVersion != bindingVersion {
 		resourceutil.SetStatus(rr, logger, resourceBindingVersionStatus, bindingVersion)
-		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ResourceBindingVersionUpdated",
-			"Resource binding version updated to %s", bindingVersion)
+		r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "ResourceBindingVersionUpdated", "ResourceBindingVersionUpdated", "Resource binding version updated to %s", bindingVersion)
 		versionUpdated = true
 	}
 
@@ -894,7 +886,7 @@ func (r *DynamicResourceRequestController) setPausedReconciliationStatusConditio
 	reconciled := resourceutil.GetCondition(rr, resourceutil.ReconciledCondition)
 	if reconciled == nil || reconciled.Status != "Unknown" || reconciled.Message != "Paused" {
 		resourceutil.MarkReconciledPaused(rr)
-		r.EventRecorder.Event(rr, v1.EventTypeWarning, pausedReconciliationReason, eventMsg)
+		r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, pausedReconciliationReason, pausedReconciliationReason, "%s", eventMsg)
 		return r.Client.Status().Update(ctx, rr)
 	}
 	return nil
@@ -1032,7 +1024,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
 			if errors.Is(err, workflow.ErrDeletePipelineFailed) {
-				r.EventRecorder.Event(resourceRequest, "Warning", "Failed Pipeline", "The Delete Pipeline has failed")
+				r.EventRecorder.Eventf(resourceRequest, nil, "Warning", "Failed Pipeline", "Failed Pipeline", "%s", "The Delete Pipeline has failed")
 				resourceutil.MarkDeleteWorkflowAsFailed(o.logger, resourceRequest)
 				if err := r.Client.Status().Update(o.ctx, resourceRequest); err != nil {
 					logging.Error(o.logger, err, "failed to update resource request status", "promise", promise.GetName(),
@@ -1337,7 +1329,7 @@ func getPromiseRevisionForReconcile(ctx context.Context, rr *unstructured.Unstru
 	promiseRevisionToUse, err = fetchRevision(ctx, r.Client, promise, resourceBinding, statusPromiseVersion)
 	if err != nil {
 		baseLogger.Error(err, "failed to fetch PromiseRevision for ResourceRequest")
-		r.EventRecorder.Event(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, err.Error())
+		r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, promiseRevisionLookupFailedReason, promiseRevisionLookupFailedReason, "%s", err.Error())
 		return nil, nil, err
 	}
 
@@ -1366,7 +1358,7 @@ func getPromiseRevisionForDelete(ctx context.Context, rr *unstructured.Unstructu
 	promiseRevisionToUse, err := fetchRevisionForDelete(ctx, r.Client, promise, rr, resourceBinding)
 	if err != nil {
 		baseLogger.Error(err, "failed to fetch PromiseRevision for ResourceRequest delete")
-		r.EventRecorder.Event(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, err.Error())
+		r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, promiseRevisionLookupFailedReason, promiseRevisionLookupFailedReason, "%s", err.Error())
 		return nil, nil, err
 	}
 

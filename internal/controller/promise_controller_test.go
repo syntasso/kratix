@@ -17,7 +17,7 @@ import (
 
 	"github.com/syntasso/kratix/internal/ptr"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
@@ -59,7 +59,7 @@ var (
 	promiseCommonLabels    map[string]string
 	dynamicControllerCache *informertest.FakeInformers
 	l                      logr.Logger
-	eventRecorder          *record.FakeRecorder
+	eventRecorder          *events.FakeRecorder
 )
 
 var _ = Describe("PromiseController", func() {
@@ -73,7 +73,7 @@ var _ = Describe("PromiseController", func() {
 		m.GetControllerOptionsReturns(controllerConfig.Controller{
 			SkipNameValidation: ptr.True()})
 		m.GetCacheReturns(dynamicControllerCache)
-		eventRecorder = record.NewFakeRecorder(1024)
+		eventRecorder = events.NewFakeRecorder(1024)
 		reconciler = &controller.PromiseReconciler{
 			Client:                 fakeK8sClient,
 			ApiextensionsClient:    fakeApiExtensionsClient,

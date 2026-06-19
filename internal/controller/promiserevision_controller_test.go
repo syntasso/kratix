@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -37,12 +37,12 @@ import (
 var _ = Describe("PromiseRevisionController", func() {
 	var reconciler *controller.PromiseRevisionReconciler
 	var l logr.Logger
-	var eventRecorder *record.FakeRecorder
+	var eventRecorder *events.FakeRecorder
 
 	BeforeEach(func() {
 		ctx = context.Background()
 		l = ctrl.Log.WithName("controllers").WithName("PromiseRevision")
-		eventRecorder = record.NewFakeRecorder(1024)
+		eventRecorder = events.NewFakeRecorder(1024)
 		reconciler = &controller.PromiseRevisionReconciler{
 			Client:        fakeK8sClient,
 			Log:           l,
