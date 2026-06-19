@@ -62,6 +62,7 @@ const promiseCleanupFinalizer = v1alpha1.KratixPrefix + "promise-cleanup"
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promisereleases/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promisereleases/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+//+kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	logger := log.FromContext(ctx).WithValues(
