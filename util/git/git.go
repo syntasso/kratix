@@ -3,7 +3,6 @@
 //
 // Modifications Copyright 2026 Syntasso
 
-//go:generate mockgen -source=git.go -destination=mocks/mock_client.go -package=mocks
 package git
 
 import (

@@ -33,6 +33,7 @@ type gitAuthor struct {
 	Email string
 }
 
+//counterfeiter:generate . GitExecutor
 type GitExecutor interface {
 	Add(files ...string) (string, error)
 	Clone(branch string) (repoDir string, err error)
@@ -46,7 +47,8 @@ type GitExecutor interface {
 	RemoveFile(file string) error
 }
 
-type batchFileRemover interface {
+//counterfeiter:generate . BatchFileRemover
+type BatchFileRemover interface {
 	RemoveFiles(files ...string) error
 }
 
@@ -200,7 +202,7 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 			return nil
 		}
 
-		if remover, ok := g.Runner.(batchFileRemover); ok {
+		if remover, ok := g.Runner.(BatchFileRemover); ok {
 			if err := remover.RemoveFiles(filesToRemove...); err != nil {
 				logging.Error(logger, err, "could not remove files from worktree")
 				return err
