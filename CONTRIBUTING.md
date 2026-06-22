@@ -30,7 +30,6 @@ Make sure the installed binary is available on your `PATH` (typically `$(go env 
 ```bash
 make lint
 ```
+## Contributor Licence Agreement
 
-
-
-
+Before making contributions to the Kratix codebase, you will be asked to sign the [Kratix CLA](https://gist.github.com/syntassodev/e66b99a39f2c6ef6d79ca3ea76fc0803). When you make a commit you will be notified on the pull request that you need to agree to the terms in the CLA. You will only have to do this once and all your future contributions will be covered!
