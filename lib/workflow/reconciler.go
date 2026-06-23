@@ -8,7 +8,7 @@ import (
 	"time"
 
 	rbacv1 "k8s.io/api/rbac/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -33,7 +33,7 @@ type Opts struct {
 	Resources          []v1alpha1.PipelineJobResources
 	workflowType       string
 	numberOfJobsToKeep int
-	eventRecorder      record.EventRecorder
+	eventRecorder      events.EventRecorder
 	namespace          string
 
 	// Set by other controllers that use the Workflow engine
@@ -47,7 +47,7 @@ func (o *Opts) SetParentObject(parentObj *unstructured.Unstructured) {
 var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
 var ErrDeletePipelineFailed = fmt.Errorf("delete Pipeline Failed")
 
-func NewOpts(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, workflowType string, numberOfJobsToKeep int, namespace string) Opts {
+func NewOpts(ctx context.Context, client client.Client, eventRecorder events.EventRecorder, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, workflowType string, numberOfJobsToKeep int, namespace string) Opts {
 	return Opts{
 		ctx:                ctx,
 		client:             client,
@@ -94,7 +94,7 @@ func ReconcileDelete(opts Opts) (bool, error) {
 			if err = suspendJob(opts.ctx, opts.client, mostRecentJob); err != nil {
 				logging.Error(opts.logger, err, "failed to suspend job", "job", mostRecentJob.GetName())
 			}
-			opts.eventRecorder.Eventf(opts.parentObject, "Normal", "PipelineSuspended", "Delete Pipeline suspended: %s", opts.Resources[0].Name)
+			opts.eventRecorder.Eventf(opts.parentObject, nil, "Normal", "PipelineSuspended", "PipelineSuspended", "Delete Pipeline suspended: %s", opts.Resources[0].Name)
 			return true, err
 		}
 
@@ -142,7 +142,7 @@ func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) (pa
 	}
 	//TODO retrieve error information from applyResources to return to the caller
 	applyResources(opts, append(pipeline.GetObjects(), pipeline.Job)...)
-	opts.eventRecorder.Eventf(opts.parentObject, "Normal", "PipelineStarted", "Delete Pipeline started: %s", opts.Resources[0].Name)
+	opts.eventRecorder.Eventf(opts.parentObject, nil, "Normal", "PipelineStarted", "PipelineStarted", "Delete Pipeline started: %s", opts.Resources[0].Name)
 	return true, nil
 }
 
@@ -403,8 +403,7 @@ func setFailedConditionAndEvents(opts Opts, state *workflowState, pipeline v1alp
 			return false, err
 		}
 	}
-	opts.eventRecorder.Eventf(opts.parentObject, v1.EventTypeWarning,
-		resourceutil.ConfigureWorkflowCompletedFailedReason, "A %s/configure Pipeline has failed: %s", opts.workflowType, pipeline.Name)
+	opts.eventRecorder.Eventf(opts.parentObject, nil, v1.EventTypeWarning, resourceutil.ConfigureWorkflowCompletedFailedReason, resourceutil.ConfigureWorkflowCompletedFailedReason, "A %s/configure Pipeline has failed: %s", opts.workflowType, pipeline.Name)
 	logging.Warn(opts.logger, "pipeline job failed; exiting workflow", "failedJob", state.mostRecentJob.Name, "pipeline", pipeline.Name)
 	return true, nil
 }
@@ -634,7 +633,7 @@ func createConfigurePipeline(opts Opts, state *workflowState, resources v1alpha1
 	deleteResources(opts, objectToDelete...)
 	applyResources(opts, append(resources.GetObjects(), resources.Job)...)
 
-	opts.eventRecorder.Eventf(opts.parentObject, "Normal", "PipelineStarted", "Configure Pipeline started: %s", resources.Name)
+	opts.eventRecorder.Eventf(opts.parentObject, nil, "Normal", "PipelineStarted", "PipelineStarted", "Configure Pipeline started: %s", resources.Name)
 
 	if err = setPipelineStartingStatus(opts, state.pipelineIndex, opts.parentObject, resources.Job); err != nil {
 		return false, err
@@ -771,12 +770,15 @@ func applyResources(opts Opts, resources ...client.Object) {
 	logging.Debug(opts.logger, "reconciling pipeline resources")
 
 	for _, resource := range resources {
-		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", resource.GetObjectKind().GroupVersionKind().String(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
+		// Capture the GVK before calling Create: the client clears TypeMeta on
+		// typed objects, so resource.GetObjectKind() is empty afterwards.
+		gvk := resource.GetObjectKind().GroupVersionKind()
+		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", gvk.String(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
 
 		logging.Debug(logger, "reconciling resource")
 		if err := opts.client.Create(opts.ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
-				if resource.GetObjectKind().GroupVersionKind().Kind == rbacv1.ServiceAccountKind {
+				if gvk.Kind == rbacv1.ServiceAccountKind {
 					serviceAccount := &v1.ServiceAccount{}
 					if err := opts.client.Get(opts.ctx, client.ObjectKey{Namespace: resource.GetNamespace(), Name: resource.GetName()}, serviceAccount); err != nil {
 						logging.Error(logger, err, "error getting service account")

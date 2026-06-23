@@ -156,9 +156,6 @@ func logReconcileDuration(logger logr.Logger, start time.Time, result ctrl.Resul
 	return func() {
 		duration := time.Since(start)
 		fields := []any{"duration", duration}
-		if result.Requeue {
-			fields = append(fields, "requeue", true)
-		}
 		if result.RequeueAfter > 0 {
 			fields = append(fields, "requeueAfter", result.RequeueAfter)
 		}

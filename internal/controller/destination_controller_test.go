@@ -31,7 +31,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -45,13 +45,13 @@ var _ = Describe("DestinationReconciler", func() {
 		fakeWriter          *writersfakes.FakeStateStoreWriter
 		stateStoreSecret    *corev1.Secret
 		stateStore          client.Object
-		eventRecorder       *record.FakeRecorder
+		eventRecorder       *events.FakeRecorder
 		updatedDestination  *v1alpha1.Destination
 		repositoryCache     *controllerfakes.FakeRepositoryCache
 	)
 
 	BeforeEach(func() {
-		eventRecorder = record.NewFakeRecorder(1024)
+		eventRecorder = events.NewFakeRecorder(1024)
 		repositoryCache = &controllerfakes.FakeRepositoryCache{}
 		ctx = context.Background()
 
@@ -450,11 +450,11 @@ func assertCanaryFilesWereCreated(fakeWriter *writersfakes.FakeStateStoreWriter)
 	ExpectWithOffset(1, workloadsToCreate).To(ConsistOf(
 		v1alpha1.Workload{
 			Filepath: "test-path/kratix-canary-namespace.yaml",
-			Content:  "apiVersion: v1\nkind: Namespace\nmetadata:\n  creationTimestamp: null\n  name: kratix-worker-system\nspec: {}\nstatus: {}\n",
+			Content:  "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: kratix-worker-system\nspec: {}\nstatus: {}\n",
 		},
 		v1alpha1.Workload{
 			Filepath: "test-path/kratix-canary-configmap.yaml",
-			Content:  "apiVersion: v1\ndata:\n  canary: this confirms your infrastructure is reading from Kratix state stores\nkind: ConfigMap\nmetadata:\n  creationTimestamp: null\n  name: kratix-info\n  namespace: kratix-worker-system\n",
+			Content:  "apiVersion: v1\ndata:\n  canary: this confirms your infrastructure is reading from Kratix state stores\nkind: ConfigMap\nmetadata:\n  name: kratix-info\n  namespace: kratix-worker-system\n",
 		},
 	))
 

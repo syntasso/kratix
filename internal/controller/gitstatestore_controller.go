@@ -25,7 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,7 +39,7 @@ type GitStateStoreReconciler struct {
 	client.Client
 	Scheme          *runtime.Scheme
 	Log             logr.Logger
-	EventRecorder   record.EventRecorder
+	EventRecorder   events.EventRecorder
 	RepositoryCache RepositoryCache
 }
 
@@ -80,6 +80,11 @@ func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logge
 		}
 		return nil, NewInitialiseWriterError(err)
 	}
+	// Typed objects are not guaranteed to carry TypeMeta: a known upstream
+	// controller-runtime behaviour leaves the GVK unset on objects returned from
+	// some client operations. Downstream logic keys off the Kind for the
+	// repository cache lookup, so set the GVK explicitly.
+	gitStateStore.GetObjectKind().SetGroupVersionKind(v1alpha1.GroupVersion.WithKind("GitStateStore"))
 
 	stateStoreCtx := &stateStoreReconcileContext{
 		ctx:             ctx,

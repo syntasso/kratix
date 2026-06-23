@@ -249,12 +249,6 @@ func (fake *FakeRepositoryCache) InitRepositoryReturnsOnCall(i int, result1 *con
 func (fake *FakeRepositoryCache) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.cleanupMutex.RLock()
-	defer fake.cleanupMutex.RUnlock()
-	fake.getRepositoryByTypeAndNameMutex.RLock()
-	defer fake.getRepositoryByTypeAndNameMutex.RUnlock()
-	fake.initRepositoryMutex.RLock()
-	defer fake.initRepositoryMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

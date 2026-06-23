@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"github.com/syntasso/kratix/lib/objectutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // SkipResourceRequestCleanupOnDeleteAnnotation is set on a PromiseRevision that is being removed
@@ -92,7 +93,10 @@ type PromiseRevisionList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&PromiseRevision{}, &PromiseRevisionList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &PromiseRevision{}, &PromiseRevisionList{})
+		return nil
+	})
 }
 
 func (pr *PromiseRevision) GetPromiseName() string {

@@ -14,7 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -26,7 +26,7 @@ var _ = Describe("HealthRecordController", func() {
 		resource      *unstructured.Unstructured
 		details       *runtime.RawExtension
 		reconciler    *controller.HealthRecordReconciler
-		eventRecorder *record.FakeRecorder
+		eventRecorder *events.FakeRecorder
 	)
 
 	reconcile := func() *unstructured.Unstructured {
@@ -66,7 +66,7 @@ var _ = Describe("HealthRecordController", func() {
 			},
 		}
 
-		eventRecorder = record.NewFakeRecorder(1024)
+		eventRecorder = events.NewFakeRecorder(1024)
 
 		reconciler = &controller.HealthRecordReconciler{
 			Client:        fakeK8sClient,

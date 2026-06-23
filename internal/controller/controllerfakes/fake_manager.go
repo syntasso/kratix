@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -18,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/conversion"
 )
 
 type FakeManager struct {
@@ -127,6 +129,27 @@ type FakeManager struct {
 	}
 	getControllerOptionsReturnsOnCall map[int]struct {
 		result1 config.Controller
+	}
+	GetConverterRegistryStub        func() conversion.Registry
+	getConverterRegistryMutex       sync.RWMutex
+	getConverterRegistryArgsForCall []struct {
+	}
+	getConverterRegistryReturns struct {
+		result1 conversion.Registry
+	}
+	getConverterRegistryReturnsOnCall map[int]struct {
+		result1 conversion.Registry
+	}
+	GetEventRecorderStub        func(string) events.EventRecorder
+	getEventRecorderMutex       sync.RWMutex
+	getEventRecorderArgsForCall []struct {
+		arg1 string
+	}
+	getEventRecorderReturns struct {
+		result1 events.EventRecorder
+	}
+	getEventRecorderReturnsOnCall map[int]struct {
+		result1 events.EventRecorder
 	}
 	GetEventRecorderForStub        func(string) record.EventRecorder
 	getEventRecorderForMutex       sync.RWMutex
@@ -779,6 +802,120 @@ func (fake *FakeManager) GetControllerOptionsReturnsOnCall(i int, result1 config
 	}{result1}
 }
 
+func (fake *FakeManager) GetConverterRegistry() conversion.Registry {
+	fake.getConverterRegistryMutex.Lock()
+	ret, specificReturn := fake.getConverterRegistryReturnsOnCall[len(fake.getConverterRegistryArgsForCall)]
+	fake.getConverterRegistryArgsForCall = append(fake.getConverterRegistryArgsForCall, struct {
+	}{})
+	stub := fake.GetConverterRegistryStub
+	fakeReturns := fake.getConverterRegistryReturns
+	fake.recordInvocation("GetConverterRegistry", []interface{}{})
+	fake.getConverterRegistryMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeManager) GetConverterRegistryCallCount() int {
+	fake.getConverterRegistryMutex.RLock()
+	defer fake.getConverterRegistryMutex.RUnlock()
+	return len(fake.getConverterRegistryArgsForCall)
+}
+
+func (fake *FakeManager) GetConverterRegistryCalls(stub func() conversion.Registry) {
+	fake.getConverterRegistryMutex.Lock()
+	defer fake.getConverterRegistryMutex.Unlock()
+	fake.GetConverterRegistryStub = stub
+}
+
+func (fake *FakeManager) GetConverterRegistryReturns(result1 conversion.Registry) {
+	fake.getConverterRegistryMutex.Lock()
+	defer fake.getConverterRegistryMutex.Unlock()
+	fake.GetConverterRegistryStub = nil
+	fake.getConverterRegistryReturns = struct {
+		result1 conversion.Registry
+	}{result1}
+}
+
+func (fake *FakeManager) GetConverterRegistryReturnsOnCall(i int, result1 conversion.Registry) {
+	fake.getConverterRegistryMutex.Lock()
+	defer fake.getConverterRegistryMutex.Unlock()
+	fake.GetConverterRegistryStub = nil
+	if fake.getConverterRegistryReturnsOnCall == nil {
+		fake.getConverterRegistryReturnsOnCall = make(map[int]struct {
+			result1 conversion.Registry
+		})
+	}
+	fake.getConverterRegistryReturnsOnCall[i] = struct {
+		result1 conversion.Registry
+	}{result1}
+}
+
+func (fake *FakeManager) GetEventRecorder(arg1 string) events.EventRecorder {
+	fake.getEventRecorderMutex.Lock()
+	ret, specificReturn := fake.getEventRecorderReturnsOnCall[len(fake.getEventRecorderArgsForCall)]
+	fake.getEventRecorderArgsForCall = append(fake.getEventRecorderArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.GetEventRecorderStub
+	fakeReturns := fake.getEventRecorderReturns
+	fake.recordInvocation("GetEventRecorder", []interface{}{arg1})
+	fake.getEventRecorderMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeManager) GetEventRecorderCallCount() int {
+	fake.getEventRecorderMutex.RLock()
+	defer fake.getEventRecorderMutex.RUnlock()
+	return len(fake.getEventRecorderArgsForCall)
+}
+
+func (fake *FakeManager) GetEventRecorderCalls(stub func(string) events.EventRecorder) {
+	fake.getEventRecorderMutex.Lock()
+	defer fake.getEventRecorderMutex.Unlock()
+	fake.GetEventRecorderStub = stub
+}
+
+func (fake *FakeManager) GetEventRecorderArgsForCall(i int) string {
+	fake.getEventRecorderMutex.RLock()
+	defer fake.getEventRecorderMutex.RUnlock()
+	argsForCall := fake.getEventRecorderArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeManager) GetEventRecorderReturns(result1 events.EventRecorder) {
+	fake.getEventRecorderMutex.Lock()
+	defer fake.getEventRecorderMutex.Unlock()
+	fake.GetEventRecorderStub = nil
+	fake.getEventRecorderReturns = struct {
+		result1 events.EventRecorder
+	}{result1}
+}
+
+func (fake *FakeManager) GetEventRecorderReturnsOnCall(i int, result1 events.EventRecorder) {
+	fake.getEventRecorderMutex.Lock()
+	defer fake.getEventRecorderMutex.Unlock()
+	fake.GetEventRecorderStub = nil
+	if fake.getEventRecorderReturnsOnCall == nil {
+		fake.getEventRecorderReturnsOnCall = make(map[int]struct {
+			result1 events.EventRecorder
+		})
+	}
+	fake.getEventRecorderReturnsOnCall[i] = struct {
+		result1 events.EventRecorder
+	}{result1}
+}
+
 func (fake *FakeManager) GetEventRecorderFor(arg1 string) record.EventRecorder {
 	fake.getEventRecorderForMutex.Lock()
 	ret, specificReturn := fake.getEventRecorderForReturnsOnCall[len(fake.getEventRecorderForArgsForCall)]
@@ -1222,42 +1359,6 @@ func (fake *FakeManager) StartReturnsOnCall(i int, result1 error) {
 func (fake *FakeManager) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.addMutex.RLock()
-	defer fake.addMutex.RUnlock()
-	fake.addHealthzCheckMutex.RLock()
-	defer fake.addHealthzCheckMutex.RUnlock()
-	fake.addMetricsServerExtraHandlerMutex.RLock()
-	defer fake.addMetricsServerExtraHandlerMutex.RUnlock()
-	fake.addReadyzCheckMutex.RLock()
-	defer fake.addReadyzCheckMutex.RUnlock()
-	fake.electedMutex.RLock()
-	defer fake.electedMutex.RUnlock()
-	fake.getAPIReaderMutex.RLock()
-	defer fake.getAPIReaderMutex.RUnlock()
-	fake.getCacheMutex.RLock()
-	defer fake.getCacheMutex.RUnlock()
-	fake.getClientMutex.RLock()
-	defer fake.getClientMutex.RUnlock()
-	fake.getConfigMutex.RLock()
-	defer fake.getConfigMutex.RUnlock()
-	fake.getControllerOptionsMutex.RLock()
-	defer fake.getControllerOptionsMutex.RUnlock()
-	fake.getEventRecorderForMutex.RLock()
-	defer fake.getEventRecorderForMutex.RUnlock()
-	fake.getFieldIndexerMutex.RLock()
-	defer fake.getFieldIndexerMutex.RUnlock()
-	fake.getHTTPClientMutex.RLock()
-	defer fake.getHTTPClientMutex.RUnlock()
-	fake.getLoggerMutex.RLock()
-	defer fake.getLoggerMutex.RUnlock()
-	fake.getRESTMapperMutex.RLock()
-	defer fake.getRESTMapperMutex.RUnlock()
-	fake.getSchemeMutex.RLock()
-	defer fake.getSchemeMutex.RUnlock()
-	fake.getWebhookServerMutex.RLock()
-	defer fake.getWebhookServerMutex.RUnlock()
-	fake.startMutex.RLock()
-	defer fake.startMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

@@ -468,18 +468,6 @@ func (fake *FakeStateStoreWriter) ValidatePermissionsReturnsOnCall(i int, result
 func (fake *FakeStateStoreWriter) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.deleteFilesMutex.RLock()
-	defer fake.deleteFilesMutex.RUnlock()
-	fake.initMutex.RLock()
-	defer fake.initMutex.RUnlock()
-	fake.readFileMutex.RLock()
-	defer fake.readFileMutex.RUnlock()
-	fake.resetMutex.RLock()
-	defer fake.resetMutex.RUnlock()
-	fake.updateFilesMutex.RLock()
-	defer fake.updateFilesMutex.RUnlock()
-	fake.validatePermissionsMutex.RLock()
-	defer fake.validatePermissionsMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

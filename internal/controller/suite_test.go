@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -140,7 +141,9 @@ func setReconcileConfigureWorkflowToReturnFinished() {
 func setReconcileDeleteWorkflowToReturnFinished(obj client.Object) {
 	controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
 		us := &unstructured.Unstructured{}
-		us.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
+		gvk, err := apiutil.GVKForObject(obj, fakeK8sClient.Scheme())
+		Expect(err).NotTo(HaveOccurred())
+		us.SetGroupVersionKind(gvk)
 		Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
 			Name:      obj.GetName(),
 			Namespace: obj.GetNamespace(),
@@ -154,7 +157,9 @@ func setReconcileDeleteWorkflowToReturnFinished(obj client.Object) {
 func setReconcileDeleteWorkflowToReturnError(obj client.Object) {
 	controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
 		us := &unstructured.Unstructured{}
-		us.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
+		gvk, err := apiutil.GVKForObject(obj, fakeK8sClient.Scheme())
+		Expect(err).NotTo(HaveOccurred())
+		us.SetGroupVersionKind(gvk)
 		Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
 			Name:      obj.GetName(),
 			Namespace: obj.GetNamespace(),

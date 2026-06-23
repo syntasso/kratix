@@ -21,7 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -32,10 +32,10 @@ var _ = Describe("Workflow Reconciler", func() {
 	var workflowPipelines []v1alpha1.PipelineJobResources
 	var uPromise *unstructured.Unstructured
 	var pipelines []v1alpha1.Pipeline
-	var eventRecorder *record.FakeRecorder
+	var eventRecorder *events.FakeRecorder
 
 	BeforeEach(func() {
-		eventRecorder = record.NewFakeRecorder(1024)
+		eventRecorder = events.NewFakeRecorder(1024)
 
 		promise = v1alpha1.Promise{
 			ObjectMeta: metav1.ObjectMeta{
@@ -2454,7 +2454,7 @@ func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]v1alp
 	return workflowPipelines, uPromise
 }
 
-func setupAndReconcileUntilPipelinesCompleted(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline, eventRecorder record.EventRecorder) ([]v1alpha1.PipelineJobResources, *unstructured.Unstructured) {
+func setupAndReconcileUntilPipelinesCompleted(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline, eventRecorder events.EventRecorder) ([]v1alpha1.PipelineJobResources, *unstructured.Unstructured) {
 	updatedWorkflowPipeline, uPromise := setupTest(promise, pipelines)
 	opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", 5, namespace)
 	_, err := workflow.ReconcileConfigure(opts)
@@ -2560,7 +2560,7 @@ func userPermissionPipelineLabels(promise v1alpha1.Promise, pipeline v1alpha1.Pi
 	})
 }
 
-func forceManualReconciliation(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline, eventRecorder record.EventRecorder) {
+func forceManualReconciliation(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline, eventRecorder events.EventRecorder) {
 	GinkgoHelper()
 	labelPromiseForManualReconciliation(promise.GetName())
 	resources, uPromise := setupTest(promise, pipelines)

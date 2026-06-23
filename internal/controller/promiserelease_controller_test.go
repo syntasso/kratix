@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -275,7 +275,7 @@ var _ = Describe("PromiseReleaseController", func() {
 				When("the Promise manifest is invalid", func() {
 					var (
 						promiseNamespacedName types.NamespacedName
-						eventRecorder         *record.FakeRecorder
+						eventRecorder         *events.FakeRecorder
 					)
 
 					BeforeEach(func() {
@@ -293,7 +293,7 @@ var _ = Describe("PromiseReleaseController", func() {
 							),
 						}
 
-						eventRecorder = record.NewFakeRecorder(1024)
+						eventRecorder = events.NewFakeRecorder(1024)
 
 						reconciler = &controller.PromiseReleaseReconciler{
 							Client:         fakeK8sClient,
@@ -459,7 +459,7 @@ var _ = Describe("PromiseReleaseController", func() {
 	When("the PromiseRelease is installed", func() {
 		var (
 			promiseNamespacedName types.NamespacedName
-			eventRecorder         *record.FakeRecorder
+			eventRecorder         *events.FakeRecorder
 		)
 
 		BeforeEach(func() {
@@ -478,7 +478,7 @@ var _ = Describe("PromiseReleaseController", func() {
 				),
 			}
 
-			eventRecorder = record.NewFakeRecorder(1024)
+			eventRecorder = events.NewFakeRecorder(1024)
 
 			reconciler = &controller.PromiseReleaseReconciler{
 				Client:         fakeK8sClient,

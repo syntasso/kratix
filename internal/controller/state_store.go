@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -98,7 +98,7 @@ type stateStoreReconcileContext struct {
 
 	logger        logr.Logger
 	client        client.Client
-	eventRecorder record.EventRecorder
+	eventRecorder events.EventRecorder
 
 	stateStore       StateStore
 	stateStoreSecret v1.Secret
@@ -182,16 +182,11 @@ func (reconcileCtx *stateStoreReconcileContext) recordReadyEvent() {
 		reconcileCtx.stateStore.GetObjectKind().GroupVersionKind().Kind,
 		reconcileCtx.stateStore.GetName(),
 	)
-	reconcileCtx.eventRecorder.Eventf(reconcileCtx.stateStore, v1.EventTypeNormal, "Ready", eventMessage)
+	reconcileCtx.eventRecorder.Eventf(reconcileCtx.stateStore, nil, v1.EventTypeNormal, "Ready", "Ready", "%s", eventMessage)
 }
 
 func (reconcileCtx *stateStoreReconcileContext) recordNotReadyEvent(err *StateStoreError) {
-	reconcileCtx.eventRecorder.Eventf(
-		reconcileCtx.stateStore,
-		v1.EventTypeWarning,
-		"NotReady",
-		err.Message,
-	)
+	reconcileCtx.eventRecorder.Eventf(reconcileCtx.stateStore, nil, v1.EventTypeWarning, "NotReady", "NotReady", "%s", err.Message)
 }
 
 type StateStoreError struct {

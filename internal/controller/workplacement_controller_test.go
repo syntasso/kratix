@@ -26,7 +26,7 @@ import (
 	"github.com/syntasso/kratix/internal/telemetry"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -53,7 +53,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 		destination           v1alpha1.Destination
 		gitStateStore         v1alpha1.GitStateStore
 		bucketStateStore      v1alpha1.BucketStateStore
-		workplacementRecorder *record.FakeRecorder
+		workplacementRecorder *events.FakeRecorder
 
 		workPlacementName = "test-work-placement"
 		workPlacement     v1alpha1.WorkPlacement
@@ -73,7 +73,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 		repositoryCache = &controllerfakes.FakeRepositoryCache{}
 
 		ctx = context.Background()
-		workplacementRecorder = record.NewFakeRecorder(1024)
+		workplacementRecorder = events.NewFakeRecorder(1024)
 		reconciler = &controller.WorkPlacementReconciler{
 			Client:          fakeK8sClient,
 			Log:             ctrl.Log.WithName("controllers").WithName("Workplacement"),

@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	kubebuilder "sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -87,15 +88,24 @@ type testReconciler struct {
 
 func (t *testReconciler) reconcileUntilCompletion(r kubebuilder.Reconciler, obj client.Object, opts ...*opts) (ctrl.Result, error) {
 	t.reconcileCount++
+
+	// Derive the GVK from the scheme rather than the object's TypeMeta: the fake
+	// client clears TypeMeta on structured objects when they are created, so
+	// obj.GetObjectKind().GroupVersionKind() is empty by the time it reaches here.
+	gvk, err := apiutil.GVKForObject(obj, fakeK8sClient.Scheme())
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	k8sObj := &unstructured.Unstructured{}
-	k8sObj.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
+	k8sObj.SetGroupVersionKind(gvk)
 
 	namespacedName := types.NamespacedName{
 		Name:      obj.GetName(),
 		Namespace: obj.GetNamespace(),
 	}
 
-	err := fakeK8sClient.Get(context.Background(), namespacedName, k8sObj)
+	err = fakeK8sClient.Get(context.Background(), namespacedName, k8sObj)
 	if err != nil {
 		GinkgoWriter.Write([]byte("resource doesn't exist, reconciling 1 last time"))
 		return r.Reconcile(context.Background(), ctrl.Request{NamespacedName: namespacedName})
@@ -135,7 +145,7 @@ func (t *testReconciler) reconcileUntilCompletion(r kubebuilder.Reconciler, obj 
 	}
 
 	newK8sObj := &unstructured.Unstructured{}
-	newK8sObj.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
+	newK8sObj.SetGroupVersionKind(gvk)
 	err = fakeK8sClient.Get(context.Background(), namespacedName, newK8sObj)
 	if err != nil {
 		if errors.IsNotFound(err) {

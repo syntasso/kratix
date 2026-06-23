@@ -29,7 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -42,7 +42,7 @@ type HealthRecordReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
 	Log           logr.Logger
-	EventRecorder record.EventRecorder
+	EventRecorder events.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=healthrecords,verbs=get;list;watch;create;update;patch;delete
@@ -202,9 +202,9 @@ func (r *HealthRecordReconciler) fireEvent(
 	resReq *unstructured.Unstructured,
 ) {
 	if healthRecord.Data.State != "healthy" && healthRecord.Data.State != "ready" {
-		r.EventRecorder.Eventf(resReq, "Warning", "HealthRecord", "Health state is %s", healthRecord.Data.State)
+		r.EventRecorder.Eventf(resReq, nil, "Warning", "HealthRecord", "HealthRecord", "Health state is %s", healthRecord.Data.State)
 	} else {
-		r.EventRecorder.Eventf(resReq, "Normal", "HealthRecord", "Health state is %s", healthRecord.Data.State)
+		r.EventRecorder.Eventf(resReq, nil, "Normal", "HealthRecord", "HealthRecord", "Health state is %s", healthRecord.Data.State)
 	}
 }
 

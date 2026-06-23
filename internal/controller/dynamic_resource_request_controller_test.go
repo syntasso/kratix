@@ -23,7 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,7 +39,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		resReq              *unstructured.Unstructured
 		resReqNameNamespace types.NamespacedName
 		startTime           time.Time
-		eventRecorder       *record.FakeRecorder
+		eventRecorder       *events.FakeRecorder
 	)
 
 	BeforeEach(func() {
@@ -52,7 +52,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 		l = ctrl.Log.WithName("controllers").WithName("dynamic")
 
-		eventRecorder = record.NewFakeRecorder(1024)
+		eventRecorder = events.NewFakeRecorder(1024)
 
 		reconciler = &controller.DynamicResourceRequestController{
 			CanCreateResources:          ptr.True(),

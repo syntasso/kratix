@@ -26,7 +26,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,7 +44,7 @@ var _ = Describe("BucketStateStore Controller", func() {
 		updatedBucketStateStore  *v1alpha1.BucketStateStore
 		reconciler               *controller.BucketStateStoreReconciler
 		fakeWriter               *writersfakes.FakeStateStoreWriter
-		eventRecorder            *record.FakeRecorder
+		eventRecorder            *events.FakeRecorder
 		secret                   *corev1.Secret
 		ctx                      context.Context
 		testBucketStateStoreName types.NamespacedName
@@ -61,7 +61,7 @@ var _ = Describe("BucketStateStore Controller", func() {
 
 		secretName = "store-secret"
 		repositoryCache = controller.NewRepositoryCache()
-		eventRecorder = record.NewFakeRecorder(1024)
+		eventRecorder = events.NewFakeRecorder(1024)
 
 		fakeWriter = &writersfakes.FakeStateStoreWriter{}
 		controller.SetNewS3Writer(

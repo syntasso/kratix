@@ -25,10 +25,8 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -42,16 +40,11 @@ type DestinationCustomDefaulter struct {
 	Logger logr.Logger
 }
 
-var _ webhook.CustomDefaulter = &DestinationCustomDefaulter{}
+var _ admission.Defaulter[*v1alpha1.Destination] = &DestinationCustomDefaulter{}
 
 // Default implements a Mutating Webhook for the Destination resource.
-func (d *DestinationCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
+func (d *DestinationCustomDefaulter) Default(ctx context.Context, desiredDestination *v1alpha1.Destination) error {
 	// The desired destination is the incoming change, as requested by the user
-	desiredDestination, ok := obj.(*v1alpha1.Destination)
-	if !ok {
-		return fmt.Errorf("expected Destination but got %T", obj)
-	}
-
 	d.Logger.Info("defaulting Destination", "name", desiredDestination.Name)
 
 	if desiredDestination.Annotations == nil {
@@ -82,15 +75,10 @@ type DestinationCustomValidator struct {
 	Client client.Client
 }
 
-var _ webhook.CustomValidator = &DestinationCustomValidator{}
+var _ admission.Validator[*v1alpha1.Destination] = &DestinationCustomValidator{}
 
 // ValidateCreate implements a validating webhook for the Destination resource.
-func (v *DestinationCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	destination, ok := obj.(*v1alpha1.Destination)
-	if !ok {
-		return nil, fmt.Errorf("expected Destination but got %T", obj)
-	}
-
+func (v *DestinationCustomValidator) ValidateCreate(ctx context.Context, destination *v1alpha1.Destination) (admission.Warnings, error) {
 	if destination.Spec.Path == "" {
 		return nil, stderror.New("path field is required")
 	}
@@ -118,18 +106,18 @@ func (v *DestinationCustomValidator) ValidateCreate(ctx context.Context, obj run
 }
 
 // ValidateUpdate implements a validating webhook for the Destination resource.
-func (v *DestinationCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+func (v *DestinationCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj *v1alpha1.Destination) (admission.Warnings, error) {
 	return v.ValidateCreate(ctx, newObj)
 }
 
 // ValidateDelete implements a validating webhook for the Destination resource.
-func (v *DestinationCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (v *DestinationCustomValidator) ValidateDelete(ctx context.Context, obj *v1alpha1.Destination) (admission.Warnings, error) {
 	return nil, nil
 }
 
 // SetupDestinationWebhookWithManager sets up the mutating and validating webhooks with the Manager.
 func SetupDestinationWebhookWithManager(mgr ctrl.Manager, c client.Client) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&v1alpha1.Destination{}).
+	return ctrl.NewWebhookManagedBy(mgr, &v1alpha1.Destination{}).
 		WithDefaulter(&DestinationCustomDefaulter{Client: c}).
 		WithValidator(&DestinationCustomValidator{Client: c}).
 		Complete()

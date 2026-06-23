@@ -31,12 +31,10 @@ import (
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -49,7 +47,7 @@ var (
 func SetupPromiseWebhookWithManager(mgr ctrl.Manager, cs *clientset.Clientset, c client.Client) error {
 	k8sClient = c
 	k8sClientSet = cs
-	return ctrl.NewWebhookManagedBy(mgr).For(&v1alpha1.Promise{}).
+	return ctrl.NewWebhookManagedBy(mgr, &v1alpha1.Promise{}).
 		WithValidator(&PromiseCustomValidator{}).
 		WithDefaulter(&PromiseCustomDefaulter{}).
 		Complete()
@@ -60,9 +58,9 @@ func SetupPromiseWebhookWithManager(mgr ctrl.Manager, cs *clientset.Clientset, c
 
 type PromiseCustomDefaulter struct{}
 
-var _ webhook.CustomDefaulter = &PromiseCustomDefaulter{}
+var _ admission.Defaulter[*v1alpha1.Promise] = &PromiseCustomDefaulter{}
 
-func (p PromiseCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
+func (p PromiseCustomDefaulter) Default(ctx context.Context, obj *v1alpha1.Promise) error {
 	promiselog.Info("default")
 	return nil
 }
@@ -71,28 +69,16 @@ func (p PromiseCustomDefaulter) Default(ctx context.Context, obj runtime.Object)
 
 type PromiseCustomValidator struct{}
 
-var _ webhook.CustomValidator = &PromiseCustomValidator{}
+var _ admission.Validator[*v1alpha1.Promise] = &PromiseCustomValidator{}
 
-func (v PromiseCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
-	promise, ok := obj.(*v1alpha1.Promise)
-	if !ok {
-		return nil, fmt.Errorf("expected a Promise object but got %T", obj)
-	}
-
+func (v PromiseCustomValidator) ValidateCreate(ctx context.Context, promise *v1alpha1.Promise) (warnings admission.Warnings, err error) {
 	promiselog.Info("validating promise create", "name", promise.Name)
 	return validatePromise(promise)
 }
 
-func (v PromiseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
-	promise, ok := newObj.(*v1alpha1.Promise)
-	if !ok {
-		return nil, fmt.Errorf("expected a Promise object but got %T", newObj)
-	}
-
-	oldPromise, ok := oldObj.(*v1alpha1.Promise)
-	if !ok {
-		return nil, fmt.Errorf("expected a Promise object but got %T", oldObj)
-	}
+func (v PromiseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj *v1alpha1.Promise) (warnings admission.Warnings, err error) {
+	promise := newObj
+	oldPromise := oldObj
 
 	warnings, err = validatePromise(promise)
 	if err != nil {
@@ -106,7 +92,7 @@ func (v PromiseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newO
 	return warnings, nil
 }
 
-func (v PromiseCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+func (v PromiseCustomValidator) ValidateDelete(ctx context.Context, obj *v1alpha1.Promise) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
 

@@ -34,7 +34,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -63,7 +63,7 @@ type WorkPlacementReconciler struct {
 	Client        client.Client
 	Log           logr.Logger
 	VersionCache  map[string]string
-	EventRecorder record.EventRecorder
+	EventRecorder events.EventRecorder
 
 	RepositoryCache RepositoryCache
 }
@@ -75,7 +75,7 @@ type workPlacementReconcileContext struct {
 	logger        logr.Logger
 	trace         *reconcileTrace
 	client        client.Client
-	eventRecorder record.EventRecorder
+	eventRecorder events.EventRecorder
 
 	workPlacement   *v1alpha1.WorkPlacement
 	destination     *v1alpha1.Destination
@@ -253,19 +253,16 @@ func (w *workPlacementReconcileContext) updateResourceStatus(versionID string, e
 
 func (w *workPlacementReconcileContext) publishWriteEvent(reason, versionID string, err error) {
 	if err != nil {
-		w.eventRecorder.Eventf(w.workPlacement, v1.EventTypeWarning, reason,
-			fmt.Sprintf("failed writing to Destination: %s with error: %s; check kubectl get destination for more info", w.workPlacement.Spec.TargetDestinationName, err.Error()))
+		w.eventRecorder.Eventf(w.workPlacement, nil, v1.EventTypeWarning, reason, reason, "%s", fmt.Sprintf("failed writing to Destination: %s with error: %s; check kubectl get destination for more info", w.workPlacement.Spec.TargetDestinationName, err.Error()))
 		return
 	}
 
 	if versionID != "" {
-		w.eventRecorder.Eventf(w.workPlacement, v1.EventTypeNormal, reason,
-			"successfully written to Destination: %s with versionID: %s", w.workPlacement.Spec.TargetDestinationName, versionID)
+		w.eventRecorder.Eventf(w.workPlacement, nil, v1.EventTypeNormal, reason, reason, "successfully written to Destination: %s with versionID: %s", w.workPlacement.Spec.TargetDestinationName, versionID)
 		return
 	}
 
-	w.eventRecorder.Eventf(w.workPlacement, v1.EventTypeNormal, reason,
-		"successfully written to Destination: %s", w.workPlacement.Spec.TargetDestinationName)
+	w.eventRecorder.Eventf(w.workPlacement, nil, v1.EventTypeNormal, reason, reason, "successfully written to Destination: %s", w.workPlacement.Spec.TargetDestinationName)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -353,12 +350,7 @@ func (w *workPlacementReconcileContext) handleDeletion(repo *Repository) (ctrl.R
 
 func (w *workPlacementReconcileContext) logAndRecordError(err error, reason, message string, args ...any) {
 	logging.Error(w.logger, err, message, args...)
-	w.eventRecorder.Eventf(
-		w.workPlacement,
-		v1.EventTypeWarning,
-		reason,
-		"%s: %s", message, err.Error(),
-	)
+	w.eventRecorder.Eventf(w.workPlacement, nil, v1.EventTypeWarning, reason, reason, "%s: %s", message, err.Error())
 }
 
 func (w *workPlacementReconcileContext) generateKratixStateFile(repo *Repository, pathPrefix string) (v1alpha1.Workload, StateFile, error) {
