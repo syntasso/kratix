@@ -394,7 +394,15 @@ func (d *destinationReconcileContext) getCanaryWorkloads() []v1alpha1.Workload {
 func (d *destinationReconcileContext) logAndRecordEvent(err error, message string) {
 	if err != nil {
 		logging.Error(d.logger, err, message)
-		d.eventRecorder.Eventf(d.destination, nil, v1.EventTypeWarning, v1alpha1.DestinationNotReadyReason, v1alpha1.DestinationNotReadyReason, "%s", fmt.Sprintf("%s: %s", message, err.Error()))
+		d.eventRecorder.Eventf(
+			d.destination,
+			nil,
+			v1.EventTypeWarning,
+			v1alpha1.DestinationNotReadyReason,
+			v1alpha1.DestinationNotReadyReason,
+			"%s",
+			fmt.Sprintf("%s: %s", message, err.Error()),
+		)
 	} else {
 		logging.Info(d.logger, message)
 		d.eventRecorder.Eventf(d.destination, nil, v1.EventTypeNormal, v1alpha1.DestinationReadyReason, v1alpha1.DestinationReadyReason, "%s", message)
