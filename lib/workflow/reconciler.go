@@ -117,11 +117,25 @@ func ReconcileDelete(opts Opts) (bool, error) {
 				return true, nil
 			}
 		}
-		return createDeletePipeline(opts, pipeline)
+		return createDeletePipeline(opts, pipeline, true)
 	}
 
 	logging.Debug(opts.logger, "checking status of delete pipeline")
 	if mostRecentJob.Status.Succeeded > 0 {
+		if opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true" {
+			logging.Info(opts.logger, "delete pipeline completed but workflow is suspended; waiting")
+			return true, nil
+		}
+		suspendedIdx, err := resourceutil.GetSuspendedPipelineIndex(opts.parentObject)
+		if err != nil {
+			return false, err
+		}
+		if suspendedIdx >= 0 {
+			// Resuming after a retry interval elapsed, not a genuine restart:
+			// preserve the pipeline's existing status (attempts, nextRetryAt),
+			// mirroring how configure's resumeFromSuspended path never resets.
+			return createDeletePipeline(opts, pipeline, false)
+		}
 		logging.Info(opts.logger, "delete pipeline completed")
 		return false, nil
 	}
@@ -133,12 +147,23 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	return true, nil
 }
 
-func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) (passiveRequeue bool, err error) {
+func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources, resetStatus bool) (passiveRequeue bool, err error) {
 	logging.Debug(opts.logger, "creating delete pipeline; execution will commence")
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
 		if err := removeManualReconciliationLabel(opts); err != nil {
 			return false, err
 		}
+	}
+	if resetStatus {
+		if err = resourceutil.UpsertPipelineStatusToPending(opts.parentObject, opts.Resources); err != nil {
+			return false, err
+		}
+	}
+	if err = resourceutil.MarkCurrentPipelineAsRunning(opts.parentObject, opts.logger, pipeline.Job); err != nil {
+		return false, err
+	}
+	if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+		return false, err
 	}
 	//TODO retrieve error information from applyResources to return to the caller
 	applyResources(opts, append(pipeline.GetObjects(), pipeline.Job)...)
