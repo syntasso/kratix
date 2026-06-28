@@ -1020,6 +1020,13 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 			return ctrl.Result{}, err
 		}
 
+		if passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(o.ctx, o.logger, resourceRequest, pipelineResources); passiveRequeue || requeueResult != nil || err != nil {
+			if requeueResult != nil {
+				return *requeueResult, err
+			}
+			return ctrl.Result{}, err
+		}
+
 		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {

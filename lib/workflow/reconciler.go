@@ -122,6 +122,17 @@ func ReconcileDelete(opts Opts) (bool, error) {
 
 	logging.Debug(opts.logger, "checking status of delete pipeline")
 	if mostRecentJob.Status.Succeeded > 0 {
+		if opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true" {
+			logging.Info(opts.logger, "delete pipeline completed but workflow is suspended; waiting")
+			return true, nil
+		}
+		suspendedIdx, err := resourceutil.GetSuspendedPipelineIndex(opts.parentObject)
+		if err != nil {
+			return false, err
+		}
+		if suspendedIdx >= 0 {
+			return createDeletePipeline(opts, pipeline)
+		}
 		logging.Info(opts.logger, "delete pipeline completed")
 		return false, nil
 	}
@@ -139,6 +150,15 @@ func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) (pa
 		if err := removeManualReconciliationLabel(opts); err != nil {
 			return false, err
 		}
+	}
+	if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.Resources); err != nil {
+		return false, err
+	}
+	if err = resourceutil.MarkCurrentPipelineAsRunning(opts.parentObject, opts.logger, pipeline.Job); err != nil {
+		return false, err
+	}
+	if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+		return false, err
 	}
 	//TODO retrieve error information from applyResources to return to the caller
 	applyResources(opts, append(pipeline.GetObjects(), pipeline.Job)...)
