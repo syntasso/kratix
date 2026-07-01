@@ -243,6 +243,61 @@ var _ = Describe("Workflow Control", Ordered, func() {
 				}).Should(Equal(1))
 			})
 		})
+
+		When("the resource delete pipeline is suspended by the workflow control file", func() {
+			AfterEach(func() {
+				platform.Kubectl("delete", "-f", suspendConfigMap, "--ignore-not-found")
+				platform.KubectlAllowFail("label", suspendCRDPlural, suspendResourceName, "kratix.io/workflow-suspended-")
+				platform.Kubectl("delete", "-f", suspendResource, "--ignore-not-found")
+				platform.EventuallyKubectlDelete("promise", suspendPromiseName, "--ignore-not-found")
+			})
+
+			It("sets the DeleteWorkflowCompleted condition and preserves Works while suspended", func() {
+				platform.Kubectl("apply", "-f", "assets/workflow-control/promise-delete-suspend.yaml")
+				platform.Kubectl("apply", "-f", suspendConfigMap)
+				platform.Kubectl("apply", "-f", suspendResource)
+
+				By("waiting for the configure pipeline to succeed first", func() {
+					Eventually(func(g Gomega) {
+						g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, phaseJSONPath("resource-pipe-0"))).To(Equal("Succeeded"))
+					}).Should(Succeed())
+				})
+
+				By("suspending the delete pipeline when the resource is deleted", func() {
+					platform.Kubectl("delete", "-f", suspendResource, "--wait=false")
+
+					Eventually(func(g Gomega) {
+						g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, phaseJSONPath("resource-delete-pipe"))).To(Equal("Suspended"))
+						g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, messageJSONPath("resource-delete-pipe"))).To(Equal("waiting for delete approval"))
+						g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
+					}).Should(Succeed())
+				})
+
+				By("setting the DeleteWorkflowCompleted condition to reflect the wait is on delete", func() {
+					Eventually(func(g Gomega) {
+						g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName,
+							`-o=jsonpath={.status.conditions[?(@.type=="DeleteWorkflowCompleted")].status}`)).To(Equal("False"))
+						g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName,
+							`-o=jsonpath={.status.conditions[?(@.type=="DeleteWorkflowCompleted")].reason}`)).To(Equal("DeleteWorkflowSuspended"))
+					}).Should(Succeed())
+				})
+
+				By("preserving Works while the delete pipeline is suspended", func() {
+					Consistently(func() int {
+						return workCountForResourcePipeline()
+					}, 5*time.Second).Should(Equal(1))
+				})
+
+				By("resuming deletion after the gate is removed and suspend label cleared", func() {
+					platform.Kubectl("delete", "-f", suspendConfigMap)
+					platform.Kubectl("label", suspendCRDPlural, suspendResourceName, "kratix.io/workflow-suspended-")
+
+					Eventually(func(g Gomega) {
+						g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, "--ignore-not-found")).To(BeEmpty())
+					}).Should(Succeed())
+				})
+			})
+		})
 	})
 
 })
