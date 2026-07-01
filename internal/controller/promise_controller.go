@@ -1774,6 +1774,28 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return resources
 			}),
 		).
+		// Reconcile a Promise when one of its Work resources changes.
+		// This triggers the Promise reconciliation when a Work resource changes to update the "Reconciled" and
+		// "WorksSucceeded" conditions on the Promise's status.
+		Watches(
+			&v1alpha1.Work{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				// Read the Promise name from the Work label that links Work -> Promise.
+				work := obj.(*v1alpha1.Work)
+				promiseName, exists := work.Labels[v1alpha1.PromiseNameLabel]
+
+				// Ignore Works where v1alpha1.PromiseNameLabel is missing or empty, i.e., Works that are not associated
+				// with any Promise.
+				if !exists || promiseName == "" {
+					return nil
+				}
+
+				// Enqueue reconciliation for the Promise associated with the Work that changed.
+				return []reconcile.Request{{
+					NamespacedName: types.NamespacedName{Name: promiseName},
+				}}
+			}),
+		).
 		Complete(r)
 }
 
