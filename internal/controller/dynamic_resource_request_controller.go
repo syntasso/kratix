@@ -904,6 +904,17 @@ func (r *DynamicResourceRequestController) setWorkflowSuspendedStatusCondition(c
 	return nil
 }
 
+func (r *DynamicResourceRequestController) setDeleteWorkflowSuspendedCondition(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured) error {
+	deleteCompleted := resourceutil.GetCondition(rr, resourceutil.DeleteWorkflowCompletedCondition)
+	if deleteCompleted == nil ||
+		deleteCompleted.Status != v1.ConditionFalse ||
+		deleteCompleted.Reason != resourceutil.DeleteWorkflowSuspendedReason {
+		resourceutil.MarkDeleteWorkflowSuspended(logger, rr)
+		return r.Client.Status().Update(ctx, rr)
+	}
+	return nil
+}
+
 func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured, workLabels map[string]string) ([]string, []string, []string, []string, error) {
 	workSelectorLabel := labels.FormatLabels(workLabels)
 	selector, err := labels.Parse(workSelectorLabel)
@@ -1017,6 +1028,18 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	if controllerutil.ContainsFinalizer(resourceRequest, runDeleteWorkflowsFinalizer) {
 		pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionDelete, resourceRequest, o.logger)
 		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		if passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(o.ctx, o.logger, resourceRequest, pipelineResources); passiveRequeue || requeueResult != nil || err != nil {
+			if passiveRequeue && err == nil && resourceRequest.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true" {
+				if setErr := r.setDeleteWorkflowSuspendedCondition(o.ctx, o.logger, resourceRequest); setErr != nil {
+					return ctrl.Result{}, setErr
+				}
+			}
+			if requeueResult != nil {
+				return *requeueResult, err
+			}
 			return ctrl.Result{}, err
 		}
 

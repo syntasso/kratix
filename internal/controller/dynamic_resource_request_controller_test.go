@@ -341,6 +341,84 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(jobs.Items).To(BeEmpty())
 		})
 
+		When("the delete pipeline is suspended with a retryAfter interval that has elapsed", func() {
+			BeforeEach(func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+				labels := resReq.GetLabels()
+				labels[v1alpha1.WorkflowSuspendedLabel] = "true"
+				resReq.SetLabels(labels)
+				Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+				Expect(unstructured.SetNestedSlice(resReq.Object, []any{
+					map[string]any{
+						"name":        "delete",
+						"phase":       "Suspended",
+						"nextRetryAt": time.Now().UTC().Add(-time.Hour).Format(time.RFC3339),
+					},
+				}, "status", "kratix", "workflows", "pipelines")).To(Succeed())
+				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+				controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+					return true, nil
+				})
+			})
+
+			It("removes the workflow-suspended label so the delete pipeline can be re-triggered", func() {
+				_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				Expect(resReq.GetLabels()).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+			})
+		})
+
+		When("the delete pipeline is actively suspended (waiting before Works are deleted)", func() {
+			BeforeEach(func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+				labels := resReq.GetLabels()
+				labels[v1alpha1.WorkflowSuspendedLabel] = "true"
+				resReq.SetLabels(labels)
+				Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+				Expect(unstructured.SetNestedSlice(resReq.Object, []any{
+					map[string]any{
+						"name":    "delete",
+						"phase":   "Suspended",
+						"message": "waiting for approval before deleting",
+					},
+				}, "status", "kratix", "workflows", "pipelines")).To(Succeed())
+				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+				controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+					return true, nil
+				})
+			})
+
+			It("sets the DeleteWorkflowCompleted condition to make clear the wait is on delete", func() {
+				_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				condition := resourceutil.GetCondition(resReq, resourceutil.DeleteWorkflowCompletedCondition)
+				Expect(condition).NotTo(BeNil())
+				Expect(condition.Status).To(Equal(v1.ConditionFalse))
+				Expect(condition.Reason).To(Equal(resourceutil.DeleteWorkflowSuspendedReason))
+			})
+
+			It("also sets the Reconciled condition to Suspended", func() {
+				_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				reconciled := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+				Expect(reconciled).NotTo(BeNil())
+				Expect(reconciled.Status).To(Equal(v1.ConditionUnknown))
+				Expect(reconciled.Reason).To(Equal("WorkflowSuspended"))
+			})
+		})
+
 		When("the delete pipeline fails", func() {
 			BeforeEach(func() {
 				setReconcileDeleteWorkflowToReturnError(resReq)

@@ -111,3 +111,30 @@ spec:
                     suspend: true
                     message: waiting for configmap
                     EOF
+      delete:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: resource-delete-pipe
+          spec:
+            rbac:
+              permissions:
+                - apiGroups: [""]
+                  resources: ["configmaps"]
+                  verbs: ["get"]
+            containers:
+              - name: suspend-if-configmap-exists
+                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                command: ["/bin/sh", "-c"]
+                args:
+                  - |
+                    set -eu
+                    if kubectl get configmap workflow-suspend-test -n default >/dev/null 2>&1; then
+                      echo "configmap exists; suspending delete"
+                      cat <<'EOF' > /kratix/metadata/workflow-control.yaml
+                    suspend: true
+                    message: waiting for delete approval
+                    EOF
+                    else
+                      echo "configmap not found; delete can proceed"
+                    fi

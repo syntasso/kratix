@@ -409,6 +409,23 @@ func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.
 	)
 }
 
+func (r *PromiseReconciler) setDeleteWorkflowSuspendedCondition(o opts, promise *v1alpha1.Promise) error {
+	existing := meta.FindStatusCondition(promise.Status.Conditions, string(resourceutil.DeleteWorkflowCompletedCondition))
+	if existing == nil ||
+		existing.Status != metav1.ConditionFalse ||
+		existing.Reason != resourceutil.DeleteWorkflowSuspendedReason {
+		updateConditionOnPromise(promise, metav1.Condition{
+			Type:               string(resourceutil.DeleteWorkflowCompletedCondition),
+			Status:             metav1.ConditionFalse,
+			Message:            resourceutil.DeleteWorkflowSuspendedMessage,
+			Reason:             resourceutil.DeleteWorkflowSuspendedReason,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		})
+		return r.Client.Status().Update(o.ctx, promise)
+	}
+	return nil
+}
+
 func (r *PromiseReconciler) setWorkflowSuspendedStatusCondition(ctx context.Context, promise *v1alpha1.Promise) error {
 	return r.setPromiseUnavailableStatusConditions(
 		ctx,
@@ -1447,6 +1464,19 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		if result, err := r.waitForResourceConfigureJobs(o, promise); result != nil || err != nil {
 			return *result, err
 		}
+
+		if shouldRequeue, result, err := r.reconcileSuspendedWorkflow(o, promise, false); shouldRequeue || result != nil || err != nil {
+			if shouldRequeue && err == nil && promise.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true" {
+				if setErr := r.setDeleteWorkflowSuspendedCondition(o, promise); setErr != nil {
+					return ctrl.Result{}, setErr
+				}
+			}
+			if result != nil {
+				return *result, err
+			}
+			return ctrl.Result{}, err
+		}
+
 		logging.Info(o.logger, "running promise delete workflows")
 		unstructuredPromise, err := promise.ToUnstructured()
 		if err != nil {

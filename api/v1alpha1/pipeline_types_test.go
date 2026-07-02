@@ -481,15 +481,22 @@ var _ = Describe("Pipeline", func() {
 							Expect(job).ToNot(BeNil())
 
 							podSpec := job.Spec.Template.Spec
-							Expect(podSpec.InitContainers).To(HaveLen(2))
+							Expect(podSpec.InitContainers).To(HaveLen(3))
 							var initContainerNames []string
 							for _, container := range podSpec.InitContainers {
 								initContainerNames = append(initContainerNames, container.Name)
 							}
-							Expect(initContainerNames).To(Equal([]string{"reader", pipeline.Spec.Containers[0].Name}))
+							Expect(initContainerNames).To(Equal([]string{"reader", pipeline.Spec.Containers[0].Name, pipeline.Spec.Containers[1].Name}))
 							Expect(podSpec.Containers).To(HaveLen(1))
-							Expect(podSpec.Containers[0].Name).To(Equal(pipeline.Spec.Containers[1].Name))
-							Expect(podSpec.Containers[0].Image).To(Equal(pipeline.Spec.Containers[1].Image))
+							Expect(podSpec.Containers[0].Name).To(Equal("status-writer"))
+						})
+
+						It("includes a status-writer so the pipeline can signal a wait before works are deleted", func() {
+							var containerNames []string
+							for _, c := range resources.Job.Spec.Template.Spec.Containers {
+								containerNames = append(containerNames, c.Name)
+							}
+							Expect(containerNames).To(ContainElement("status-writer"))
 						})
 					})
 				})
@@ -597,15 +604,22 @@ var _ = Describe("Pipeline", func() {
 							})
 
 							podSpec := podTemplate.Spec
-							Expect(podSpec.InitContainers).To(HaveLen(2))
+							Expect(podSpec.InitContainers).To(HaveLen(3))
 							var initContainerNames []string
 							for _, container := range podSpec.InitContainers {
 								initContainerNames = append(initContainerNames, container.Name)
 							}
-							Expect(initContainerNames).To(Equal([]string{"reader", pipeline.Spec.Containers[0].Name}))
+							Expect(initContainerNames).To(Equal([]string{"reader", pipeline.Spec.Containers[0].Name, pipeline.Spec.Containers[1].Name}))
 							Expect(podSpec.Containers).To(HaveLen(1))
-							Expect(podSpec.Containers[0].Name).To(Equal(pipeline.Spec.Containers[1].Name))
-							Expect(podSpec.Containers[0].Image).To(Equal(pipeline.Spec.Containers[1].Image))
+							Expect(podSpec.Containers[0].Name).To(Equal("status-writer"))
+						})
+
+						It("includes a status-writer so the pipeline can signal a wait before works are deleted", func() {
+							var containerNames []string
+							for _, c := range resources.Job.Spec.Template.Spec.Containers {
+								containerNames = append(containerNames, c.Name)
+							}
+							Expect(containerNames).To(ContainElement("status-writer"))
 						})
 					})
 				})
