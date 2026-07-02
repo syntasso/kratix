@@ -417,7 +417,7 @@ func (r *PromiseReconciler) setDeleteWorkflowSuspendedCondition(o opts, promise 
 		updateConditionOnPromise(promise, metav1.Condition{
 			Type:               string(resourceutil.DeleteWorkflowCompletedCondition),
 			Status:             metav1.ConditionFalse,
-			Message:            "Delete pipeline is waiting before deleting Works",
+			Message:            resourceutil.DeleteWorkflowSuspendedMessage,
 			Reason:             resourceutil.DeleteWorkflowSuspendedReason,
 			LastTransitionTime: metav1.NewTime(time.Now()),
 		})
