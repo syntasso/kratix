@@ -23,6 +23,7 @@ const (
 	DeleteWorkflowCompletedCondition       = clusterv1.ConditionType("DeleteWorkflowCompleted")
 	DeleteWorkflowCompletedFailedReason    = "DeleteWorkflowFailed"
 	DeleteWorkflowSuspendedReason          = "DeleteWorkflowSuspended"
+	DeleteWorkflowSuspendedMessage         = "Delete pipeline is waiting before deleting Works"
 	PipelinesExecutedSuccessfully          = "PipelinesExecutedSuccessfully"
 	PipelinesInProgressReason              = "PipelinesInProgress"
 	ManualReconciliationLabel              = "kratix.io/manual-reconciliation"
@@ -175,7 +176,7 @@ func MarkDeleteWorkflowSuspended(logger logr.Logger, obj *unstructured.Unstructu
 	condition := clusterv1.Condition{
 		Type:               DeleteWorkflowCompletedCondition,
 		Status:             v1.ConditionFalse,
-		Message:            "Delete pipeline is waiting before deleting Works",
+		Message:            DeleteWorkflowSuspendedMessage,
 		Reason:             DeleteWorkflowSuspendedReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	}
