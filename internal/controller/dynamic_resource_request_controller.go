@@ -1031,29 +1031,14 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 			return ctrl.Result{}, err
 		}
 
-		if passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(o.ctx, o.logger, resourceRequest, pipelineResources); passiveRequeue || requeueResult != nil || err != nil {
-			if passiveRequeue && err == nil && resourceRequest.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true" {
-				if setErr := r.setDeleteWorkflowSuspendedCondition(o.ctx, o.logger, resourceRequest); setErr != nil {
-					return ctrl.Result{}, setErr
-				}
-			}
-			if requeueResult != nil {
-				return *requeueResult, err
-			}
-			return ctrl.Result{}, err
+		if handled, result, err := r.handleSuspendedDeleteWorkflow(o, resourceRequest, pipelineResources); handled {
+			return result, err
 		}
 
 		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
-			if errors.Is(err, workflow.ErrDeletePipelineFailed) {
-				r.EventRecorder.Eventf(resourceRequest, nil, "Warning", "Failed Pipeline", "Failed Pipeline", "%s", "The Delete Pipeline has failed")
-				resourceutil.MarkDeleteWorkflowAsFailed(o.logger, resourceRequest)
-				if err := r.Client.Status().Update(o.ctx, resourceRequest); err != nil {
-					logging.Error(o.logger, err, "failed to update resource request status", "promise", promise.GetName(),
-						"namespace", resourceRequest.GetNamespace(), "resource", resourceRequest.GetName())
-				}
-			}
+			r.handleDeletePipelineFailure(o, promise, resourceRequest, err)
 			return ctrl.Result{}, err
 		}
 		if requeue {
@@ -1092,6 +1077,35 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	}
 
 	return fastRequeue, nil
+}
+
+func (r *DynamicResourceRequestController) handleSuspendedDeleteWorkflow(o opts, resourceRequest *unstructured.Unstructured, pipelineResources []v1alpha1.PipelineJobResources) (bool, ctrl.Result, error) {
+	passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(o.ctx, o.logger, resourceRequest, pipelineResources)
+	if !passiveRequeue && requeueResult == nil && err == nil {
+		return false, ctrl.Result{}, nil
+	}
+
+	if passiveRequeue && err == nil && resourceRequest.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true" {
+		if setErr := r.setDeleteWorkflowSuspendedCondition(o.ctx, o.logger, resourceRequest); setErr != nil {
+			return true, ctrl.Result{}, setErr
+		}
+	}
+	if requeueResult != nil {
+		return true, *requeueResult, err
+	}
+	return true, ctrl.Result{}, err
+}
+
+func (r *DynamicResourceRequestController) handleDeletePipelineFailure(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured, err error) {
+	if !errors.Is(err, workflow.ErrDeletePipelineFailed) {
+		return
+	}
+	r.EventRecorder.Eventf(resourceRequest, nil, "Warning", "Failed Pipeline", "Failed Pipeline", "%s", "The Delete Pipeline has failed")
+	resourceutil.MarkDeleteWorkflowAsFailed(o.logger, resourceRequest)
+	if err := r.Client.Status().Update(o.ctx, resourceRequest); err != nil {
+		logging.Error(o.logger, err, "failed to update resource request status", "promise", promise.GetName(),
+			"namespace", resourceRequest.GetNamespace(), "resource", resourceRequest.GetName())
+	}
 }
 
 // ensureResourceBindingRemoved deletes the ResourceBinding for this resource request if it exists.
