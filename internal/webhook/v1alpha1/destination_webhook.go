@@ -83,9 +83,14 @@ func (v *DestinationCustomValidator) ValidateCreate(ctx context.Context, destina
 		return nil, stderror.New("path field is required")
 	}
 
+	warnings, err := v.validateStateStoreRef(ctx, destination.Spec.StateStoreRef)
+	if err != nil {
+		return nil, err
+	}
+
 	// Check for path clashes with other destinations using the same state store
 	destinationList := &v1alpha1.DestinationList{}
-	err := v.Client.List(ctx, destinationList, client.MatchingFields{
+	err = v.Client.List(ctx, destinationList, client.MatchingFields{
 		"stateStoreRef": fmt.Sprintf("%s.%s", destination.Spec.StateStoreRef.Kind, destination.Spec.StateStoreRef.Name),
 	})
 	if err != nil {
@@ -100,6 +105,33 @@ func (v *DestinationCustomValidator) ValidateCreate(ctx context.Context, destina
 			return nil, fmt.Errorf("destination path '%s' already exists for state store '%s'",
 				destination.Spec.Path, destination.Spec.StateStoreRef.Name)
 		}
+	}
+
+	return warnings, nil
+}
+
+func (v *DestinationCustomValidator) validateStateStoreRef(ctx context.Context, ref *v1alpha1.StateStoreReference) (admission.Warnings, error) {
+	if ref == nil {
+		return nil, stderror.New("stateStoreRef field is required")
+	}
+
+	var stateStore client.Object
+	switch ref.Kind {
+	case "BucketStateStore":
+		stateStore = &v1alpha1.BucketStateStore{}
+	case "GitStateStore":
+		stateStore = &v1alpha1.GitStateStore{}
+	default:
+		return nil, nil
+	}
+
+	if err := v.Client.Get(ctx, client.ObjectKey{Name: ref.Name}, stateStore); err != nil {
+		if errors.IsNotFound(err) {
+			return admission.Warnings{
+				fmt.Sprintf("Warning: referenced %s %q does not exist", ref.Kind, ref.Name),
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to get state store %s/%s: %w", ref.Kind, ref.Name, err)
 	}
 
 	return nil, nil
