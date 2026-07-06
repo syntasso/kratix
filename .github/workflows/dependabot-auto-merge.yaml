@@ -7,6 +7,8 @@ on:
 permissions:
   pull-requests: write
   contents: write
+  checks: read
+  statuses: read
 
 jobs:
   auto-merge:
@@ -15,7 +17,7 @@ jobs:
     steps:
       - name: Fetch Dependabot metadata
         id: metadata
-        uses: dependabot/fetch-metadata@v2
+        uses: dependabot/fetch-metadata@v3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -25,9 +27,23 @@ jobs:
           TYPE="${{ steps.metadata.outputs.update-type }}"
           PREV="${{ steps.metadata.outputs.previous-version }}"
           NEW="${{ steps.metadata.outputs.new-version }}"
+          DEPS="${{ steps.metadata.outputs.dependency-names }}"
 
           echo "Update type: $TYPE"
           echo "Version: $PREV → $NEW"
+          echo "Dependencies: $DEPS"
+
+          if echo "$DEPS" | grep -qE '(^|,\s*)(k8s\.io/|sigs\.k8s\.io/controller-runtime)'; then
+            echo "result=false" >> "$GITHUB_OUTPUT"
+            echo "reason=k8s ecosystem bump — must be coordinated manually" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if echo "$DEPS" | grep -qiE '(^|,\s*)(headlamp|backstage)'; then
+            echo "result=false" >> "$GITHUB_OUTPUT"
+            echo "reason=fork dep (headlamp/backstage) — requires human review" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           if [[ "$TYPE" == "version-update:semver-patch" ]]; then
             echo "result=true" >> "$GITHUB_OUTPUT"
@@ -44,6 +60,20 @@ jobs:
           echo "result=false" >> "$GITHUB_OUTPUT"
           echo "reason=major bump — manual review required" >> "$GITHUB_OUTPUT"
 
+      - name: Label ineligible PR
+        if: steps.eligible.outputs.result != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/labels \
+            -f name="requires-human-review" \
+            -f color="e11d48" \
+            -f description="Dependency bump blocked from auto-merge — needs human review" \
+            2>/dev/null || true
+          gh pr edit ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --add-label "requires-human-review"
+
       - name: Wait for CI checks
         if: steps.eligible.outputs.result == 'true'
         env:
@@ -52,16 +82,29 @@ jobs:
           sleep 20
           PR="${{ github.event.pull_request.number }}"
           REPO="${{ github.repository }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          EMPTY_ROUNDS=0
           for i in $(seq 1 120); do
-            STATUS=$(gh pr checks "$PR" --repo "$REPO" --json name,state 2>/dev/null || echo "[]")
+            STATUS=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?per_page=100" \
+              --jq '[.check_runs[] | {name: .name, state: (if .conclusion != null then (.conclusion | ascii_upcase) else (.status | ascii_upcase) end)}]' \
+              2>/dev/null || echo "[]")
             TOTAL=$(echo "$STATUS" | jq 'length')
             if [ "$TOTAL" -eq 0 ]; then
-              echo "Round $i: no checks registered yet"
+              EMPTY_ROUNDS=$((EMPTY_ROUNDS + 1))
+              echo "Round $i: no checks registered yet (${EMPTY_ROUNDS} consecutive empty rounds)"
+              if [ "$EMPTY_ROUNDS" -ge 10 ]; then
+                gh pr comment "$PR" --repo "$REPO" \
+                  --body "⚠️ **auto-merge**: CI checks unreadable after 5 minutes. Possible GitHub API issue — check CI manually and merge if green." \
+                  2>/dev/null || true
+                echo "Circuit breaker: exiting after $EMPTY_ROUNDS empty rounds"
+                exit 1
+              fi
               sleep 30
               continue
             fi
-            FAILED=$(echo "$STATUS" | jq '[.[] | select(.name != "auto-merge") | select(.state == "FAILURE" or .state == "ERROR" or .state == "CANCELLED")] | length')
-            PENDING=$(echo "$STATUS" | jq '[.[] | select(.name != "auto-merge") | select(.state == "PENDING" or .state == "IN_PROGRESS" or .state == "QUEUED")] | length')
+            EMPTY_ROUNDS=0
+            FAILED=$(echo "$STATUS" | jq '[.[] | select(.name != "auto-merge") | select(.state == "FAILURE" or .state == "TIMED_OUT" or .state == "CANCELLED" or .state == "ACTION_REQUIRED")] | length')
+            PENDING=$(echo "$STATUS" | jq '[.[] | select(.name != "auto-merge") | select(.state == "IN_PROGRESS" or .state == "QUEUED" or .state == "PENDING" or .state == "WAITING")] | length')
             echo "Round $i: failed=$FAILED pending=$PENDING total=$TOTAL"
             if [ "$FAILED" -gt 0 ]; then
               echo "CI checks failed"
@@ -87,6 +130,18 @@ jobs:
             --repo ${{ github.repository }} \
             --squash \
             --delete-branch
+
+      - name: Step summary
+        if: always()
+        run: |
+          echo "## Auto-merge result" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Dependencies | \`${{ steps.metadata.outputs.dependency-names }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Update type | ${{ steps.metadata.outputs.update-type }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Eligible | ${{ steps.eligible.outputs.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Reason | ${{ steps.eligible.outputs.reason }} |" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Skip — not eligible
         if: steps.eligible.outputs.result != 'true'
