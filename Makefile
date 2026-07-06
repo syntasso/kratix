@@ -94,8 +94,10 @@ GITOPS ?= argo-git
 dev: dev-cluster ## One-button local kratix dev env via Tilt. Override cell: make dev GITOPS=flux-bucket
 	tilt up -- --gitops=$(GITOPS)
 
-dev-down: ## Tear down the Tilt dev env and the local cluster+registry
+dev-down: ## Stop the Tilt dev env (keeps the cluster + registry for a fast restart)
 	tilt down -- --gitops=$(GITOPS) || true
+
+dev-clean: dev-down ## Stop Tilt AND delete the local cluster + registry (full teardown)
 	ctlptl delete -f hack/dev/cluster.yaml || true
 
 install-cert-manager: ## Install cert-manager on the platform cluster; used in the helm test

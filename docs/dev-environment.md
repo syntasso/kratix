@@ -26,7 +26,8 @@ pipeline pods must pull needs a full rebuild — trigger it from the Tilt UI (or
 
 ## Teardown
 
-    make dev-down
+    make dev-down     # stop Tilt, keep the cluster + registry (fast restart)
+    make dev-clean    # also delete the cluster + registry (full teardown)
 
 ## GitOps matrix
 

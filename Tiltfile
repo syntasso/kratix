@@ -101,11 +101,15 @@ local_resource(
 
 # ---- StateStore CR (patched for kind networking on git) ----
 if STORE == 'git':
-    _store_cmd = ("sed \"s/172.18.0.2/$(docker inspect platform-control-plane " +
-                  "| yq '.[0].NetworkSettings.Networks.kind.IPAddress')/g\" " +
-                  "config/samples/platform_v1alpha1_gitstatestore.yaml " +
+    # Reuse the repo's existing platform_destination_ip helper (scripts/utils.sh)
+    # instead of reimplementing the docker-inspect+yq lookup, and fail fast if it
+    # returns empty/null rather than sed-ing "https://null:31333" and timing out.
+    _store_cmd = ("bash -c 'source scripts/utils.sh; " +
+                  "ip=$(platform_destination_ip platform); " +
+                  "if [ -z \"$ip\" ] || [ \"$ip\" = \"null\" ]; then echo \"could not resolve platform cluster IP\" >&2; exit 1; fi; " +
+                  "sed \"s/172.18.0.2/$ip/g\" config/samples/platform_v1alpha1_gitstatestore.yaml " +
                   "| kubectl --context kind-platform apply -f - && " +
-                  "kubectl --context kind-platform wait gitstatestore default --for=condition=Ready --timeout=180s")
+                  "kubectl --context kind-platform wait gitstatestore default --for=condition=Ready --timeout=180s'")
 else:
     _store_cmd = ("kubectl --context kind-platform apply -f config/samples/platform_v1alpha1_bucketstatestore.yaml && " +
                   "kubectl --context kind-platform wait bucketstatestore default --for=condition=Ready --timeout=180s")

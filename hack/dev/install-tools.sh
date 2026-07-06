@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Installs the CLIs needed for the Tilt-based local dev environment.
-# Host use only; the devcontainer bakes these in via .devcontainer/Dockerfile.
+# Host use only; installs current Homebrew versions. For a pinned, reproducible
+# set (the source of truth for CLI versions) use the devcontainer instead —
+# .devcontainer/Dockerfile pins each tool via an ARG.
 set -euo pipefail
 
 if ! command -v brew >/dev/null; then
