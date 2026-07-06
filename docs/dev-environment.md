@@ -38,6 +38,22 @@ pipeline pods must pull needs a full rebuild — trigger it from the Tilt UI (or
 
 `argo-bucket` is unsupported: Argo CD has no bucket source.
 
+## Dev container (VS Code / Codespaces)
+
+`.devcontainer/` bundles the Go toolchain and every CLI above. "Reopen in
+Container" (or `devcontainer up`), then run `make dev`. Docker is provided via
+docker-outside-of-docker (host socket), so `ctlptl`/`kind` create clusters on the
+host daemon.
+
+If the cluster API server is unreachable from inside the container (a known
+docker-outside-of-docker caveat), point kubeconfig at the host after
+`make dev-cluster`:
+
+    kubectl config set-cluster kind-platform \
+      --server=https://host.docker.internal:$(docker port platform-control-plane 6443/tcp | cut -d: -f2)
+
+then re-run `make dev`.
+
 ## Relationship to quick-start.sh
 
 `scripts/quick-start.sh` is unchanged and still used by CI/enterprise. This Tilt
