@@ -86,6 +86,9 @@ dev-env: quick-start prepare-platform-as-destination ## Quick-start + prepare-pl
 dev-tools: ## Install the CLIs needed for the Tilt-based dev environment (tilt, ko, ctlptl, ...)
 	./hack/dev/install-tools.sh
 
+dev-cluster: ## Create/ensure the local kind cluster + registry (idempotent)
+	ctlptl apply -f hack/dev/cluster.yaml
+
 install-cert-manager: ## Install cert-manager on the platform cluster; used in the helm test
 	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.0/cert-manager.yaml
 	kubectl wait --for condition=available -n cert-manager deployment/cert-manager --timeout 120s
