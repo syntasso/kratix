@@ -9,6 +9,19 @@ allow_k8s_contexts('kind-platform')
 
 IMAGE = 'docker.io/syntasso/kratix-platform:dev'
 
+# ---- GitOps matrix ----
+config.define_string('gitops')
+_cfg = config.parse()
+_gitops = _cfg.get('gitops', 'argo-git')
+_matrix = {
+    'argo-git':    ('argo', 'git'),
+    'flux-bucket': ('flux', 'bucket'),
+    'flux-git':    ('flux', 'git'),
+}
+if _gitops not in _matrix:
+    fail('unknown gitops=%s (argo-git|flux-bucket|flux-git); argo-bucket is unsupported upstream' % _gitops)
+PROVIDER, STORE = _matrix[_gitops]
+
 # Cross-compile for the cluster's OS/arch. kind nodes are linux and match the
 # host arch; building for the host's native darwin/amd64 would produce a binary
 # that cannot execute in the linux pod.
@@ -77,4 +90,42 @@ k8s_resource(
     'kratix-platform-controller-manager',
     resource_deps=['go-build', 'cert-manager'],
     labels=['platform'],
+)
+
+# ---- state-store backend (Gitea or MinIO) ----
+local_resource(
+    'statestore-backend',
+    cmd='./hack/dev/setup-statestore.sh %s' % STORE,
+    labels=['gitops'],
+)
+
+# ---- StateStore CR (patched for kind networking on git) ----
+if STORE == 'git':
+    _store_cmd = ("sed \"s/172.18.0.2/$(docker inspect platform-control-plane " +
+                  "| yq '.[0].NetworkSettings.Networks.kind.IPAddress')/g\" " +
+                  "config/samples/platform_v1alpha1_gitstatestore.yaml " +
+                  "| kubectl --context kind-platform apply -f - && " +
+                  "kubectl --context kind-platform wait gitstatestore default --for=condition=Ready --timeout=180s")
+else:
+    _store_cmd = ("kubectl --context kind-platform apply -f config/samples/platform_v1alpha1_bucketstatestore.yaml && " +
+                  "kubectl --context kind-platform wait bucketstatestore default --for=condition=Ready --timeout=180s")
+
+local_resource(
+    'statestore-cr',
+    cmd=_store_cmd,
+    resource_deps=['kratix-platform-controller-manager', 'statestore-backend'],
+    labels=['gitops'],
+)
+
+# ---- register the platform as a destination (installs the reconciler) ----
+# register-destination -> install-gitops honours GITOPS_PROVIDER; --git selects git store.
+_reg_flags = '--git' if STORE == 'git' else ''
+local_resource(
+    'register-destination',
+    cmd='GITOPS_PROVIDER=%s ./scripts/register-destination ' % PROVIDER +
+        '--name platform-cluster --context kind-platform ' +
+        '--platform-context kind-platform %s && ' % _reg_flags +
+        'kubectl --context kind-platform wait destination platform-cluster --for=condition=Ready --timeout=300s',
+    resource_deps=['statestore-cr'],
+    labels=['gitops'],
 )
