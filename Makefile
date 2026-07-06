@@ -91,11 +91,12 @@ dev-cluster: ## Create/ensure the local kind cluster + registry (idempotent)
 
 GITOPS ?= argo-git
 
-dev: dev-cluster ## One-button local kratix dev env via Tilt. Override cell: make dev GITOPS=flux-bucket
-	tilt up -- --gitops=$(GITOPS)
+dev: dev-cluster ## One-button local kratix dev env via Tilt (backgrounds, waits, prints READY). Override cell: make dev GITOPS=flux-bucket
+	./hack/dev/up.sh $(GITOPS)
 
 dev-down: ## Stop the Tilt dev env (keeps the cluster + registry for a fast restart)
 	tilt down -- --gitops=$(GITOPS) || true
+	@pkill -f "tilt up --context kind-platform" 2>/dev/null || true
 
 dev-clean: dev-down ## Stop Tilt AND delete the local cluster + registry (full teardown)
 	ctlptl delete -f hack/dev/cluster.yaml || true

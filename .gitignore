@@ -51,3 +51,5 @@ config/manager/pipeline-adapter-config.properties
 
 # cursor rules
 .cursor
+
+.tilt-dev.log

@@ -14,6 +14,11 @@ Requires Docker running.
     make dev GITOPS=flux-bucket     # Flux + MinIO (bucket state store — CI parity)
     make dev GITOPS=flux-git        # Flux + Gitea
 
+`make dev` starts Tilt in the background, waits until every component is ready,
+prints a `✅ READY` banner, and returns your terminal (Tilt keeps running for
+hot-reload; stop it with `make dev-down`). First run pulls images and can take a
+few minutes.
+
 Open the Tilt dashboard at http://localhost:10350 to see every component's
 health and logs. Edit controller code and save — the `manager` binary is rebuilt
 on the host (for the cluster's OS/arch) and synced into the running pod, no image

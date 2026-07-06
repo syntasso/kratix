@@ -111,7 +111,8 @@ install_argocd_gitops() {
         exit 1
     fi
 
-    kubectl --context "${CONTEXT}" create namespace argocd
+    # idempotent so re-running (e.g. Tilt dev loop restarts) doesn't fail if the namespace already exists
+    kubectl --context "${CONTEXT}" create namespace argocd --dry-run=client -o yaml | kubectl --context "${CONTEXT}" apply -f -
     kubectl --context "${CONTEXT}" -n argocd apply --filename https://raw.githubusercontent.com/argoproj/argo-cd/refs/tags/v2.13.3/manifests/install.yaml
     kubectl --context "${CONTEXT}" -n argocd patch configmap argocd-cm --type=json -p='[{"op": "add", "path": "/data", "value": {"timeout.reconciliation": "10s"}}]'
     kubectl --context "${CONTEXT}" -n argocd rollout restart deployment argocd-applicationset-controller
