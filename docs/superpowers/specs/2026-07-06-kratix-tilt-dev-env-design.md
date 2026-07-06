@@ -13,8 +13,11 @@ rollout.
 Concretely:
 
 - `make dev` (→ `tilt up`) stands up a complete local kratix platform: cluster,
-  cert-manager, Argo CD, a Gitea state store, kratix CRDs + controller, and a
-  registered worker destination.
+  cert-manager, a GitOps reconciler, a state store, kratix CRDs + controller, and
+  a registered worker destination. The reconciler + state store are a config
+  matrix (§4.4): Argo CD + Gitea is the dev default; Flux + Bucket and Flux + Git
+  are selectable so this system can eventually host CI — including BucketStateStore
+  tests, which only Flux supports.
 - Editing controller Go code hot-reloads into the running pod in ~1s (no image
   rebuild, no `kind load`).
 - The Tilt web UI is the environment dashboard: every component's health, logs,
@@ -117,15 +120,30 @@ Each layer has one job, a defined interface, and can be understood in isolation:
 - A Tilt config flag (`config.define_bool`) toggles single vs multi cluster and,
   later, the SKE umbrella overlay (Phase 2 plugs in here).
 
-### 4.4 GitOps — Argo default for dev
+### 4.4 GitOps — configurable reconciler + state store matrix
 
-- The dev flow defaults to **Argo CD + Gitea (GitStateStore)**, reusing the
-  existing `scripts/install-gitops --gitops-provider argo` path (already present,
-  git-only today — no net-new reconciler wiring).
-- Argo's cert/networking patching for kind (already in `install-gitops`) is
-  reused verbatim.
-- Flux + MinIO remain the default in `quick-start.sh`; nothing there changes.
-- MinIO replacement and Argo-from-bucket are explicitly out of scope (§9).
+The reconciler and state store are Tilt config options
+(`config.define_string`), not hardcoded, because CI will eventually run on this
+system and must exercise BucketStateStores — which only Flux supports.
+
+| Combination        | Reconciler | State store       | Purpose                          | Supported |
+|--------------------|------------|-------------------|----------------------------------|-----------|
+| `argo-git` (default) | Argo CD   | Gitea (Git)       | Local dev default                | ✅        |
+| `flux-bucket`      | Flux       | MinIO (Bucket)    | CI parity + bucket-store testing | ✅        |
+| `flux-git`         | Flux       | Gitea (Git)       | Flux + git coverage              | ✅        |
+| `argo-bucket`      | Argo CD    | Bucket            | —                                | ❌ upstream: Argo has no bucket source |
+
+- Each combination reuses the existing `scripts/install-gitops` paths
+  (`--gitops-provider argo|flux`, `--git` / bucket) and the manifests in `hack/`.
+  The Tiltfile selects and orchestrates them; it does not reimplement them.
+- `make dev` defaults to `argo-git`. A single flag
+  (`tilt up -- --gitops=flux-bucket`, or `make dev GITOPS=flux-bucket`) switches
+  the matrix cell.
+- `scripts/quick-start.sh` (flux + MinIO) remains the untouched default path for
+  today's CI/enterprise; the config matrix is the migration target that lets CI
+  move onto Tilt without losing bucket coverage.
+- MinIO replacement and Argo-from-bucket remain out of scope (§9); `argo-bucket`
+  is an upstream Argo limitation, not something this phase resolves.
 
 ### 4.5 Containerized VS Code dev environment (`.devcontainer/`)
 
@@ -153,17 +171,21 @@ Each layer has one job, a defined interface, and can be understood in isolation:
 
 ## 5. Dependency graph (ordered)
 
+The reconciler and state-store nodes vary by the §4.4 matrix cell; everything
+else is fixed. Shown for the `argo-git` default (Flux/bucket nodes swap in for
+`flux-*` cells):
+
 ```
 ctlptl cluster + registry
-  → cert-manager           (wait: deployments available)
-  → Argo CD                (wait: deployments available)
-  → Gitea + repo bootstrap (wait: pod ready + repo job complete)
+  → cert-manager                    (wait: deployments available)
+  → reconciler: Argo CD | Flux      (wait: reconciler ready)
+  → state store: Gitea | MinIO      (wait: pod ready + bootstrap job complete)
   → kratix CRDs + controller  [live_update-enabled]
-                           (wait: controller-manager available)
-  → GitStateStore CR
+                                    (wait: controller-manager available)
+  → StateStore CR (Git|Bucket)
   → register worker destination
-                           (wait: destination Ready)
-  → Argo Application reconciling
+                                    (wait: destination Ready)
+  → reconciler reconciling (Argo Application | Flux Kustomization)
   → READY (dashboard green)
 ```
 
@@ -195,6 +217,10 @@ ctlptl cluster + registry
 - `ctlptl delete` + `make dev` from cold reproduces a healthy env idempotently.
 - Existing `make quick-start` (flux + MinIO) still succeeds unchanged.
 - Devcontainer: open in container, `make dev` reaches READY.
+- **Matrix coverage (CI migration target):** each supported §4.4 cell
+  (`argo-git`, `flux-bucket`, `flux-git`) reaches READY and reconciles a sample
+  Promise; `flux-bucket` is the cell that proves BucketStateStore coverage is
+  preserved when CI moves onto this system.
 
 ## 9. Out of scope (Phase 2 / later)
 
