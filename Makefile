@@ -89,6 +89,15 @@ dev-tools: ## Install the CLIs needed for the Tilt-based dev environment (tilt, 
 dev-cluster: ## Create/ensure the local kind cluster + registry (idempotent)
 	ctlptl apply -f hack/dev/cluster.yaml
 
+GITOPS ?= argo-git
+
+dev: dev-cluster ## One-button local kratix dev env via Tilt. Override cell: make dev GITOPS=flux-bucket
+	tilt up -- --gitops=$(GITOPS)
+
+dev-down: ## Tear down the Tilt dev env and the local cluster+registry
+	tilt down -- --gitops=$(GITOPS) || true
+	ctlptl delete -f hack/dev/cluster.yaml || true
+
 install-cert-manager: ## Install cert-manager on the platform cluster; used in the helm test
 	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.0/cert-manager.yaml
 	kubectl wait --for condition=available -n cert-manager deployment/cert-manager --timeout 120s
