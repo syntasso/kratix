@@ -1,0 +1,18 @@
+# Dev-only image: copies host-built binaries for fast Tilt live_update.
+# Runtime stage mirrors the root Dockerfile (base alpine/git provides /bin/sh
+# for Tilt restart_process and /usr/bin/git for the Kratix git writer).
+FROM alpine/git
+WORKDIR /
+
+COPY bin/manager /manager
+COPY bin/pipeline-adapter /bin/pipeline-adapter
+
+RUN addgroup -g 65532 app && \
+    adduser -D -H -u 65532 -G app appuser && \
+    mkdir -p /home/appuser/.ssh && \
+    chown -R 65532:65532 /home/appuser
+
+ENV HOME=/home/appuser
+USER 65532:65532
+
+ENTRYPOINT ["/manager"]
