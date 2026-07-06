@@ -139,6 +139,82 @@ var _ = Describe("Destination Webhook", func() {
 
 	})
 
+	Describe("validating state store references", func() {
+		BeforeEach(func() {
+			destination.Spec.Path = "destination-path"
+		})
+
+		It("fails when stateStoreRef is missing", func() {
+			destination.Spec.StateStoreRef = nil
+
+			warnings, err := validator.ValidateCreate(ctx, destination)
+
+			Expect(err).To(MatchError("stateStoreRef field is required"))
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("warns when the referenced BucketStateStore does not exist", func() {
+			destination.Spec.StateStoreRef = &v1alpha1.StateStoreReference{
+				Name: "missing-bucket-state-store",
+				Kind: "BucketStateStore",
+			}
+
+			warnings, err := validator.ValidateCreate(ctx, destination)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(ConsistOf(
+				`Warning: referenced BucketStateStore "missing-bucket-state-store" does not exist`,
+			))
+		})
+
+		It("warns when the referenced GitStateStore does not exist", func() {
+			destination.Spec.StateStoreRef = &v1alpha1.StateStoreReference{
+				Name: "missing-git-state-store",
+				Kind: "GitStateStore",
+			}
+
+			warnings, err := validator.ValidateCreate(ctx, destination)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(ConsistOf(
+				`Warning: referenced GitStateStore "missing-git-state-store" does not exist`,
+			))
+		})
+
+		It("does not warn when the referenced state store exists", func() {
+			stateStore := &v1alpha1.GitStateStore{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "existing-git-state-store",
+				},
+			}
+			Expect(fakeClient.Create(ctx, stateStore)).To(Succeed())
+
+			destination.Spec.StateStoreRef = &v1alpha1.StateStoreReference{
+				Name: stateStore.Name,
+				Kind: "GitStateStore",
+			}
+
+			warnings, err := validator.ValidateCreate(ctx, destination)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("warns on update when the referenced state store does not exist", func() {
+			destination.Spec.StateStoreRef = &v1alpha1.StateStoreReference{
+				Name: "missing-git-state-store",
+				Kind: "GitStateStore",
+			}
+
+			warnings, err := validator.ValidateUpdate(ctx, &v1alpha1.Destination{}, destination)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(ConsistOf(
+				`Warning: referenced GitStateStore "missing-git-state-store" does not exist`,
+			))
+		})
+	})
+
 	Describe("defaulting filename", func() {
 		It("sets the filename when the filepath.mode requires it", func() {
 			destination.Spec.Filepath = v1alpha1.Filepath{
