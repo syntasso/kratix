@@ -82,16 +82,29 @@ jobs:
           sleep 20
           PR="${{ github.event.pull_request.number }}"
           REPO="${{ github.repository }}"
-          for i in $(seq 1 60); do
-            STATUS=$(gh pr checks "$PR" --repo "$REPO" --json name,state 2>/dev/null || echo "[]")
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          EMPTY_ROUNDS=0
+          for i in $(seq 1 120); do
+            STATUS=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?per_page=100" \
+              --jq '[.check_runs[] | {name: .name, state: (if .conclusion != null then (.conclusion | ascii_upcase) else (.status | ascii_upcase) end)}]' \
+              2>/dev/null || echo "[]")
             TOTAL=$(echo "$STATUS" | jq 'length')
             if [ "$TOTAL" -eq 0 ]; then
-              echo "Round $i: no checks registered yet"
+              EMPTY_ROUNDS=$((EMPTY_ROUNDS + 1))
+              echo "Round $i: no checks registered yet (${EMPTY_ROUNDS} consecutive empty rounds)"
+              if [ "$EMPTY_ROUNDS" -ge 10 ]; then
+                gh pr comment "$PR" --repo "$REPO" \
+                  --body "⚠️ **auto-merge**: CI checks unreadable after 5 minutes. Possible GitHub API issue — check CI manually and merge if green." \
+                  2>/dev/null || true
+                echo "Circuit breaker: exiting after $EMPTY_ROUNDS empty rounds"
+                exit 1
+              fi
               sleep 30
               continue
             fi
-            FAILED=$(echo "$STATUS" | jq '[.[] | select(.name != "auto-merge") | select(.state == "FAILURE" or .state == "ERROR" or .state == "CANCELLED")] | length')
-            PENDING=$(echo "$STATUS" | jq '[.[] | select(.name != "auto-merge") | select(.state == "PENDING" or .state == "IN_PROGRESS" or .state == "QUEUED")] | length')
+            EMPTY_ROUNDS=0
+            FAILED=$(echo "$STATUS" | jq '[.[] | select(.name != "auto-merge") | select(.state == "FAILURE" or .state == "TIMED_OUT" or .state == "CANCELLED" or .state == "ACTION_REQUIRED")] | length')
+            PENDING=$(echo "$STATUS" | jq '[.[] | select(.name != "auto-merge") | select(.state == "IN_PROGRESS" or .state == "QUEUED" or .state == "PENDING" or .state == "WAITING")] | length')
             echo "Round $i: failed=$FAILED pending=$PENDING total=$TOTAL"
             if [ "$FAILED" -gt 0 ]; then
               echo "CI checks failed"
@@ -105,13 +118,14 @@ jobs:
           done
           echo "Timed out waiting for CI checks"
           exit 1
-        timeout-minutes: 35
+        timeout-minutes: 65
 
       - name: Merge
         if: steps.eligible.outputs.result == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "Auto-merging: ${{ steps.eligible.outputs.reason }}"
           gh pr merge ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \
             --squash \
