@@ -125,17 +125,33 @@ local_resource(
     labels=['gitops'],
 )
 
-# ---- register the platform as a destination (installs the reconciler) ----
+# ---- register the cluster as destinations (installs the reconciler) ----
 # register-destination -> install-gitops honours GITOPS_PROVIDER; --git selects git store.
+# The single dev cluster is registered as TWO destinations so compound Promises
+# work out of the box: an aggregate Promise's platform-side work schedules to the
+# 'platform' destination (environment=platform), while sub-Promise workloads
+# schedule to 'worker' (environment=dev). Both back onto the same kind cluster.
 _reg_flags = '--git' if STORE == 'git' else ''
+
+def _register(name, label):
+    return ('GITOPS_PROVIDER=%s ./scripts/register-destination ' % PROVIDER +
+            '--name %s --context kind-platform --platform-context kind-platform ' % name +
+            '--with-label %s %s && ' % (label, _reg_flags) +
+            'kubectl --context kind-platform wait destination %s --for=condition=Ready --timeout=300s' % name)
+
 local_resource(
-    'register-destination',
-    cmd='GITOPS_PROVIDER=%s ./scripts/register-destination ' % PROVIDER +
-        '--name platform-cluster --context kind-platform ' +
-        '--with-label environment=dev ' +
-        '--platform-context kind-platform %s && ' % _reg_flags +
-        'kubectl --context kind-platform wait destination platform-cluster --for=condition=Ready --timeout=300s',
+    'register-worker',
+    cmd=_register('worker', 'environment=dev'),
     resource_deps=['statestore-cr'],
+    labels=['gitops'],
+)
+# self-register the platform as a destination with the platform label so
+# compound/aggregate Promises can schedule onto it (serialized after the worker
+# because both share the one, idempotently-installed reconciler)
+local_resource(
+    'register-platform',
+    cmd=_register('platform', 'environment=platform'),
+    resource_deps=['register-worker'],
     labels=['gitops'],
 )
 
@@ -144,6 +160,6 @@ if PROVIDER == 'argo':
     local_resource(
         'argocd-ui',
         cmd='./hack/dev/expose-argocd.sh',
-        resource_deps=['register-destination'],
+        resource_deps=['register-platform'],
         labels=['gitops'],
     )
