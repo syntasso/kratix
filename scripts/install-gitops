@@ -114,10 +114,21 @@ install_argocd_gitops() {
     # idempotent so re-running (e.g. Tilt dev loop restarts) doesn't fail if the namespace already exists
     kubectl --context "${CONTEXT}" create namespace argocd --dry-run=client -o yaml | kubectl --context "${CONTEXT}" apply -f -
     kubectl --context "${CONTEXT}" -n argocd apply --filename https://raw.githubusercontent.com/argoproj/argo-cd/refs/tags/v2.13.3/manifests/install.yaml
-    kubectl --context "${CONTEXT}" -n argocd patch configmap argocd-cm --type=json -p='[{"op": "add", "path": "/data", "value": {"timeout.reconciliation": "10s"}}]'
+    # Exclude Kratix controller-generated runtime kinds from Argo management.
+    # The Kratix controller copies the app.kubernetes.io/instance label from
+    # Argo-synced resources onto the ResourceBindings/Works it generates; Argo
+    # then sees its own tracking label on objects that aren't in git and flags
+    # them for pruning. These kinds are owned by the Kratix control plane, never
+    # by GitOps, so Argo should ignore them. (Promise/PromiseRelease are NOT
+    # excluded — they legitimately sync as Promise dependencies.)
+    kubectl --context "${CONTEXT}" -n argocd patch configmap argocd-cm --type merge \
+        -p '{"data":{"timeout.reconciliation":"10s","resource.exclusions":"- apiGroups:\n  - platform.kratix.io\n  kinds:\n  - ResourceBinding\n  - Work\n  - WorkPlacement\n  - PromiseRevision\n  - HealthRecord\n"}}'
     kubectl --context "${CONTEXT}" -n argocd rollout restart deployment argocd-applicationset-controller
     kubectl --context "${CONTEXT}" -n argocd rollout restart deployment argocd-repo-server
+    # the application-controller (a StatefulSet) reads resource.exclusions; restart it too
+    kubectl --context "${CONTEXT}" -n argocd rollout restart statefulset argocd-application-controller
     kubectl --context "${CONTEXT}" -n argocd wait --for=condition=available --timeout=300s deployments --all
+    kubectl --context "${CONTEXT}" -n argocd rollout status statefulset argocd-application-controller --timeout=300s
 
     resource_file=${ROOT}/hack/destination/gitops-argo-resources-git.yaml
     patch_kind_networking $resource_file | patch_name | patch_argo_secret | kubectl --context "${CONTEXT}" apply --filename -
