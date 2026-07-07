@@ -33,6 +33,21 @@ spec:
     automated:
       selfHeal: true
       prune: true
+    retry:
+      # keep retrying so the resources app recovers once the dependencies app
+      # has applied the CRD it depends on (Argo does not order across Apps)
+      limit: 20
+      backoff:
+        duration: "5s"
+        factor: 2
+        maxDuration: "2m"
+    syncOptions:
+      # server-side apply: Kratix Promise CRDs are large and exceed the
+      # client-side last-applied-configuration annotation size limit
+      - ServerSideApply=true
+      # let a sync proceed before the CRD exists in the API yet
+      - SkipDryRunOnMissingResource=true
+      - CreateNamespace=true
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -54,3 +69,18 @@ spec:
     automated:
       selfHeal: true
       prune: true
+    retry:
+      # keep retrying so the resources app recovers once the dependencies app
+      # has applied the CRD it depends on (Argo does not order across Apps)
+      limit: 20
+      backoff:
+        duration: "5s"
+        factor: 2
+        maxDuration: "2m"
+    syncOptions:
+      # server-side apply: Kratix Promise CRDs are large and exceed the
+      # client-side last-applied-configuration annotation size limit
+      - ServerSideApply=true
+      # let a sync proceed before the CRD exists in the API yet
+      - SkipDryRunOnMissingResource=true
+      - CreateNamespace=true
