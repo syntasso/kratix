@@ -19,6 +19,12 @@ const (
 	suspendConfigMap    = "assets/workflow-control/configmap.yaml"
 
 	retryPromiseName = "workflow-retry"
+
+	deleteSuspendPromiseName = "promise-with-delete-suspend"
+	deleteSuspendPromiseGate = "promise-delete-suspend-gate"
+
+	deleteRetryPromiseName = "promise-with-delete-retry"
+	deleteRetryPromiseGate = "promise-delete-retry-gate"
 )
 
 var _ = Describe("Workflow Control", Ordered, func() {
@@ -300,6 +306,111 @@ var _ = Describe("Workflow Control", Ordered, func() {
 		})
 	})
 
+	When("the promise's own delete pipeline is suspended by the workflow control file", func() {
+		AfterEach(func() {
+			platform.KubectlAllowFail("delete", "cm", deleteSuspendPromiseGate, "-n", "kratix-platform-system")
+			platform.KubectlAllowFail("label", "promise", deleteSuspendPromiseName, "kratix.io/workflow-suspended-")
+			platform.EventuallyKubectlDelete("promise", deleteSuspendPromiseName, "--ignore-not-found")
+		})
+
+		It("sets the DeleteWorkflowCompleted condition while the promise delete pipeline is suspended", func() {
+			platform.Kubectl("apply", "-f", "assets/workflow-control/promise-with-delete-suspend.yaml")
+			platform.Kubectl("create", "-n", "kratix-platform-system", "cm", deleteSuspendPromiseGate)
+
+			By("waiting for the configure pipeline to succeed first", func() {
+				Eventually(func(g Gomega) {
+					g.Expect(platform.Kubectl("get", "promise", deleteSuspendPromiseName, phaseJSONPath("pipe-0"))).To(Equal("Succeeded"))
+				}).Should(Succeed())
+			})
+
+			By("suspending the promise delete pipeline when the promise is deleted", func() {
+				platform.Kubectl("delete", "promise", deleteSuspendPromiseName, "--wait=false")
+
+				Eventually(func(g Gomega) {
+					g.Expect(platform.Kubectl("get", "promise", deleteSuspendPromiseName, phaseJSONPath("delete-pipe"))).To(Equal("Suspended"))
+					g.Expect(platform.Kubectl("get", "promise", deleteSuspendPromiseName, messageJSONPath("delete-pipe"))).To(Equal("waiting for promise delete approval"))
+					g.Expect(platform.Kubectl("get", "promise", deleteSuspendPromiseName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
+				}).Should(Succeed())
+
+				Consistently(func() int {
+					return jobCountForWorkflow("promise", deleteSuspendPromiseName, "delete-pipe", "delete")
+				}, 10*time.Second).Should(Equal(1))
+			})
+
+			By("setting the DeleteWorkflowCompleted condition to reflect the wait is on delete", func() {
+				Eventually(func(g Gomega) {
+					g.Expect(platform.Kubectl("get", "promise", deleteSuspendPromiseName,
+						`-o=jsonpath={.status.conditions[?(@.type=="DeleteWorkflowCompleted")].status}`)).To(Equal("False"))
+					g.Expect(platform.Kubectl("get", "promise", deleteSuspendPromiseName,
+						`-o=jsonpath={.status.conditions[?(@.type=="DeleteWorkflowCompleted")].reason}`)).To(Equal("DeleteWorkflowSuspended"))
+				}).Should(Succeed())
+			})
+
+			By("resuming deletion after the gate is removed and suspend label cleared", func() {
+				platform.Kubectl("delete", "cm", deleteSuspendPromiseGate, "-n", "kratix-platform-system")
+				platform.Kubectl("label", "promise", deleteSuspendPromiseName, "kratix.io/workflow-suspended-")
+
+				Eventually(func(g Gomega) {
+					g.Expect(platform.Kubectl("get", "promise", deleteSuspendPromiseName, "--ignore-not-found")).To(BeEmpty())
+				}).Should(Succeed())
+			})
+		})
+	})
+
+	When("the promise's own delete pipeline retries by the workflow control file", func() {
+		AfterEach(func() {
+			platform.KubectlAllowFail("delete", "cm", deleteRetryPromiseGate, "-n", "kratix-platform-system")
+			platform.EventuallyKubectlDelete("promise", deleteRetryPromiseName, "--ignore-not-found")
+		})
+
+		It("retries the promise delete pipeline until the gate condition is met", func() {
+			platform.Kubectl("apply", "-f", "assets/workflow-control/promise-with-delete-retry.yaml")
+
+			By("waiting for the configure pipeline to succeed first", func() {
+				Eventually(func(g Gomega) {
+					g.Expect(platform.Kubectl("get", "promise", deleteRetryPromiseName, phaseJSONPath("pipe-0"))).To(Equal("Succeeded"))
+				}).Should(Succeed())
+			})
+
+			By("retrying the promise delete pipeline while the gate configmap is missing", func() {
+				platform.Kubectl("delete", "promise", deleteRetryPromiseName, "--wait=false")
+
+				Eventually(func(g Gomega) {
+					g.Expect(platform.Kubectl("get", "promise", deleteRetryPromiseName, phaseJSONPath("delete-retry-pipe"))).To(Equal("Suspended"))
+					g.Expect(platform.Kubectl("get", "promise", deleteRetryPromiseName, messageJSONPath("delete-retry-pipe"))).To(Equal("waiting for gate configmap"))
+					g.Expect(platform.Kubectl("get", "promise", deleteRetryPromiseName, nextRetryAtJSONPath("delete-retry-pipe"))).NotTo(BeEmpty())
+					g.Expect(platform.Kubectl("get", "promise", deleteRetryPromiseName, attemptsJSONPath("delete-retry-pipe"))).To(Equal("1"))
+				}).Should(Succeed())
+
+				Eventually(func() int {
+					return jobCountForWorkflow("promise", deleteRetryPromiseName, "delete-retry-pipe", "delete")
+				}).Should(Equal(2))
+
+				Eventually(func(g Gomega) {
+					g.Expect(platform.Kubectl("get", "promise", deleteRetryPromiseName, phaseJSONPath("delete-retry-pipe"))).To(Equal("Suspended"))
+					g.Expect(platform.Kubectl("get", "promise", deleteRetryPromiseName, attemptsJSONPath("delete-retry-pipe"))).To(Equal("2"))
+				}).Should(Succeed())
+
+				Eventually(func() int {
+					return jobCountForWorkflow("promise", deleteRetryPromiseName, "delete-retry-pipe", "delete")
+				}).Should(Equal(3))
+
+				Eventually(func(g Gomega) {
+					g.Expect(platform.Kubectl("get", "promise", deleteRetryPromiseName, phaseJSONPath("delete-retry-pipe"))).To(Equal("Suspended"))
+					g.Expect(platform.Kubectl("get", "promise", deleteRetryPromiseName, attemptsJSONPath("delete-retry-pipe"))).To(Equal("3"))
+				}).Should(Succeed())
+			})
+
+			By("allowing deletion to complete once the gate configmap exists", func() {
+				platform.Kubectl("create", "-n", "kratix-platform-system", "cm", deleteRetryPromiseGate)
+
+				Eventually(func(g Gomega) {
+					g.Expect(platform.Kubectl("get", "promise", deleteRetryPromiseName, "--ignore-not-found")).To(BeEmpty())
+				}).Should(Succeed())
+			})
+		})
+	})
+
 })
 
 func phaseJSONPath(pipelineName string) string {
@@ -319,14 +430,14 @@ func attemptsJSONPath(pipelineName string) string {
 }
 
 func jobCountForPromisePipeline(promiseName, pipelineName string) int {
-	return jobCountForWorkflow("promise", promiseName, pipelineName)
+	return jobCountForWorkflow("promise", promiseName, pipelineName, "configure")
 }
 
 func jobCountForResourcePipeline(promiseName, pipelineName string) int {
-	return jobCountForWorkflow("resource", promiseName, pipelineName)
+	return jobCountForWorkflow("resource", promiseName, pipelineName, "configure")
 }
 
-func jobCountForWorkflow(workflowType, promiseName, pipelineName string) int {
+func jobCountForWorkflow(workflowType, promiseName, pipelineName, action string) int {
 	ns := "kratix-platform-system"
 	if workflowType == "resource" {
 		ns = "default"
@@ -334,7 +445,7 @@ func jobCountForWorkflow(workflowType, promiseName, pipelineName string) int {
 	selector := strings.Join([]string{
 		"kratix.io/promise-name=" + promiseName,
 		"kratix.io/workflow-type=" + workflowType,
-		"kratix.io/workflow-action=configure",
+		"kratix.io/workflow-action=" + action,
 		"kratix.io/pipeline-name=" + pipelineName,
 	}, ",")
 	output := platform.Kubectl(
