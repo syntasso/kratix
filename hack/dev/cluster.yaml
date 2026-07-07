@@ -21,3 +21,6 @@ kindV1Alpha4Cluster:
           hostPort: 31340
         - containerPort: 31333
           hostPort: 31333
+        # ArgoCD UI (NodePort set by hack/dev/expose-argocd.sh) -> https://localhost:31380
+        - containerPort: 31380
+          hostPort: 31380

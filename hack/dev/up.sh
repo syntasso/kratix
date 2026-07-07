@@ -39,16 +39,17 @@ if ! tilt wait --for=condition=Ready uiresource --all --timeout=900s; then
     exit 1
 fi
 
-cat <<EOF
-
-============================================================
-✅  Kratix platform READY   (gitops: ${GITOPS})
-------------------------------------------------------------
-  Dashboard  : http://localhost:10350
-  Use it     : kubectl --context kind-platform get promises
-  Hot-reload : edit controller code -> synced into the pod (~1s)
-  Logs       : tail -f ${LOG}
-  Stop       : make dev-down   (keep cluster, fast restart)
-               make dev-clean  (delete cluster + registry)
-============================================================
-EOF
+echo ""
+echo "============================================================"
+echo "✅  Kratix platform READY   (gitops: ${GITOPS})"
+echo "------------------------------------------------------------"
+echo "  Dashboard  : http://localhost:10350"
+if [[ "${GITOPS}" == argo-* ]]; then
+    echo "  ArgoCD UI  : https://localhost:31380  (argoadmin / argoadmin)"
+fi
+echo "  Use it     : kubectl --context kind-platform get promises"
+echo "  Hot-reload : edit controller code -> synced into the pod (~1s)"
+echo "  Logs       : tail -f ${LOG}"
+echo "  Stop       : make dev-down   (keep cluster, fast restart)"
+echo "               make dev-clean  (delete cluster + registry)"
+echo "============================================================"

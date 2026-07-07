@@ -4,15 +4,21 @@
 FROM alpine/git
 WORKDIR /
 
-COPY bin/manager /manager
-COPY bin/pipeline-adapter /bin/pipeline-adapter
-
 RUN addgroup -g 65532 app && \
     adduser -D -H -u 65532 -G app appuser && \
     mkdir -p /home/appuser/.ssh && \
     chown -R 65532:65532 /home/appuser
 
 ENV HOME=/home/appuser
+
+# The manager runs from $HOME so Tilt live_update can replace it in place:
+# replacing a file requires write permission on its PARENT directory, and the
+# container runs as non-root (runAsNonRoot) which cannot write to root-owned /.
+COPY --chown=65532:65532 bin/manager /home/appuser/manager
+# pipeline-adapter is exec'd by pipeline pods from this image (on PATH at /bin);
+# it is not live-updated into the manager pod.
+COPY bin/pipeline-adapter /bin/pipeline-adapter
+
 USER 65532:65532
 
-ENTRYPOINT ["/manager"]
+ENTRYPOINT ["/home/appuser/manager"]

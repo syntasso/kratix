@@ -28,11 +28,19 @@ PROVIDER, STORE = _matrix[_gitops]
 GOARCH = str(local('go env GOARCH', quiet=True)).strip()
 
 # ---- Build layer: host go build + live_update ----
+# Split builds so editing controller code rebuilds only the manager binary (and
+# live-syncs it), while a work-creator change rebuilds the adapter and triggers a
+# full image rebuild — which is what pipeline pods need (they pull the image).
 local_resource(
-    'go-build',
-    cmd='CGO_ENABLED=0 GOOS=linux GOARCH=%s go build -o bin/manager cmd/main.go && ' % GOARCH +
-        'CGO_ENABLED=0 GOOS=linux GOARCH=%s go build -o bin/pipeline-adapter work-creator/*.go' % GOARCH,
-    deps=['cmd', 'work-creator', 'api', 'lib', 'internal', 'go.mod', 'go.sum'],
+    'go-build-manager',
+    cmd='CGO_ENABLED=0 GOOS=linux GOARCH=%s go build -o bin/manager cmd/main.go' % GOARCH,
+    deps=['cmd', 'api', 'lib', 'internal', 'go.mod', 'go.sum'],
+    labels=['build'],
+)
+local_resource(
+    'go-build-adapter',
+    cmd='CGO_ENABLED=0 GOOS=linux GOARCH=%s go build -o bin/pipeline-adapter work-creator/*.go' % GOARCH,
+    deps=['work-creator', 'api', 'lib', 'go.mod', 'go.sum'],
     labels=['build'],
 )
 
@@ -40,18 +48,14 @@ docker_build_with_restart(
     IMAGE,
     '.',
     dockerfile='hack/dev/Dockerfile.dev',
-    entrypoint=['/manager'],
+    entrypoint=['/home/appuser/manager'],
     only=['bin/manager', 'bin/pipeline-adapter'],
-    # Sync BOTH binaries: go-build recompiles both on any change, so a changed
-    # bin/pipeline-adapter without a matching sync rule would force a full image
-    # rebuild on every edit. Syncing both keeps the common controller-edit loop
-    # in-place (~1s). NOTE: a live_update does not re-tag the registry image, so
-    # a genuine work-creator/pipeline-adapter change that pipeline pods must pull
-    # needs a full rebuild — trigger it from the Tilt UI (or `tilt trigger`).
-    live_update=[
-        sync('bin/manager', '/manager'),
-        sync('bin/pipeline-adapter', '/bin/pipeline-adapter'),
-    ],
+    # Only the manager is live-synced, into $HOME so the non-root user can replace
+    # it in place (replacing a file needs write on its parent dir; / is root-owned).
+    # A work-creator change rebuilds bin/pipeline-adapter, which is outside this
+    # sync rule and so triggers a full image rebuild — correct, since pipeline pods
+    # pull the freshly-tagged image.
+    live_update=[sync('bin/manager', '/home/appuser/manager')],
     # Rewrite the image ref wherever it appears as a literal container env value
     # (PIPELINE_ADAPTER_IMG) so pipeline pods pull from the local registry too.
     match_in_env_vars=True,
@@ -88,7 +92,7 @@ k8s_yaml(encode_yaml_stream(objects))
 
 k8s_resource(
     'kratix-platform-controller-manager',
-    resource_deps=['go-build', 'cert-manager'],
+    resource_deps=['go-build-manager', 'go-build-adapter', 'cert-manager'],
     labels=['platform'],
 )
 
@@ -128,8 +132,18 @@ local_resource(
     'register-destination',
     cmd='GITOPS_PROVIDER=%s ./scripts/register-destination ' % PROVIDER +
         '--name platform-cluster --context kind-platform ' +
+        '--with-label environment=dev ' +
         '--platform-context kind-platform %s && ' % _reg_flags +
         'kubectl --context kind-platform wait destination platform-cluster --for=condition=Ready --timeout=300s',
     resource_deps=['statestore-cr'],
     labels=['gitops'],
 )
+
+# ---- expose the ArgoCD UI on a host-mapped NodePort (argo cells only) ----
+if PROVIDER == 'argo':
+    local_resource(
+        'argocd-ui',
+        cmd='./hack/dev/expose-argocd.sh',
+        resource_deps=['register-destination'],
+        labels=['gitops'],
+    )
