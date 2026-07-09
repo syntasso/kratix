@@ -23,7 +23,7 @@ const (
 	DeleteWorkflowCompletedCondition       = clusterv1.ConditionType("DeleteWorkflowCompleted")
 	DeleteWorkflowCompletedFailedReason    = "DeleteWorkflowFailed"
 	DeleteWorkflowSuspendedReason          = "DeleteWorkflowSuspended"
-	DeleteWorkflowSuspendedMessage         = "Delete pipeline is waiting before deleting Works"
+	DeleteWorkflowSuspendedMessage         = "The delete workflow is suspended"
 	PipelinesExecutedSuccessfully          = "PipelinesExecutedSuccessfully"
 	PipelinesInProgressReason              = "PipelinesInProgress"
 	ManualReconciliationLabel              = "kratix.io/manual-reconciliation"
@@ -432,39 +432,6 @@ func ResetPipelineStatusToPending(obj *unstructured.Unstructured, pipelines []v1
 	}
 
 	unstructured.RemoveNestedField(obj.Object, "status", "kratix", "workflows", "suspendedGeneration")
-	return unstructured.SetNestedSlice(obj.Object, workflows, "status", "kratix", "workflows", "pipelines")
-}
-
-// UpsertPipelineStatusToPending sets the given pipelines to Pending, preserving
-// the status of any other pipelines already present. Unlike
-// ResetPipelineStatusToPending, this does not replace the whole pipelines
-// list — it is used when (re)initialising one workflow action's pipelines
-// (e.g. delete) must not discard another action's history (e.g. configure).
-func UpsertPipelineStatusToPending(obj *unstructured.Unstructured, pipelines []v1alpha1.PipelineJobResources) error {
-	existing, _, err := unstructured.NestedSlice(obj.Object, "status", "kratix", "workflows", "pipelines")
-	if err != nil {
-		return err
-	}
-
-	toReset := make(map[string]bool, len(pipelines))
-	for _, pipeline := range pipelines {
-		toReset[pipeline.Name] = true
-	}
-
-	workflows := make([]any, 0, len(existing)+len(pipelines))
-	for _, entry := range existing {
-		if entryMap, ok := entry.(map[string]any); ok && !toReset[fmt.Sprint(entryMap["name"])] {
-			workflows = append(workflows, entry)
-		}
-	}
-	for _, pipeline := range pipelines {
-		workflows = append(workflows, map[string]any{
-			"name":               pipeline.Name,
-			"phase":              v1alpha1.WorkflowPhasePending,
-			"lastTransitionTime": metav1.Now().Format(time.RFC3339),
-		})
-	}
-
 	return unstructured.SetNestedSlice(obj.Object, workflows, "status", "kratix", "workflows", "pipelines")
 }
 

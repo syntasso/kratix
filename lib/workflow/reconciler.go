@@ -155,7 +155,7 @@ func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources, res
 		}
 	}
 	if resetStatus {
-		if err = resourceutil.UpsertPipelineStatusToPending(opts.parentObject, opts.Resources); err != nil {
+		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.Resources); err != nil {
 			return false, err
 		}
 	}

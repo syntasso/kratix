@@ -502,65 +502,6 @@ var _ = Describe("Conditions", func() {
 				Expect(found).To(BeFalse())
 			})
 
-			Describe("UpsertPipelineStatusToPending", func() {
-				It("resets the given pipelines to pending without disturbing other pipelines' status", func() {
-					rr.Object["status"] = map[string]any{
-						"kratix": map[string]any{
-							"workflows": map[string]any{
-								"pipelines": []any{
-									map[string]any{"name": "delete-pipe", "phase": v1alpha1.WorkflowPhaseSucceeded, "attempts": int64(2)},
-								},
-							},
-						},
-					}
-
-					err := resourceutil.UpsertPipelineStatusToPending(rr, pipelines)
-					Expect(err).NotTo(HaveOccurred())
-
-					workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
-					Expect(err).NotTo(HaveOccurred())
-					Expect(found).To(BeTrue())
-					Expect(workflows).To(HaveLen(3))
-					Expect(workflows).To(ContainElement(SatisfyAll(
-						HaveKeyWithValue("name", "delete-pipe"),
-						HaveKeyWithValue("phase", v1alpha1.WorkflowPhaseSucceeded),
-						HaveKeyWithValue("attempts", int64(2)),
-					)))
-					Expect(workflows).To(ContainElement(SatisfyAll(
-						HaveKeyWithValue("name", "first-pipeline"),
-						HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
-					)))
-					Expect(workflows).To(ContainElement(SatisfyAll(
-						HaveKeyWithValue("name", "second-pipeline"),
-						HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
-					)))
-				})
-
-				It("overwrites an existing entry for a pipeline being reset", func() {
-					rr.Object["status"] = map[string]any{
-						"kratix": map[string]any{
-							"workflows": map[string]any{
-								"pipelines": []any{
-									map[string]any{"name": "first-pipeline", "phase": v1alpha1.WorkflowPhaseSuspended, "attempts": int64(3)},
-								},
-							},
-						},
-					}
-
-					err := resourceutil.UpsertPipelineStatusToPending(rr, pipelines)
-					Expect(err).NotTo(HaveOccurred())
-
-					workflows, _, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
-					Expect(err).NotTo(HaveOccurred())
-					Expect(workflows).To(HaveLen(2))
-					Expect(workflows).To(ContainElement(SatisfyAll(
-						HaveKeyWithValue("name", "first-pipeline"),
-						HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
-						Not(HaveKey("attempts")),
-					)))
-				})
-			})
-
 			It("finds the index of a pipeline with the requested phase", func() {
 				rr.Object["status"] = map[string]any{
 					"kratix": map[string]any{

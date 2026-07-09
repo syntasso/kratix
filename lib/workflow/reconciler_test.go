@@ -2256,6 +2256,22 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 			})
 
+			It("replaces existing pipeline statuses so only delete pipelines are reported", func() {
+				Expect(unstructured.SetNestedSlice(uPromise.Object, []any{
+					map[string]any{"name": "configure-pipe", "phase": string(v1alpha1.WorkflowPhaseSucceeded)},
+				}, "status", "kratix", "workflows", "pipelines")).To(Succeed())
+				Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
+
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+				_, err := workflow.ReconcileDelete(opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: uPromise.GetName(), Namespace: uPromise.GetNamespace()}, uPromise)).To(Succeed())
+				pipelines, _, _ := unstructured.NestedSlice(uPromise.Object, "status", "kratix", "workflows", "pipelines")
+				Expect(pipelines).To(HaveLen(len(workflowPipelines)))
+				Expect(pipelines).NotTo(ContainElement(HaveKeyWithValue("name", "configure-pipe")))
+			})
+
 			It("initialises the pipeline status to Running so the status-writer can update it", func() {
 				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 				_, err := workflow.ReconcileDelete(opts)
