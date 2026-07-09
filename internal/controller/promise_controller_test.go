@@ -1316,7 +1316,7 @@ var _ = Describe("PromiseController", func() {
 					})
 				})
 
-				When("the delete pipeline is actively suspended (waiting before Works are deleted)", func() {
+				When("the delete pipeline is actively suspended", func() {
 					BeforeEach(func() {
 						Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
@@ -1356,6 +1356,54 @@ var _ = Describe("PromiseController", func() {
 
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 						Expect(promise.Finalizers).To(ContainElement("kratix.io/delete-workflows"))
+					})
+				})
+
+				When("the delete pipeline is suspended with a retryAfter interval", func() {
+					BeforeEach(func() {
+						Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+
+						labels := promise.GetLabels()
+						if labels == nil {
+							labels = map[string]string{}
+						}
+						labels[v1alpha1.WorkflowSuspendedLabel] = "true"
+						promise.SetLabels(labels)
+						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+						promise.Status.Kratix.Workflows.Pipelines = []v1alpha1.WorkflowPipelineStatus{
+							{
+								Name:        "delete",
+								Phase:       v1alpha1.WorkflowPhaseSuspended,
+								Message:     "waiting for gate configmap",
+								NextRetryAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+							},
+						}
+						Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
+
+						controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+							return true, nil
+						})
+					})
+
+					It("sets the DeleteWorkflowCompleted condition", func() {
+						_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+						Expect(err).NotTo(HaveOccurred())
+
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						condition := apimeta.FindStatusCondition(promise.Status.Conditions, string(resourceutil.DeleteWorkflowCompletedCondition))
+						Expect(condition).NotTo(BeNil())
+						Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+						Expect(condition.Reason).To(Equal(resourceutil.DeleteWorkflowSuspendedReason))
+					})
+
+					It("sets the workflow-suspended label", func() {
+						_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+						Expect(err).NotTo(HaveOccurred())
+
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						Expect(promise.GetLabels()).To(HaveKeyWithValue(v1alpha1.WorkflowSuspendedLabel, "true"))
 					})
 				})
 

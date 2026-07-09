@@ -1570,7 +1570,7 @@ func (r *PromiseReconciler) handleSuspendedDeleteWorkflow(o opts, promise *v1alp
 		return false, ctrl.Result{}, nil
 	}
 
-	if shouldRequeue && err == nil && promise.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true" {
+	if err == nil && promise.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true" {
 		if setErr := r.setDeleteWorkflowSuspendedCondition(o, promise); setErr != nil {
 			return true, ctrl.Result{}, setErr
 		}
