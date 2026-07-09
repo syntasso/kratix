@@ -409,6 +409,23 @@ func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.
 	)
 }
 
+func (r *PromiseReconciler) setDeleteWorkflowSuspendedCondition(o opts, promise *v1alpha1.Promise) error {
+	existing := meta.FindStatusCondition(promise.Status.Conditions, string(resourceutil.DeleteWorkflowCompletedCondition))
+	if existing == nil ||
+		existing.Status != metav1.ConditionFalse ||
+		existing.Reason != resourceutil.DeleteWorkflowSuspendedReason {
+		updateConditionOnPromise(promise, metav1.Condition{
+			Type:               string(resourceutil.DeleteWorkflowCompletedCondition),
+			Status:             metav1.ConditionFalse,
+			Message:            resourceutil.DeleteWorkflowSuspendedMessage,
+			Reason:             resourceutil.DeleteWorkflowSuspendedReason,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		})
+		return r.Client.Status().Update(o.ctx, promise)
+	}
+	return nil
+}
+
 func (r *PromiseReconciler) setWorkflowSuspendedStatusCondition(ctx context.Context, promise *v1alpha1.Promise) error {
 	return r.setPromiseUnavailableStatusConditions(
 		ctx,
@@ -1447,6 +1464,11 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		if result, err := r.waitForResourceConfigureJobs(o, promise); result != nil || err != nil {
 			return *result, err
 		}
+
+		if handled, result, err := r.handleSuspendedDeleteWorkflow(o, promise); handled {
+			return result, err
+		}
+
 		logging.Info(o.logger, "running promise delete workflows")
 		unstructuredPromise, err := promise.ToUnstructured()
 		if err != nil {
@@ -1465,20 +1487,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
-			if stderrors.Is(err, workflow.ErrDeletePipelineFailed) {
-				r.EventRecorder.Eventf(promise, nil, "Warning", "Failed Pipeline", "Failed Pipeline", "%s", "The Delete Pipeline has failed")
-				condition := metav1.Condition{
-					Type:               string(resourceutil.DeleteWorkflowCompletedCondition),
-					Status:             metav1.ConditionFalse,
-					Message:            "The Delete Pipeline has failed",
-					Reason:             resourceutil.DeleteWorkflowCompletedFailedReason,
-					LastTransitionTime: metav1.NewTime(time.Now()),
-				}
-				updateConditionOnPromise(promise, condition)
-				if err := r.Client.Status().Update(o.ctx, promise); err != nil {
-					logging.Error(o.logger, err, "failed to update promise status", "promise", promise.GetName())
-				}
-			}
+			r.handlePromiseDeletePipelineFailure(o, promise, err)
 			return ctrl.Result{}, err
 		}
 
@@ -1553,6 +1562,41 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	}
 
 	return fastRequeue, nil
+}
+
+func (r *PromiseReconciler) handleSuspendedDeleteWorkflow(o opts, promise *v1alpha1.Promise) (bool, ctrl.Result, error) {
+	shouldRequeue, result, err := r.reconcileSuspendedWorkflow(o, promise, false)
+	if !shouldRequeue && result == nil && err == nil {
+		return false, ctrl.Result{}, nil
+	}
+
+	if err == nil && promise.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true" {
+		if setErr := r.setDeleteWorkflowSuspendedCondition(o, promise); setErr != nil {
+			return true, ctrl.Result{}, setErr
+		}
+	}
+	if result != nil {
+		return true, *result, err
+	}
+	return true, ctrl.Result{}, err
+}
+
+func (r *PromiseReconciler) handlePromiseDeletePipelineFailure(o opts, promise *v1alpha1.Promise, err error) {
+	if !stderrors.Is(err, workflow.ErrDeletePipelineFailed) {
+		return
+	}
+	r.EventRecorder.Eventf(promise, nil, "Warning", "Failed Pipeline", "Failed Pipeline", "%s", "The Delete Pipeline has failed")
+	condition := metav1.Condition{
+		Type:               string(resourceutil.DeleteWorkflowCompletedCondition),
+		Status:             metav1.ConditionFalse,
+		Message:            "The Delete Pipeline has failed",
+		Reason:             resourceutil.DeleteWorkflowCompletedFailedReason,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	}
+	updateConditionOnPromise(promise, condition)
+	if err := r.Client.Status().Update(o.ctx, promise); err != nil {
+		logging.Error(o.logger, err, "failed to update promise status", "promise", promise.GetName())
+	}
 }
 
 func (r *PromiseReconciler) waitForResourceConfigureJobs(o opts, promise *v1alpha1.Promise) (*ctrl.Result, error) {

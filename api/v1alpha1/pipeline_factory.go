@@ -337,8 +337,8 @@ func (p *PipelineFactory) pipelineJob(
 		initContainers = append(initContainers, workCreatorContainer)
 		containers = []corev1.Container{statusWriterContainer}
 	case WorkflowActionDelete:
-		initContainers = append(initContainers, pipelineContainers[0:len(pipelineContainers)-1]...)
-		containers = []corev1.Container{pipelineContainers[len(pipelineContainers)-1]}
+		initContainers = append(initContainers, pipelineContainers...)
+		containers = []corev1.Container{statusWriterContainer}
 	}
 
 	jobAnnotations := p.pipelineJobAnnotations(obj)

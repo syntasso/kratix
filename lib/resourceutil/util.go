@@ -22,6 +22,8 @@ const (
 	ConfigureWorkflowCompletedFailedReason = "ConfigureWorkflowFailed"
 	DeleteWorkflowCompletedCondition       = clusterv1.ConditionType("DeleteWorkflowCompleted")
 	DeleteWorkflowCompletedFailedReason    = "DeleteWorkflowFailed"
+	DeleteWorkflowSuspendedReason          = "DeleteWorkflowSuspended"
+	DeleteWorkflowSuspendedMessage         = "The delete workflow is suspended"
 	PipelinesExecutedSuccessfully          = "PipelinesExecutedSuccessfully"
 	PipelinesInProgressReason              = "PipelinesInProgress"
 	ManualReconciliationLabel              = "kratix.io/manual-reconciliation"
@@ -168,6 +170,18 @@ func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructur
 	}
 	SetCondition(obj, &condition)
 	logging.Warn(logger, "marking delete workflow as failed", "condition", condition.Type, "value", condition.Status, "reason", condition.Reason)
+}
+
+func MarkDeleteWorkflowSuspended(logger logr.Logger, obj *unstructured.Unstructured) {
+	condition := clusterv1.Condition{
+		Type:               DeleteWorkflowCompletedCondition,
+		Status:             v1.ConditionFalse,
+		Message:            DeleteWorkflowSuspendedMessage,
+		Reason:             DeleteWorkflowSuspendedReason,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	}
+	SetCondition(obj, &condition)
+	logging.Info(logger, "marking delete workflow as suspended", "condition", condition.Type, "value", condition.Status, "reason", condition.Reason)
 }
 
 func SortJobsByCreationDateTime(jobs []batchv1.Job, desc bool) []batchv1.Job {

@@ -49,5 +49,6 @@ key.pem
 # Generated in `make distribution` and `make deploy`
 config/manager/pipeline-adapter-config.properties
 
-# cursor rules
+# ai rules
 .cursor
+.claude

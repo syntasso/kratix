@@ -523,6 +523,26 @@ var _ = Describe("Conditions", func() {
 
 	})
 
+	Describe("MarkDeleteWorkflowSuspended", func() {
+		var obj *unstructured.Unstructured
+
+		BeforeEach(func() {
+			obj = &unstructured.Unstructured{}
+			obj.SetName("test-resource")
+		})
+
+		It("sets the DeleteWorkflowCompleted condition to False with DeleteWorkflowSuspended reason", func() {
+			resourceutil.MarkDeleteWorkflowSuspended(logger, obj)
+
+			condition := resourceutil.GetCondition(obj, resourceutil.DeleteWorkflowCompletedCondition)
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(v1.ConditionFalse))
+			Expect(condition.Reason).To(Equal(resourceutil.DeleteWorkflowSuspendedReason))
+			Expect(condition.Message).NotTo(BeEmpty())
+		})
+
+	})
+
 	Describe("GetObservedGeneration", func() {
 		var rr *unstructured.Unstructured
 
