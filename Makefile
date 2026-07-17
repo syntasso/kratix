@@ -252,8 +252,8 @@ perf-test: fmt vet ## Run the controller perf rig against an existing kind-platf
 	PERF_N=$${PERF_N:-500}; \
 	PERF_RUN=$${PERF_RUN:-run-$$(date +%s)}; \
 	PERF_N=$$PERF_N PERF_RUN=$$PERF_RUN \
-	go test -tags=perf -timeout=60m ./test/perf/... \
-		-args -perf.n=$$PERF_N -perf.run=$$PERF_RUN \
+	go test -tags=perf -timeout=60m -v ./test/perf/... \
+		-args -ginkgo.v -perf.n=$$PERF_N -perf.run=$$PERF_RUN \
 		-perf.context=$${PERF_CONTEXT:-kind-platform} \
 		-perf.namespace=$${PERF_NAMESPACE:-default} \
 		-perf.timeout=$${PERF_TIMEOUT:-30m} \
