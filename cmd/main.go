@@ -256,11 +256,13 @@ func main() {
 		Cache: cache.Options{
 			DefaultTransform: stripManagedFields,
 			ByObject: map[client.Object]cache.ByObject{
-				// Strip the Job spec from the informer cache — Kratix only needs
-				// job status and labels. The spec (PodSpec, containers, env vars,
-				// volumes) accounts for ~400 MB. Managed fields are stripped first
-				// because ByObject transforms override DefaultTransform for that type.
+				// Filter the informer cache to only Kratix-managed Jobs, and strip
+				// the Job spec — Kratix only needs job status and labels. The spec
+				// (PodSpec, containers, env vars, volumes) accounts for ~400 MB.
+				// Managed fields are stripped first because ByObject transforms
+				// override DefaultTransform for that type.
 				&batchv1.Job{}: {
+					Label: jobCacheSelector(),
 					Transform: func(in interface{}) (interface{}, error) {
 						out, err := stripManagedFields(in)
 						if err != nil {
@@ -281,9 +283,6 @@ func main() {
 	}
 
 	setupLog.Info("Filtering Job informer cache to Kratix-managed Jobs only")
-	mgrOptions.Cache.ByObject = map[client.Object]cache.ByObject{
-		&batchv1.Job{}: {Label: jobCacheSelector()},
-	}
 
 	if kratixConfig != nil && kratixConfig.SelectiveCache {
 		setupLog.Info("Building selective cache for Secrets to limit memory usage; Please ensure Secrets used by kratix are created with label: app.kubernetes.io/part-of=kratix.")
