@@ -478,11 +478,11 @@ func resetPromiseWorkflowPipelinesToPending(promise *v1alpha1.Promise) {
 }
 
 func (r *PromiseReconciler) generateConditions(ctx context.Context, promise *v1alpha1.Promise, numberOfPipelines int64) (bool, error) {
-	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, promise)
+	failed, misplaced, pending, ready, blocked, err := r.getWorksStatus(ctx, promise)
 	if err != nil {
 		return false, err
 	}
-	worksSucceededUpdate := r.updateWorksSucceededCondition(promise, failed, pending, ready, misplaced)
+	worksSucceededUpdate := r.updateWorksSucceededCondition(promise, failed, pending, ready, misplaced, blocked)
 	reconciledUpdate := r.updateReconciledCondition(promise)
 	workflowsCounterStatusUpdate := r.generateWorkflowsCounterStatus(promise, numberOfPipelines)
 
@@ -553,6 +553,7 @@ func (r *PromiseReconciler) getWorksStatus(ctx context.Context,
 	[]string,
 	[]string,
 	[]string,
+	[]string,
 	error,
 ) {
 	workSelectorLabel := labels.FormatLabels(
@@ -565,7 +566,7 @@ func (r *PromiseReconciler) getWorksStatus(ctx context.Context,
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
 		logging.Error(r.Log, err, "failed parsing Works selector label", "labels", workSelectorLabel)
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	var works v1alpha1.WorkList
@@ -575,12 +576,19 @@ func (r *PromiseReconciler) getWorksStatus(ctx context.Context,
 	})
 	if err != nil {
 		logging.Error(r.Log, err, "failed listing works", "labelSelector", workSelectorLabel)
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
-	var failed, misplaced, ready, pending []string
+	var failed, misplaced, ready, pending, blocked []string
 	for _, work := range works.Items {
 		readyCond := meta.FindStatusCondition(work.Status.Conditions, "Ready")
+		// A Work blocked by a destination scheduling policy reports Ready=Pending;
+		// distinguish it by reason so it surfaces as a policy block rather than a
+		// transient "not ready".
+		if readyCond != nil && readyCond.Reason == resourceutil.BlockedByDestinationPolicyReason {
+			blocked = append(blocked, work.Name)
+			continue
+		}
 		message := "Pending"
 		if readyCond != nil && readyCond.Message != "" {
 			message = readyCond.Message
@@ -596,7 +604,7 @@ func (r *PromiseReconciler) getWorksStatus(ctx context.Context,
 			ready = append(ready, work.Name)
 		}
 	}
-	return failed, misplaced, pending, ready, nil
+	return failed, misplaced, pending, ready, blocked, nil
 }
 
 func (r *PromiseReconciler) updateWorksSucceededCondition(
@@ -604,13 +612,22 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 	failed,
 	pending,
 	_,
-	misplaced []string,
+	misplaced,
+	blocked []string,
 ) bool {
 	cond := promise.GetCondition(string(resourceutil.WorksSucceededCondition))
 	if len(failed) > 0 {
 		if cond == nil || cond.Status == "True" {
 			updateConditionOnPromise(promise, promiseWorksSucceededFailedCondition(failed))
 			r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, "WorksFailing", "WorksFailing", "Some works associated with this promise has failed: [%s]", strings.Join(failed, ","))
+			return true
+		}
+		return false
+	}
+	if len(blocked) > 0 {
+		if cond == nil || cond.Status != "False" || cond.Reason != resourceutil.BlockedByDestinationPolicyReason {
+			updateConditionOnPromise(promise, promiseWorksBlockedByPolicyCondition(blocked))
+			r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, resourceutil.BlockedByDestinationPolicyReason, resourceutil.BlockedByDestinationPolicyReason, "Some works associated with this promise are blocked by a destination scheduling policy: [%s]", strings.Join(blocked, ","))
 			return true
 		}
 		return false
@@ -727,6 +744,16 @@ func promiseWorksSucceededUnknownCondition(pendingWorks []string) metav1.Conditi
 		Status:             metav1.ConditionUnknown,
 		Message:            fmt.Sprintf("Some works associated with this promise are not ready: %s", pendingWorks),
 		Reason:             "WorksPending",
+	}
+}
+
+func promiseWorksBlockedByPolicyCondition(blockedWorks []string) metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseWorksSucceededCondition,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionFalse,
+		Message:            fmt.Sprintf("Some works associated with this promise are blocked by a destination scheduling policy: %s", blockedWorks),
+		Reason:             resourceutil.BlockedByDestinationPolicyReason,
 	}
 }
 

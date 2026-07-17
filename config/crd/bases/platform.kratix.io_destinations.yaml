@@ -115,6 +115,97 @@ spec:
                   To write to the root of the StateStore.Spec.Path, set Path to "." or "/".
                   Defaults to the Destination name
                 type: string
+              schedulingPolicy:
+                description: |-
+                  SchedulingPolicy controls which Promises are authorized to schedule Works
+                  to this Destination. It is evaluated by the scheduler after label matching:
+                  a Work must both match the Destination's labels and be authorized by this
+                  policy to be scheduled here. If omitted, all Promises are allowed
+                  (preserving pre-existing behaviour).
+                properties:
+                  promiseNames:
+                    description: |-
+                      PromiseNames is exact-match shorthand for rules that authorize by Promise name
+                      only (no namespace restriction). Each entry is equivalent to a Rule with just
+                      promiseName set.
+                    items:
+                      type: string
+                    type: array
+                  rules:
+                    description: |-
+                      Rules authorize by Promise name and, optionally, by the namespace of the
+                      resource request. Rules and PromiseNames are combined.
+                    items:
+                      description: SchedulingPolicyRule is one entry in a SchedulingPolicy.
+                      properties:
+                        namespaceSelector:
+                          description: |-
+                            NamespaceSelector restricts which requester namespaces this rule applies to.
+                            When set, the rule constrains only resource-level Works; the Promise's
+                            dependency (promise-level) Works are unaffected. When empty, the rule applies
+                            regardless of namespace.
+                          properties:
+                            matchExpressions:
+                              description: matchExpressions is a list of label selector
+                                requirements. The requirements are ANDed.
+                              items:
+                                description: |-
+                                  A label selector requirement is a selector that contains values, a key, and an operator that
+                                  relates the key and values.
+                                properties:
+                                  key:
+                                    description: key is the label key that the selector
+                                      applies to.
+                                    type: string
+                                  operator:
+                                    description: |-
+                                      operator represents a key's relationship to a set of values.
+                                      Valid operators are In, NotIn, Exists and DoesNotExist.
+                                    type: string
+                                  values:
+                                    description: |-
+                                      values is an array of string values. If the operator is In or NotIn,
+                                      the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                      the values array must be empty. This array is replaced during a strategic
+                                      merge patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                operator is "In", and the values array contains only "value". The requirements are ANDed.
+                              type: object
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        promiseName:
+                          description: PromiseName is the exact Promise name this
+                            rule applies to. Empty matches any Promise.
+                          type: string
+                      type: object
+                    type: array
+                  type:
+                    description: |-
+                      Type determines how the rules are interpreted:
+                      - Allow: a Work is authorized only if it matches the rules.
+                      - Deny: a Work is authorized unless it matches the rules.
+                    enum:
+                    - Allow
+                    - Deny
+                    type: string
+                required:
+                - type
+                type: object
               stateStoreRef:
                 description: Reference to the StateStore (GitStateStore or BucketStateStore)
                   used to persist resources for this Destination

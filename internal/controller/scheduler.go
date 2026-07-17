@@ -12,6 +12,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +36,10 @@ const (
 	scheduledStatus   schedulingStatus = "scheduled"
 	unscheduledStatus schedulingStatus = "unscheduled"
 	misplacedStatus   schedulingStatus = "misplaced"
+	// blockedStatus means the WorkloadGroup matched one or more Destinations by
+	// label, but every match denied the Promise via its SchedulingPolicy, so no
+	// WorkPlacement could be created.
+	blockedStatus schedulingStatus = "blockedByPolicy"
 )
 
 type Scheduler struct {
@@ -46,7 +51,7 @@ type Scheduler struct {
 // Reconciles all WorkloadGroups in a Work by scheduling them to Destinations via
 // Workplacements.
 func (s *Scheduler) ReconcileWork(ctx context.Context, work *v1alpha1.Work) ([]string, error) {
-	var unschedulable, misplaced []string
+	var unschedulable, misplaced, blockedByPolicy []string
 	for _, wg := range work.Spec.WorkloadGroups {
 		workloadGroupScheduleStatus, err := s.reconcileWorkloadGroup(ctx, wg, work)
 		if err != nil {
@@ -70,25 +75,32 @@ func (s *Scheduler) ReconcileWork(ctx context.Context, work *v1alpha1.Work) ([]s
 		switch workloadGroupScheduleStatus {
 		case unscheduledStatus:
 			unschedulable = append(unschedulable, wg.ID)
+		case blockedStatus:
+			blockedByPolicy = append(blockedByPolicy, wg.ID)
 		case misplacedStatus:
 			misplaced = append(misplaced, wg.ID)
 		case scheduledStatus:
 		}
 	}
 
-	if s.updateWorkStatus(work, unschedulable, misplaced) {
+	if s.updateWorkStatus(work, unschedulable, misplaced, blockedByPolicy) {
 		if err := s.Client.Status().Update(ctx, work); err != nil {
 			return nil, err
 		}
 	}
 
-	return unschedulable, s.cleanupDanglingWorkplacements(ctx, work)
+	// Blocked-by-policy WorkloadGroups are also pending scheduling: report them so
+	// the WorkReconciler requeues (e.g. for resource requests) in case the policy
+	// or the set of Destinations changes.
+	pending := append(unschedulable, blockedByPolicy...)
+	return pending, s.cleanupDanglingWorkplacements(ctx, work)
 }
 
-func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupIDs, misplacedWorkloadGroupIDs []string) bool {
+func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupIDs, misplacedWorkloadGroupIDs, blockedByPolicyWorkloadGroupIDs []string) bool {
 	var updated bool
 	workPlacements := len(w.Spec.WorkloadGroups)
-	workPlacementsCreated := workPlacements - len(unscheduledWorkloadGroupIDs)
+	notScheduled := len(unscheduledWorkloadGroupIDs) + len(blockedByPolicyWorkloadGroupIDs)
+	workPlacementsCreated := workPlacements - notScheduled
 	if workPlacements != w.Status.WorkPlacements || workPlacementsCreated != w.Status.WorkPlacementsCreated {
 		w.Status.WorkPlacements = workPlacements
 		w.Status.WorkPlacementsCreated = workPlacementsCreated
@@ -97,7 +109,24 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 
 	var readyCond, scheduleSucceededCond metav1.Condition
 
-	if len(unscheduledWorkloadGroupIDs) > 0 {
+	if len(blockedByPolicyWorkloadGroupIDs) > 0 {
+		readyCond = metav1.Condition{
+			Type:    "Ready",
+			Status:  metav1.ConditionFalse,
+			Reason:  resourceutil.BlockedByDestinationPolicyReason,
+			Message: "Pending",
+		}
+		scheduleSucceededCond = metav1.Condition{
+			Type:   "ScheduleSucceeded",
+			Status: metav1.ConditionFalse,
+			Reason: resourceutil.BlockedByDestinationPolicyReason,
+			Message: fmt.Sprintf(
+				"Promise %q not authorized by any matching destination's schedulingPolicy for workloadGroups: [%s]",
+				w.Spec.PromiseName,
+				strings.Join(blockedByPolicyWorkloadGroupIDs, ","),
+			),
+		}
+	} else if len(unscheduledWorkloadGroupIDs) > 0 {
 		readyCond = metav1.Condition{
 			Type:    "Ready",
 			Status:  metav1.ConditionFalse,
@@ -227,7 +256,7 @@ func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1
 	}
 
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup)
-	targetDestinationNames, err := s.getTargetDestinationNames(ctx, destinationSelectors, work)
+	targetDestinationNames, deniedByPolicy, err := s.getTargetDestinationNames(ctx, destinationSelectors, work)
 	if err != nil {
 		return "", err
 	}
@@ -247,6 +276,29 @@ func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1
 	}
 
 	if len(targetDestinationMap) == 0 {
+		// Distinguish "no destination matched the labels" from "destinations matched
+		// but their schedulingPolicy denied this Promise": the latter is an
+		// authorization outcome the Promise author needs to see explicitly.
+		if len(deniedByPolicy) > 0 {
+			logging.Warn(s.Log, "promise not authorized to schedule to any matching destination",
+				"promise", work.Spec.PromiseName, "deniedDestinations", deniedByPolicy, "workloadGroupID", workloadGroup.ID)
+			s.EventRecorder.Eventf(work, nil, corev1.EventTypeWarning, resourceutil.BlockedByDestinationPolicyReason, resourceutil.BlockedByDestinationPolicyReason,
+				"promise %q is not authorized by the schedulingPolicy of matching destination(s) [%s] for workloadGroup: %s",
+				work.Spec.PromiseName, strings.Join(deniedByPolicy, ","), workloadGroup.ID)
+
+			telemetry.RecordWorkPlacementOutcome(
+				ctx,
+				telemetry.WorkPlacementOutcomeUnscheduled,
+				telemetry.WorkPlacementOutcomeAttributes(
+					work.Spec.PromiseName,
+					work.Spec.ResourceName,
+					work.GetNamespace(),
+					"",
+				)...,
+			)
+			return blockedStatus, nil
+		}
+
 		logging.Warn(s.Log, "no destinations can be selected for scheduling", "scheduling", destinationSelectors, "workloadGroupDirectory", workloadGroup.Directory, "workloadGroupID", workloadGroup.ID)
 		s.EventRecorder.Eventf(work, nil, corev1.EventTypeNormal, "NoMatchingDestination", "NoMatchingDestination", "waiting for a destination with labels for workloadGroup: %s", workloadGroup.ID)
 
@@ -479,35 +531,99 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 
 // Where Work is a Resource Request return one random Destination name, where Work is a
 // DestinationWorkerResource return all Destination names
-func (s *Scheduler) getTargetDestinationNames(ctx context.Context, destinationSelectors map[string]string, work *v1alpha1.Work) ([]string, error) {
+// getTargetDestinationNames returns the names of Destinations a WorkloadGroup should
+// be scheduled to. It first narrows Destinations by label matching, then applies each
+// candidate Destination's SchedulingPolicy to authorize (or deny) the Promise. The
+// second return value lists the names of Destinations that matched by label but denied
+// the Promise via policy, so the caller can distinguish "no match" from "not
+// authorized".
+func (s *Scheduler) getTargetDestinationNames(ctx context.Context, destinationSelectors map[string]string, work *v1alpha1.Work) ([]string, []string, error) {
 	destinations, err := s.getDestinationsForWorkloadGroup(ctx, destinationSelectors)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if len(destinations) == 0 {
-		return make([]string, 0), nil
+		return make([]string, 0), nil, nil
+	}
+
+	authorized, deniedByPolicy := s.authorizeDestinations(ctx, destinations, work)
+
+	if len(authorized) == 0 {
+		return make([]string, 0), deniedByPolicy, nil
 	}
 
 	if work.IsResourceRequest() {
 		logging.Trace(s.Log, "getting destination names for resource request")
 		var targetDestinationNames = make([]string, 1)
-		randomDestinationIndex := rand.Intn(len(destinations))
-		targetDestinationNames[0] = destinations[randomDestinationIndex].Name
+		randomDestinationIndex := rand.Intn(len(authorized))
+		targetDestinationNames[0] = authorized[randomDestinationIndex].Name
 		logging.Trace(s.Log, "adding destination", "destination", targetDestinationNames[0])
-		return targetDestinationNames, nil
+		return targetDestinationNames, deniedByPolicy, nil
 	} else if work.IsDependency() {
 		logging.Trace(s.Log, "getting destination names for dependencies")
-		var targetDestinationNames = make([]string, len(destinations))
-		for i := 0; i < len(destinations); i++ {
-			targetDestinationNames[i] = destinations[i].Name
+		var targetDestinationNames = make([]string, len(authorized))
+		for i := 0; i < len(authorized); i++ {
+			targetDestinationNames[i] = authorized[i].Name
 			logging.Trace(s.Log, "adding destination", "destination", targetDestinationNames[i])
 		}
-		return targetDestinationNames, nil
+		return targetDestinationNames, deniedByPolicy, nil
 	} else {
 		logging.Trace(s.Log, "work is neither resource request nor dependency")
-		return make([]string, 0), nil
+		return make([]string, 0), deniedByPolicy, nil
 	}
+}
+
+// authorizeDestinations partitions label-matched Destinations into those that authorize
+// the Work and those that deny it via their SchedulingPolicy. For resource Works the
+// requester namespace's labels are resolved once (they are the same across all
+// candidate Destinations) so namespace-scoped rules can be evaluated. The scheduling
+// decision for each Destination is logged at debug level so the policy can be observed
+// in action.
+func (s *Scheduler) authorizeDestinations(ctx context.Context, destinations []v1alpha1.Destination, work *v1alpha1.Work) (authorized []v1alpha1.Destination, deniedNames []string) {
+	promiseName := work.Spec.PromiseName
+	isResourceWork := work.IsResourceRequest()
+
+	var namespaceLabels map[string]string
+	if isResourceWork {
+		namespaceLabels = s.resolveNamespaceLabels(ctx, work.GetNamespace())
+	}
+
+	for i := range destinations {
+		dest := destinations[i]
+		if dest.AuthorizesWork(promiseName, isResourceWork, namespaceLabels) {
+			authorized = append(authorized, dest)
+			logging.Debug(s.Log, "destination authorized work via schedulingPolicy",
+				"destination", dest.GetName(), "promise", promiseName, "namespace", work.GetNamespace(), "policy", schedulingPolicyForLog(dest))
+		} else {
+			deniedNames = append(deniedNames, dest.GetName())
+			logging.Debug(s.Log, "destination denied work via schedulingPolicy",
+				"destination", dest.GetName(), "promise", promiseName, "namespace", work.GetNamespace(), "policy", schedulingPolicyForLog(dest))
+		}
+	}
+	return authorized, deniedNames
+}
+
+// resolveNamespaceLabels fetches the labels of the requester namespace for evaluating
+// namespace-scoped scheduling rules. On error it logs and returns nil labels, so a
+// namespace lookup failure degrades to "no labels" rather than blocking scheduling.
+func (s *Scheduler) resolveNamespaceLabels(ctx context.Context, namespace string) map[string]string {
+	ns := &corev1.Namespace{}
+	if err := s.Client.Get(ctx, client.ObjectKey{Name: namespace}, ns); err != nil {
+		logging.Warn(s.Log, "failed to get namespace for scheduling policy evaluation; treating as no labels",
+			"namespace", namespace, "error", err.Error())
+		return nil
+	}
+	return ns.GetLabels()
+}
+
+// schedulingPolicyForLog renders a Destination's SchedulingPolicy for debug logging.
+func schedulingPolicyForLog(dest v1alpha1.Destination) string {
+	policy := dest.Spec.SchedulingPolicy
+	if policy == nil {
+		return "none"
+	}
+	return fmt.Sprintf("%s promiseNames=%v rules=%d", policy.Type, policy.PromiseNames, len(policy.Rules))
 }
 
 // By default, all destinations are returned. However, if scheduling is provided, only matching destinations will be returned.

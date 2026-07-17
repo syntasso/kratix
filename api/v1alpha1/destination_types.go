@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -76,6 +77,65 @@ type DestinationSpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:={}
 	InitWorkloads InitWorkloads `json:"initWorkloads"`
+
+	// SchedulingPolicy controls which Promises are authorized to schedule Works
+	// to this Destination. It is evaluated by the scheduler after label matching:
+	// a Work must both match the Destination's labels and be authorized by this
+	// policy to be scheduled here. If omitted, all Promises are allowed
+	// (preserving pre-existing behaviour).
+	// +kubebuilder:validation:Optional
+	SchedulingPolicy *SchedulingPolicy `json:"schedulingPolicy,omitempty"`
+}
+
+// SchedulingPolicy authorizes Promises to schedule Works to a Destination.
+//
+// A Promise's name authorizes the Promise for BOTH work kinds (promise-level
+// dependency Works and resource-level Works). A rule's namespaceSelector further
+// constrains only that Promise's RESOURCE Works to the matching requester namespaces;
+// it never affects the dependency Works, so a shared operator is not torn down by a
+// namespace restriction.
+type SchedulingPolicy struct {
+	// Type determines how the rules are interpreted:
+	// - Allow: a Work is authorized only if it matches the rules.
+	// - Deny: a Work is authorized unless it matches the rules.
+	// +kubebuilder:validation:Enum:={Allow,Deny}
+	// +kubebuilder:validation:Required
+	Type string `json:"type"`
+
+	// PromiseNames is exact-match shorthand for rules that authorize by Promise name
+	// only (no namespace restriction). Each entry is equivalent to a Rule with just
+	// promiseName set.
+	// +kubebuilder:validation:Optional
+	PromiseNames []string `json:"promiseNames,omitempty"`
+
+	// Rules authorize by Promise name and, optionally, by the namespace of the
+	// resource request. Rules and PromiseNames are combined.
+	// +kubebuilder:validation:Optional
+	Rules []SchedulingPolicyRule `json:"rules,omitempty"`
+}
+
+// SchedulingPolicyRule is one entry in a SchedulingPolicy.
+type SchedulingPolicyRule struct {
+	// PromiseName is the exact Promise name this rule applies to. Empty matches any Promise.
+	// +kubebuilder:validation:Optional
+	PromiseName string `json:"promiseName,omitempty"`
+
+	// NamespaceSelector restricts which requester namespaces this rule applies to.
+	// When set, the rule constrains only resource-level Works; the Promise's
+	// dependency (promise-level) Works are unaffected. When empty, the rule applies
+	// regardless of namespace.
+	// +kubebuilder:validation:Optional
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
+}
+
+// effectiveRules returns Rules with the PromiseNames shorthand desugared into rules.
+func (p *SchedulingPolicy) effectiveRules() []SchedulingPolicyRule {
+	rules := make([]SchedulingPolicyRule, 0, len(p.Rules)+len(p.PromiseNames))
+	rules = append(rules, p.Rules...)
+	for _, name := range p.PromiseNames {
+		rules = append(rules, SchedulingPolicyRule{PromiseName: name})
+	}
+	return rules
 }
 
 // InitWorkloads controls whether Kratix writes initial placeholder files to the StateStore for this Destination
@@ -94,6 +154,9 @@ const (
 	FilepathModeAggregatedYAML   = "aggregatedYAML"
 	DestinationCleanupAll        = "all"
 	DestinationCleanupNone       = "none"
+
+	SchedulingPolicyTypeAllow = "Allow"
+	SchedulingPolicyTypeDeny  = "Deny"
 )
 
 type Filepath struct {
@@ -127,6 +190,76 @@ func (d *Destination) GetCleanup() string {
 		return DestinationCleanupNone
 	}
 	return d.Spec.Cleanup
+}
+
+// AuthorizesWork reports whether a Work for the given Promise is permitted to schedule
+// to this Destination, per its SchedulingPolicy. A nil policy allows everything.
+//
+// isResourceWork distinguishes resource-level Works (which carry a requester namespace)
+// from promise-level dependency Works. namespaceLabels are the labels of the requester
+// namespace and are only consulted for resource Works.
+//
+// See SchedulingPolicy for the full Allow/Deny and namespace semantics.
+func (d *Destination) AuthorizesWork(promiseName string, isResourceWork bool, namespaceLabels map[string]string) bool {
+	policy := d.Spec.SchedulingPolicy
+	if policy == nil {
+		return true
+	}
+
+	// Rules that apply to this Promise (exact name match, or an empty name wildcard).
+	var applicable []SchedulingPolicyRule
+	for _, r := range policy.effectiveRules() {
+		if r.PromiseName == "" || r.PromiseName == promiseName {
+			applicable = append(applicable, r)
+		}
+	}
+
+	if policy.Type == SchedulingPolicyTypeDeny {
+		return !deniedByRules(applicable, isResourceWork, namespaceLabels)
+	}
+
+	// Allow semantics.
+	if len(applicable) == 0 {
+		return false // Promise not authorized on this Destination at all.
+	}
+	if !isResourceWork {
+		return true // Dependency Works are authorized by name; namespace rules do not apply.
+	}
+	// Resource Work: if the Promise has any namespace-scoped rule, the requester
+	// namespace must match one of them; an unrestricted rule authorizes any namespace.
+	for _, r := range applicable {
+		if r.NamespaceSelector == nil {
+			return true
+		}
+		if namespaceSelectorMatches(r.NamespaceSelector, namespaceLabels) {
+			return true
+		}
+	}
+	return false
+}
+
+// deniedByRules reports whether the applicable Deny rules deny this Work. A
+// selector-less rule denies the Promise entirely (both work kinds); a selector-bearing
+// rule denies only resource Works whose requester namespace matches, leaving the
+// dependency Works untouched.
+func deniedByRules(applicable []SchedulingPolicyRule, isResourceWork bool, namespaceLabels map[string]string) bool {
+	for _, r := range applicable {
+		if r.NamespaceSelector == nil {
+			return true
+		}
+		if isResourceWork && namespaceSelectorMatches(r.NamespaceSelector, namespaceLabels) {
+			return true
+		}
+	}
+	return false
+}
+
+func namespaceSelectorMatches(sel *metav1.LabelSelector, namespaceLabels map[string]string) bool {
+	selector, err := metav1.LabelSelectorAsSelector(sel)
+	if err != nil {
+		return false
+	}
+	return selector.Matches(labels.Set(namespaceLabels))
 }
 
 // DestinationStatus defines the observed state of Destination

@@ -775,11 +775,11 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured,
 	numberOfPipelines int64, workLabels map[string]string, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision,
 ) (bool, error) {
-	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, logger, rr, workLabels)
+	failed, misplaced, pending, ready, blocked, err := r.getWorksStatus(ctx, logger, rr, workLabels)
 	if err != nil {
 		return false, err
 	}
-	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
+	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, failed, pending, ready, misplaced, blocked)
 	reconciledUpdate := r.updateReconciledCondition(rr)
 	workflowsCounterStatusUpdate := r.generateWorkflowsCounterStatus(logger, rr, numberOfPipelines)
 	promiseVersionUpdate := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevision)
@@ -787,12 +787,20 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	return worksSucceededUpdate || reconciledUpdate || workflowsCounterStatusUpdate || promiseVersionUpdate, nil
 }
 
-func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, _, misplaced []string) bool {
+func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, _, misplaced, blocked []string) bool {
 	cond := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 	if len(failed) > 0 {
 		if cond == nil || cond.Status == v1.ConditionTrue {
 			resourceutil.MarkResourceRequestAsWorksFailed(rr, failed)
 			r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksFailing", "WorksFailing", "%s", fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(failed, ",")))
+			return true
+		}
+		return false
+	}
+	if len(blocked) > 0 {
+		if cond == nil || cond.Status != v1.ConditionFalse || cond.Reason != resourceutil.BlockedByDestinationPolicyReason {
+			resourceutil.MarkResourceRequestAsWorksBlocked(rr, blocked)
+			r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, resourceutil.BlockedByDestinationPolicyReason, resourceutil.BlockedByDestinationPolicyReason, "%s", fmt.Sprintf("Some works associated with this resource are blocked by a destination scheduling policy: [%s]", strings.Join(blocked, ",")))
 			return true
 		}
 		return false
@@ -915,12 +923,12 @@ func (r *DynamicResourceRequestController) setDeleteWorkflowSuspendedCondition(c
 	return nil
 }
 
-func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured, workLabels map[string]string) ([]string, []string, []string, []string, error) {
+func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured, workLabels map[string]string) ([]string, []string, []string, []string, []string, error) {
 	workSelectorLabel := labels.FormatLabels(workLabels)
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
 		logging.Debug(logger, "failed parsing works selector label", "labels", workSelectorLabel)
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	var works v1alpha1.WorkList
@@ -930,12 +938,18 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, l
 	})
 	if err != nil {
 		logging.Error(logger, err, "failed listing works", "namespace", rr.GetNamespace(), "labelSelector", workSelectorLabel)
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
-	var failed, misplaced, ready, pending []string
+	var failed, misplaced, ready, pending, blocked []string
 	for _, work := range works.Items {
 		readyCond := apiMeta.FindStatusCondition(work.Status.Conditions, "Ready")
+		// A Work blocked by a destination scheduling policy reports Ready=Pending;
+		// distinguish it by reason so the resource request surfaces the policy block.
+		if readyCond != nil && readyCond.Reason == resourceutil.BlockedByDestinationPolicyReason {
+			blocked = append(blocked, work.Name)
+			continue
+		}
 		message := "Pending"
 		if readyCond != nil && readyCond.Message != "" {
 			message = readyCond.Message
@@ -951,7 +965,7 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, l
 			ready = append(ready, work.Name)
 		}
 	}
-	return failed, misplaced, pending, ready, nil
+	return failed, misplaced, pending, ready, blocked, nil
 }
 
 func (r *DynamicResourceRequestController) generateWorkflowsCounterStatus(logger logr.Logger, rr *unstructured.Unstructured, numOfPipelines int64) bool {

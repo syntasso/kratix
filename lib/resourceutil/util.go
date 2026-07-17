@@ -38,6 +38,10 @@ const (
 	ReconciledCondition                    = clusterv1.ConditionType("Reconciled")
 	pausedReconciliationReason             = "PausedReconciliation"
 	workflowSuspendedReason                = "WorkflowSuspended"
+	// BlockedByDestinationPolicyReason is the shared condition/event reason used
+	// wherever a Work cannot be scheduled because every matching Destination denied
+	// its Promise via a schedulingPolicy.
+	BlockedByDestinationPolicyReason = "BlockedByDestinationPolicy"
 )
 
 func GetConfigureWorkflowCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
@@ -86,6 +90,16 @@ func MarkResourceRequestAsWorksMisplaced(obj *unstructured.Unstructured, works [
 		Status:             v1.ConditionFalse,
 		Message:            fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(works, ",")),
 		Reason:             "WorksMisplaced",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
+func MarkResourceRequestAsWorksBlocked(obj *unstructured.Unstructured, works []string) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               WorksSucceededCondition,
+		Status:             v1.ConditionFalse,
+		Message:            fmt.Sprintf("Some works associated with this resource are blocked by a destination scheduling policy: [%s]", strings.Join(works, ",")),
+		Reason:             BlockedByDestinationPolicyReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 }
