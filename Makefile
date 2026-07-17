@@ -249,9 +249,11 @@ run-system-test: fmt vet
 
 .PHONY: perf-test
 perf-test: fmt vet ## Run the controller perf rig against an existing kind-platform cluster (PERF_N=2500 PERF_RUN=baseline-2500 make perf-test; PERF_KEEP=true to leave promise+RRs in place; PERF_PROMISE / PERF_PROMISE_NAME to point at a non-default promise)
-	PERF_N=$${PERF_N:-500} PERF_RUN=$${PERF_RUN:-run-$$(date +%s)} \
+	PERF_N=$${PERF_N:-500}; \
+	PERF_RUN=$${PERF_RUN:-run-$$(date +%s)}; \
+	PERF_N=$$PERF_N PERF_RUN=$$PERF_RUN \
 	go test -tags=perf -timeout=60m ./test/perf/... \
-		-args -perf.n=$${PERF_N} -perf.run=$${PERF_RUN} \
+		-args -perf.n=$$PERF_N -perf.run=$$PERF_RUN \
 		-perf.context=$${PERF_CONTEXT:-kind-platform} \
 		-perf.namespace=$${PERF_NAMESPACE:-default} \
 		-perf.timeout=$${PERF_TIMEOUT:-30m} \
