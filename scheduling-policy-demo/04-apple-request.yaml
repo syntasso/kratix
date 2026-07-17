@@ -1,0 +1,9 @@
+# appa request "apple" in the team-red namespace (labelled team: red).
+# Expected: SCHEDULED - the resource work matches the team=red namespaceSelector
+apiVersion: example.kratix.io/v1alpha1
+kind: Appa
+metadata:
+  name: apple
+  namespace: team-red
+spec:
+  message: "apple request from team-red"

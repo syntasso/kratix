@@ -1,0 +1,59 @@
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: worker-1
+  labels:
+    environment: dev
+spec:
+  path: worker-1
+  stateStoreRef:
+    name: default
+    kind: BucketStateStore
+  strictMatchLabels: false
+  schedulingPolicy:
+    type: Allow
+    rules:
+      # appa is authorized here (its dependency/operator lands), but appa RESOURCE
+      # requests are accepted only from namespaces labelled team=red.
+      - promiseName: appa
+        namespaceSelector:
+          matchLabels:
+            team: red
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: dev-a
+  labels:
+    environment: dev
+spec:
+  path: dev-a
+  stateStoreRef:
+    name: default
+    kind: BucketStateStore
+  schedulingPolicy:
+    type: Allow
+    rules:
+      - promiseName: appa
+        namespaceSelector:
+          matchLabels:
+            team: red
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: dev-b
+  labels:
+    environment: dev
+spec:
+  path: dev-b
+  stateStoreRef:
+    name: default
+    kind: BucketStateStore
+  schedulingPolicy:
+    type: Deny
+    rules:
+      - promiseName: appa
+      - promiseName: appb
+

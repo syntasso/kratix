@@ -1,0 +1,9 @@
+# appa request "banana" in the team-yellow namespace (labelled team: yellow).
+# Expected: BLOCKED
+apiVersion: example.kratix.io/v1alpha1
+kind: Appa
+metadata:
+  name: banana
+  namespace: team-yellow
+spec:
+  message: "banana request from team-yellow"
