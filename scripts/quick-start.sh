@@ -200,7 +200,7 @@ _build_kratix_image() {
 
 cluster_exists() {
     local cluster_name="$1"
-    kind get clusters | grep -q "$cluster_name"
+    kind get clusters | grep -qx "$cluster_name"
 }
 
 step_build_and_load_kratix() {
