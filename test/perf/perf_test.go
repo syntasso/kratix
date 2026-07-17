@@ -102,12 +102,15 @@ func runSinglePromise(ctx context.Context, c client.Client, runDir string, sc *s
 		DeferCleanup(func() {
 			cleanupCtx, cancelClean := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancelClean()
+			_, _ = fmt.Fprintf(GinkgoWriter, "cleaning up: deleting resource requests for Promise %q\n", *flagPromiseName)
 			_ = driver.DeleteAll(cleanupCtx, c, driver.RequestSpec{
 				GVK:       rrGVK(),
 				Namespace: *flagNamespace,
 				Parallel:  100,
 			})
+			_, _ = fmt.Fprintf(GinkgoWriter, "cleaning up: waiting for Promise %q to be fully deleted (up to 10m)\n", *flagPromiseName)
 			_ = driver.DeletePromise(cleanupCtx, c, *flagPromiseName, 10*time.Minute)
+			_, _ = fmt.Fprintf(GinkgoWriter, "cleanup complete\n")
 		})
 	} else {
 		DeferCleanup(func() {
@@ -195,6 +198,7 @@ func runMultiPromise(ctx context.Context, c client.Client, runDir string, sc *sc
 		DeferCleanup(func() {
 			cleanupCtx, cancelClean := context.WithTimeout(context.Background(), 15*time.Minute)
 			defer cancelClean()
+			_, _ = fmt.Fprintf(GinkgoWriter, "cleaning up: deleting resource requests + Promises for %d scenarios (up to 15m)\n", len(gvks))
 			var cwg sync.WaitGroup
 			for i := range gvks {
 				cwg.Add(1)
@@ -209,6 +213,7 @@ func runMultiPromise(ctx context.Context, c client.Client, runDir string, sc *sc
 				}(gvks[i])
 			}
 			cwg.Wait()
+			_, _ = fmt.Fprintf(GinkgoWriter, "cleanup complete\n")
 		})
 	} else {
 		DeferCleanup(func() {
