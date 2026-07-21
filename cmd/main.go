@@ -125,9 +125,23 @@ var probeAddr string
 var secureMetrics bool
 var pprofAddr string
 var enableLeaderElection bool
+var kubeAPIQPS float64
+var kubeAPIBurst int
 
 // wrapConfigWithOTel wraps the Kubernetes REST config's HTTP transport with OpenTelemetry
 // instrumentation to automatically trace all Kubernetes API calls.
+// applyKubeAPIRateLimits overrides client-go's default QPS/Burst on the
+// supplied rest.Config. Pass-through when the corresponding flag is 0 so the
+// upstream defaults (20/30) remain in force.
+func applyKubeAPIRateLimits(cfg *rest.Config) {
+	if kubeAPIQPS > 0 {
+		cfg.QPS = float32(kubeAPIQPS)
+	}
+	if kubeAPIBurst > 0 {
+		cfg.Burst = kubeAPIBurst
+	}
+}
+
 func wrapConfigWithOTel(config *rest.Config) *rest.Config {
 	config.Wrap(func(rt http.RoundTripper) http.RoundTripper {
 		return otelhttp.NewTransport(rt,
@@ -153,6 +167,13 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.Float64Var(&kubeAPIQPS, "kube-api-qps", 0,
+		"Sustained queries-per-second for outbound Kubernetes API calls. "+
+			"0 means use client-go's default (20). Raise for clusters with many resource requests "+
+			"or controllers that issue several writes per reconcile.")
+	flag.IntVar(&kubeAPIBurst, "kube-api-burst", 0,
+		"Burst capacity for outbound Kubernetes API calls. "+
+			"0 means use client-go's default (30). Should be at least 2x kube-api-qps.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -167,6 +188,7 @@ func main() {
 	setupLog = ctrl.Log.WithName("setup")
 
 	kClientConfig := wrapConfigWithOTel(ctrl.GetConfigOrDie())
+	applyKubeAPIRateLimits(kClientConfig)
 	kClient, err := client.New(kClientConfig, client.Options{})
 	if err != nil {
 		panic(err)
@@ -218,6 +240,7 @@ func main() {
 	}
 
 	config := wrapConfigWithOTel(ctrl.GetConfigOrDie())
+	applyKubeAPIRateLimits(config)
 	apiextensionsClient := clientset.NewForConfigOrDie(config)
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   metricsAddr,
