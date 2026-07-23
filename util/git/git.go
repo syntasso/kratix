@@ -41,12 +41,12 @@ var (
 	httpsURLRegex = regexp.MustCompile("^(https://).*")
 )
 
-// fetchCoalesceWindow bounds how often ResetToRemote fetches from the remote.
+// minimumFetchInterval bounds how often ResetToRemote fetches from the remote.
 // Writes to a state store are serialised, so when many WorkPlacements reconcile
 // against the same store in a burst we only need to refresh the clone once per
-// window. It must stay below the controllers' requeue interval so a failing
+// interval. It must stay below the controllers' requeue interval so a failing
 // write always re-fetches on its next attempt.
-const fetchCoalesceWindow = 5 * time.Second
+const minimumFetchInterval = 5 * time.Second
 
 type GitClientRequest struct {
 	RawRepoURL string
@@ -189,7 +189,7 @@ type nativeGitClient struct {
 	// access token or installation access token
 	accessToken string
 	// lastFetch records when we last fetched from the remote, used to coalesce
-	// fetches across reconciles (see fetchCoalesceWindow)
+	// fetches across reconciles (see minimumFetchInterval)
 	lastFetch time.Time
 }
 
@@ -491,13 +491,13 @@ func (m *nativeGitClient) Fetch(revision string, depth int64) error {
 // change detection compare against the remote rather than a stale local clone.
 //
 // To keep the cost of the per-reconcile fetch in check, fetches are coalesced:
-// if we fetched within fetchCoalesceWindow we skip the fetch and simply discard
+// if we fetched within minimumFetchInterval we skip the fetch and simply discard
 // any uncommitted local changes.
 func (m *nativeGitClient) ResetToRemote(branch string) error {
 	ctx := context.Background()
 
 	resetRef := "HEAD"
-	if time.Since(m.lastFetch) > fetchCoalesceWindow {
+	if time.Since(m.lastFetch) > minimumFetchInterval {
 		if err := m.fetch(ctx, branch, 1); err != nil {
 			return fmt.Errorf("failed to fetch latest remote state: %w", err)
 		}
