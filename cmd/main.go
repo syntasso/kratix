@@ -64,6 +64,7 @@ import (
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/fetchers"
+	"github.com/syntasso/kratix/lib/workflow"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -262,6 +263,8 @@ func main() {
 		// this setup is not recommended for production.
 	}
 
+	stripManagedFields := cache.TransformStripManagedFields()
+
 	mgrOptions := ctrl.Options{
 		Scheme:                 scheme.Scheme,
 		Metrics:                metricsServerOptions,
@@ -273,6 +276,29 @@ func main() {
 		Controller: controllercfg.Controller{
 			SkipNameValidation: ptr.True(),
 		},
+		Cache: cache.Options{
+			DefaultTransform: stripManagedFields,
+			ByObject: map[client.Object]cache.ByObject{
+				// Filter the informer cache to only Kratix-managed Jobs, and strip
+				// the Job spec — Kratix only needs job status and labels. The spec
+				// (PodSpec, containers, env vars, volumes) accounts for ~400 MB.
+				// Managed fields are stripped first because ByObject transforms
+				// override DefaultTransform for that type.
+				&batchv1.Job{}: {
+					Label: jobCacheSelector(),
+					Transform: func(in interface{}) (interface{}, error) {
+						out, err := stripManagedFields(in)
+						if err != nil {
+							return out, err
+						}
+						if job, ok := out.(*batchv1.Job); ok {
+							job.Spec = batchv1.JobSpec{}
+						}
+						return out, nil
+					},
+				},
+			},
+		},
 	}
 
 	if kratixConfig != nil && kratixConfig.ControllerLeaderElection != nil {
@@ -280,9 +306,6 @@ func main() {
 	}
 
 	setupLog.Info("Filtering Job informer cache to Kratix-managed Jobs only")
-	mgrOptions.Cache.ByObject = map[client.Object]cache.ByObject{
-		&batchv1.Job{}: {Label: jobCacheSelector()},
-	}
 
 	if kratixConfig != nil && kratixConfig.SelectiveCache {
 		setupLog.Info("Building selective cache for Secrets to limit memory usage; Please ensure Secrets used by kratix are created with label: app.kubernetes.io/part-of=kratix.")
@@ -298,6 +321,21 @@ func main() {
 	mgr, err := ctrl.NewManager(config, mgrOptions)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
+		os.Exit(1)
+	}
+
+	if err = mgr.GetFieldIndexer().IndexField(context.Background(), &batchv1.Job{}, workflow.JobByPromiseAndResourceIndex,
+		func(rawObj client.Object) []string {
+			job := rawObj.(*batchv1.Job)
+			promiseName := job.GetLabels()[platformv1alpha1.PromiseNameLabel]
+			if promiseName == "" {
+				return nil
+			}
+			resourceName := job.GetLabels()[platformv1alpha1.ResourceNameLabel]
+			return []string{workflow.JobIndexKey(promiseName, resourceName)}
+		},
+	); err != nil {
+		setupLog.Error(err, "unable to create index", "index", workflow.JobByPromiseAndResourceIndex)
 		os.Exit(1)
 	}
 

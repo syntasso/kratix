@@ -29,6 +29,7 @@ import (
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/lib/workflow"
 
+	batchv1 "k8s.io/api/batch/v1"
 	fakeclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -104,6 +105,14 @@ var _ = BeforeEach(func() {
 				return nil
 			}
 			return []string{rb.Spec.Version}
+		}).
+		WithIndex(&batchv1.Job{}, workflow.JobByPromiseAndResourceIndex, func(rawObj client.Object) []string {
+			job := rawObj.(*batchv1.Job)
+			promiseName := job.GetLabels()[v1alpha1.PromiseNameLabel]
+			if promiseName == "" {
+				return nil
+			}
+			return []string{workflow.JobIndexKey(promiseName, job.GetLabels()[v1alpha1.ResourceNameLabel])}
 		}).
 		Build()
 

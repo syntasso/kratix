@@ -59,6 +59,17 @@ func MarkConfigureWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstru
 	logging.Info(logger, "marking configure workflow as running", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", PipelinesInProgressReason)
 }
 
+func MarkConfigureWorkflowAsCompleted(logger logr.Logger, obj *unstructured.Unstructured) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               ConfigureWorkflowCompletedCondition,
+		Status:             v1.ConditionTrue,
+		Message:            "Pipelines executed successfully",
+		Reason:             PipelinesExecutedSuccessfully,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+	logging.Info(logger, "marking configure workflow as completed", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionTrue, "reason", PipelinesExecutedSuccessfully)
+}
+
 func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured, failedPipeline string) {
 	SetCondition(obj, &clusterv1.Condition{
 		Type:               ConfigureWorkflowCompletedCondition,

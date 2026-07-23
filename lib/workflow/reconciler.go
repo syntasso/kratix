@@ -20,9 +20,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// JobByPromiseAndResourceIndex is the field index name for Jobs keyed by promise+resource.
+// Register this index via mgr.GetFieldIndexer().IndexField on batchv1.Job at startup.
+const JobByPromiseAndResourceIndex = "kratix.workflow.job.promiseResource"
 
 type Opts struct {
 	ctx          context.Context
@@ -411,6 +416,15 @@ func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1
 		return setFailedConditionAndEvents(opts, state, pipeline)
 	}
 
+	// Self-heal: if the last pipeline step has completed but ConfigureWorkflowCompleted
+	// is not True, set it in-memory so the terminal Status().Update persists it. This
+	// covers the case where the 10h ReconciliationInterval fired, setPipelineStartingStatus
+	// set the condition False, but the newly-created job never ran its work-creator.
+	if !opts.SkipConditions && state.pipelineIndex == len(opts.Resources)-1 &&
+		resourceutil.GetConfigureWorkflowCompletedConditionStatus(opts.parentObject) != v1.ConditionTrue {
+		resourceutil.MarkConfigureWorkflowAsCompleted(opts.logger, opts.parentObject)
+	}
+
 	return false, cleanup(opts, opts.namespace)
 }
 
@@ -752,10 +766,13 @@ func getMostRecentDeletePipelineJob(opts Opts, namespace string, pipeline v1alph
 	return &jobs[0], nil
 }
 
+func JobIndexKey(promiseName, resourceName string) string {
+	return promiseName + "/" + resourceName
+}
+
 func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {
 	selectorLabels := labels.FormatLabels(jobLabels)
 	selector, err := labels.Parse(selectorLabels)
-
 	if err != nil {
 		return nil, fmt.Errorf("error parsing labels %v: %w", jobLabels, err)
 	}
@@ -765,9 +782,16 @@ func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string)
 		Namespace:     namespace,
 	}
 
+	if promiseName := jobLabels[v1alpha1.PromiseNameLabel]; promiseName != "" {
+		resourceName := jobLabels[v1alpha1.ResourceNameLabel]
+		listOps.FieldSelector = fields.OneTermEqualSelector(
+			JobByPromiseAndResourceIndex,
+			JobIndexKey(promiseName, resourceName),
+		)
+	}
+
 	jobs := &batchv1.JobList{}
-	err = opts.client.List(opts.ctx, jobs, listOps)
-	if err != nil {
+	if err = opts.client.List(opts.ctx, jobs, listOps); err != nil {
 		logging.Error(opts.logger, err, "error listing jobs", "selectors", selector.String())
 		return nil, err
 	}
