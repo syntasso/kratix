@@ -1,7 +1,6 @@
 package git //nolint:testpackage // These white-box tests exercise interrupted operations and fetch timing.
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,42 +48,6 @@ var _ = Describe("ResetToRemote", func() {
 
 			Expect(client.ResetToRemote("main")).To(Succeed())
 			Expect(localFile).NotTo(BeAnExistingFile())
-		})
-	})
-
-	When("a previous rebase was left in progress", func() {
-		It("clears the rebase and matches the remote without erroring", func() {
-			localFile := filepath.Join(client.Root(), "file.txt")
-
-			By("committing a local change that conflicts with the remote")
-			Expect(os.WriteFile(localFile, []byte("local change"), 0o644)).To(Succeed())
-			_, err := client.Add(localFile)
-			Expect(err).NotTo(HaveOccurred())
-			_, err = client.runCmd(context.Background(),
-				"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "local change")
-			Expect(err).NotTo(HaveOccurred())
-
-			By("pushing a conflicting change to the remote")
-			Expect(os.WriteFile(filepath.Join(seedDir, "file.txt"), []byte("remote change"), 0o644)).To(Succeed())
-			gitInDir(seedDir, "add", ".")
-			gitInDir(seedDir, "commit", "-m", "remote change")
-			gitInDir(seedDir, "push", "origin", "main")
-
-			By("leaving the clone stuck mid-rebase, like a failed pull --rebase")
-			_, err = client.runCmd(context.Background(), "fetch", "origin", "main")
-			Expect(err).NotTo(HaveOccurred())
-			_, err = client.runCmd(context.Background(), "rebase", "origin/main")
-			Expect(err).To(HaveOccurred())
-			Expect(filepath.Join(client.Root(), ".git", "rebase-merge")).To(BeADirectory())
-
-			By("recovering via ResetToRemote")
-			client.lastFetch = time.Time{}
-			Expect(client.ResetToRemote("main")).To(Succeed())
-			Expect(filepath.Join(client.Root(), ".git", "rebase-merge")).NotTo(BeADirectory())
-
-			content, err := os.ReadFile(localFile)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(string(content)).To(Equal("remote change"))
 		})
 	})
 

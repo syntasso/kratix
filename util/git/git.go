@@ -41,8 +41,6 @@ var (
 	httpsURLRegex = regexp.MustCompile("^(https://).*")
 )
 
-const maxPushAttempts = 3
-
 // fetchCoalesceWindow bounds how often ResetToRemote fetches from the remote.
 // Writes to a state store are serialised, so when many WorkPlacements reconcile
 // against the same store in a burst we only need to refresh the clone once per
@@ -439,36 +437,18 @@ func (m *nativeGitClient) CommitAndPush(branch, message, author string, email st
 		pushArgs = append(pushArgs, branch)
 	}
 
-	for attempt := 1; attempt <= maxPushAttempts; attempt++ {
-		err = m.runCredentialedCmd(ctx, pushArgs...)
-		if err == nil {
-			break
-		}
-		if !isNonFastForwardPushError(err) {
-			return "", fmt.Errorf("failed to push: %w", err)
-		}
-		if attempt == maxPushAttempts {
-			return "", fmt.Errorf("failed to push after %d attempts due to concurrent updates: %w", maxPushAttempts, err)
-		}
-
-		rebaseArgs := []string{
-			"-c", fmt.Sprintf("user.name=%s", author),
-			"-c", fmt.Sprintf("user.email=%s", email),
-			"pull", "--rebase", "origin",
-		}
-		if branch != "" {
-			rebaseArgs = append(rebaseArgs, branch)
-		}
-
-		err = m.runCredentialedCmd(ctx, rebaseArgs...)
-		if err != nil {
-			return "", fmt.Errorf("failed to rebase local changes onto latest remote state: %w", err)
-		}
+	// A single fast-forward push. ResetToRemote has already synced the clone to
+	// the remote tip before this write, so the push normally succeeds. If another
+	// writer pushed in the meantime the push is rejected; rather than rebasing
+	// (which is conflict-prone), we return an error and let the reconcile requeue.
+	// The next attempt re-syncs to the remote and retries from a clean base.
+	if err := m.runCredentialedCmd(ctx, pushArgs...); err != nil {
+		return "", fmt.Errorf("failed to push: %w", err)
 	}
 
 	commitSha, err := m.runCmd(ctx, "rev-parse", "HEAD")
 	if err != nil {
-		return "", fmt.Errorf("failed to push: %w", err)
+		return "", fmt.Errorf("failed to determine commit sha: %w", err)
 	}
 
 	return commitSha, nil
@@ -504,21 +484,6 @@ func (m *nativeGitClient) Fetch(revision string, depth int64) error {
 	return err
 }
 
-// abortAnyRebase clears a half-finished rebase left behind by a previous failed
-// `git pull --rebase`, which leaves a .git/rebase-merge or .git/rebase-apply
-// directory that would otherwise cause the next pull/rebase to fail. It only
-// runs `git rebase --abort` when a rebase is actually in progress, so there is
-// nothing to abort — and no error to swallow — on the normal path.
-func (m *nativeGitClient) abortAnyRebase(ctx context.Context) error {
-	for _, dir := range []string{"rebase-merge", "rebase-apply"} {
-		if _, err := os.Stat(filepath.Join(m.root, ".git", dir)); err == nil {
-			_, err := m.runCmd(ctx, "rebase", "--abort")
-			return err
-		}
-	}
-	return nil
-}
-
 // ResetToRemote discards any local divergence and makes the working directory
 // match the tip of the remote branch. It runs before every write so the writer
 // always starts from the true remote state: this prevents the writer from
@@ -530,10 +495,6 @@ func (m *nativeGitClient) abortAnyRebase(ctx context.Context) error {
 // any uncommitted local changes.
 func (m *nativeGitClient) ResetToRemote(branch string) error {
 	ctx := context.Background()
-
-	if err := m.abortAnyRebase(ctx); err != nil {
-		return fmt.Errorf("failed to abort in-progress rebase: %w", err)
-	}
 
 	resetRef := "HEAD"
 	if time.Since(m.lastFetch) > fetchCoalesceWindow {
@@ -624,22 +585,6 @@ func (m *nativeGitClient) HasChanges() (bool, error) {
 	}
 
 	return false, fmt.Errorf("failed to check staged changes: %w", err)
-}
-
-func isNonFastForwardPushError(err error) bool {
-	msg := strings.ToLower(err.Error())
-	needles := []string{
-		"non-fast-forward",
-		"fetch first",
-		"failed to push some refs",
-		"[rejected]",
-	}
-	for _, needle := range needles {
-		if strings.Contains(msg, needle) {
-			return true
-		}
-	}
-	return false
 }
 
 // Helper function to parse a time duration from an environment variable. Returns a
