@@ -1,4 +1,4 @@
-package git
+package git //nolint:testpackage // These white-box tests exercise interrupted operations and fetch timing.
 
 import (
 	"context"

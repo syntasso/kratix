@@ -1,4 +1,4 @@
-package git
+package git //nolint:testpackage // The ResetToRemote tests need access to private client state.
 
 import (
 	"testing"

@@ -81,19 +81,18 @@ var _ = Describe("GitStateStore writer recovery", Label("git-recovery"), Serial,
 	})
 })
 
-// git shells out to the git CLI, mirroring how `mc` shells out to the MinIO
+// runGit shells out to the git CLI, mirroring how `mc` shells out to the MinIO
 // client in the destination tests. dir is the working directory (empty for the
 // current directory), and TLS verification is skipped because Gitea uses a
 // self-signed certificate.
-func git(dir string, args ...string) string {
+func runGit(dir string, args ...string) {
 	GinkgoHelper()
-	command := exec.Command("git", args...) //nolint:gosec
+	command := exec.Command("git", args...)
 	command.Dir = dir
 	command.Env = append(os.Environ(), "GIT_SSL_NO_VERIFY=true", "GIT_TERMINAL_PROMPT=0")
 	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 	Expect(err).NotTo(HaveOccurred())
 	Eventually(session).Should(gexec.Exit(0))
-	return string(session.Out.Contents())
 }
 
 // giteaRepoURL returns the host-reachable URL of the Gitea repository backing
@@ -116,7 +115,7 @@ func cloneStateStore() string {
 	GinkgoHelper()
 	dir, err := os.MkdirTemp("", "kratix-system-test-repo")
 	Expect(err).NotTo(HaveOccurred())
-	git("", "clone", "--quiet", giteaRepoURL(), dir)
+	runGit("", "clone", "--quiet", giteaRepoURL(), dir)
 	return dir
 }
 
@@ -149,7 +148,7 @@ func gitRecoveryConfigMapContent() string {
 	root := filepath.Join(dir, "git-recovery", "resources")
 	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err == nil && !entry.IsDir() && filepath.Base(path) == "gitrecovery-configmap.yaml" {
-			bytes, readErr := os.ReadFile(path) //nolint:gosec
+			bytes, readErr := os.ReadFile(path)
 			if readErr == nil {
 				content = string(bytes)
 			}
@@ -166,9 +165,9 @@ func deleteGitRecoveryResourcesFromRemote() {
 	dir := cloneStateStore()
 	defer os.RemoveAll(dir)
 
-	git(dir, "rm", "-r", "--quiet", "git-recovery/resources")
+	runGit(dir, "rm", "-r", "--quiet", "git-recovery/resources")
 	// --no-verify skips any local commit hooks; this is a throwaway clone.
-	git(dir, "-c", "user.name=external", "-c", "user.email=external@example.com",
+	runGit(dir, "-c", "user.name=external", "-c", "user.email=external@example.com",
 		"commit", "--no-verify", "--quiet", "-m", "external delete of git-recovery resources")
-	git(dir, "push", "--no-verify", "--quiet", "origin", "main")
+	runGit(dir, "push", "--no-verify", "--quiet", "origin", "main")
 }
