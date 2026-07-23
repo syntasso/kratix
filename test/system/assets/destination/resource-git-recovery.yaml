@@ -1,0 +1,7 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: GitRecovery
+metadata:
+  name: example
+  namespace: default
+spec:
+  value: one

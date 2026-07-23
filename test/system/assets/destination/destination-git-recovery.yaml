@@ -1,0 +1,11 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: git-recovery
+  labels:
+    target: git-recovery
+spec:
+  path: git-recovery
+  stateStoreRef:
+    name: destination-git-test-store
+    kind: GitStateStore
