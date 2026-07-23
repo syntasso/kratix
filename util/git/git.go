@@ -43,6 +43,13 @@ var (
 
 const maxPushAttempts = 3
 
+// fetchCoalesceWindow bounds how often ResetToRemote fetches from the remote.
+// Writes to a state store are serialised, so when many WorkPlacements reconcile
+// against the same store in a burst we only need to refresh the clone once per
+// window. It must stay below the controllers' requeue interval so a failing
+// write always re-fetches on its next attempt.
+const fetchCoalesceWindow = 5 * time.Second
+
 type GitClientRequest struct {
 	RawRepoURL string
 	Root       string
@@ -183,6 +190,9 @@ type nativeGitClient struct {
 	gitConfigEnv []string
 	// access token or installation access token
 	accessToken string
+	// lastFetch records when we last fetched from the remote, used to coalesce
+	// fetches across reconciles (see fetchCoalesceWindow)
+	lastFetch time.Time
 }
 
 type ClientOpts func(c *nativeGitClient)
@@ -494,43 +504,60 @@ func (m *nativeGitClient) Fetch(revision string, depth int64) error {
 	return err
 }
 
-// Checkout switches the working directory to the specified revision (branch, tag, or commit),
-// updating all files to match that revision's state. Changes the current branch (updates
-// .git/HEAD) and modifies working directory files. After checkout, performs aggressive
-// cleanup to remove all untracked files, directories, and nested repositories.
-//
-// Parameters:
-//
-//	revision: Branch, tag, or commit to checkout (empty string or "HEAD" defaults to "origin/HEAD")
-//
-// Behaviour:
-//   - Uses --force flag to discard any local modifications
-//   - Runs git clean -ffdx after checkout to remove:
-//   - Untracked files and directories (first "f")
-//   - Untracked nested Git repositories like submodules (second "f")
-//   - Ignored files from .gitignore ("x")
-//   - All untracked directories ("d")
-//
-// Returns:
-//   - Empty string on success
-//   - Command output on error, along with the error itself
-func (m *nativeGitClient) Checkout(revision string) (string, error) {
-	if revision == "" || revision == "HEAD" {
-		revision = "origin/HEAD"
+// abortAnyRebase clears a half-finished rebase left behind by a previous failed
+// `git pull --rebase`, which leaves a .git/rebase-merge or .git/rebase-apply
+// directory that would otherwise cause the next pull/rebase to fail. It only
+// runs `git rebase --abort` when a rebase is actually in progress, so there is
+// nothing to abort — and no error to swallow — on the normal path.
+func (m *nativeGitClient) abortAnyRebase(ctx context.Context) error {
+	for _, dir := range []string{"rebase-merge", "rebase-apply"} {
+		if _, err := os.Stat(filepath.Join(m.root, ".git", dir)); err == nil {
+			_, err := m.runCmd(ctx, "rebase", "--abort")
+			return err
+		}
 	}
+	return nil
+}
+
+// ResetToRemote discards any local divergence and makes the working directory
+// match the tip of the remote branch. It runs before every write so the writer
+// always starts from the true remote state: this prevents the writer from
+// getting stuck when the remote has been changed outside of Kratix, and makes
+// change detection compare against the remote rather than a stale local clone.
+//
+// To keep the cost of the per-reconcile fetch in check, fetches are coalesced:
+// if we fetched within fetchCoalesceWindow we skip the fetch and simply discard
+// any uncommitted local changes.
+func (m *nativeGitClient) ResetToRemote(branch string) error {
 	ctx := context.Background()
-	if out, err := m.runCmd(ctx, "checkout", "--force", revision); err != nil {
-		return out, fmt.Errorf("failed to checkout %s: %w", revision, err)
+
+	if err := m.abortAnyRebase(ctx); err != nil {
+		return fmt.Errorf("failed to abort in-progress rebase: %w", err)
 	}
+
+	resetRef := "HEAD"
+	if time.Since(m.lastFetch) > fetchCoalesceWindow {
+		if err := m.fetch(ctx, branch, 1); err != nil {
+			return fmt.Errorf("failed to fetch latest remote state: %w", err)
+		}
+		m.lastFetch = time.Now()
+		resetRef = "FETCH_HEAD"
+	}
+
+	if out, err := m.runCmd(ctx, "reset", "--hard", resetRef); err != nil {
+		return fmt.Errorf("failed to reset to %s: %w: %s", resetRef, err, out)
+	}
+
 	// NOTE
 	// The double “f” in the arguments is not a typo: the first “f” tells
 	// `git clean` to delete untracked files and directories, and the second “f”
 	// tells it to clean untracked nested Git repositories (for example a
 	// submodule which has since been removed).
 	if out, err := m.runCmd(ctx, "clean", "-ffdx"); err != nil {
-		return out, fmt.Errorf("failed to clean: %w", err)
+		return fmt.Errorf("failed to clean worktree: %w: %s", err, out)
 	}
-	return "", nil
+
+	return nil
 }
 
 // Clone performs a shallow single-branch clone and returns the temporary
@@ -553,6 +580,10 @@ func (m *nativeGitClient) Clone(branch string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not clone repository: %w", err)
 	}
+
+	// The freshly cloned repo is already at the remote tip, so the first write
+	// after a clone doesn't need to fetch again straight away.
+	m.lastFetch = time.Now()
 
 	return localDir, nil
 }

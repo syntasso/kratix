@@ -40,7 +40,7 @@ type GitExecutor interface {
 	Push(branch string, force bool) (string, error)
 	Root() string
 	HasChanges() (bool, error)
-	Checkout(revision string) (string, error)
+	ResetToRemote(branch string) error
 	// TODO: merge these two methods
 	RemoveDirectory(dir string) error
 	RemoveFile(file string) error
@@ -280,8 +280,7 @@ func (g *GitWriter) Init(branch string) (string, error) {
 }
 
 func (g *GitWriter) Reset() error {
-	_, err := g.Runner.Checkout(g.GitServer.Branch)
-	return err
+	return g.Runner.ResetToRemote(g.GitServer.Branch)
 }
 
 func (g *GitWriter) DeleteFiles(workplacementName string, files []string) error {
