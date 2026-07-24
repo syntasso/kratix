@@ -491,22 +491,27 @@ func (m *nativeGitClient) Fetch(revision string, depth int64) error {
 // change detection compare against the remote rather than a stale local clone.
 //
 // To keep the cost of the per-reconcile fetch in check, fetches are coalesced:
-// if we fetched within minimumFetchInterval we skip the fetch and simply discard
-// any uncommitted local changes.
+// if we fetched within minimumFetchInterval we skip the fetch and reset to our
+// last known view of the remote.
 func (m *nativeGitClient) ResetToRemote(branch string) error {
 	ctx := context.Background()
 
-	resetRef := "HEAD"
 	if time.Since(m.lastFetch) > minimumFetchInterval {
 		if err := m.fetch(ctx, branch, 1); err != nil {
 			return fmt.Errorf("failed to fetch latest remote state: %w", err)
 		}
 		m.lastFetch = time.Now()
-		resetRef = "FETCH_HEAD"
 	}
 
-	if out, err := m.runCmd(ctx, "reset", "--hard", resetRef); err != nil {
-		return fmt.Errorf("failed to reset to %s: %w: %s", resetRef, err, out)
+	// Reset to the remote-tracking ref rather than HEAD so that any local
+	// divergence — including a commit left behind by a previously rejected push —
+	// is discarded, not just uncommitted changes.
+	remoteRef := "origin/HEAD"
+	if branch != "" {
+		remoteRef = "origin/" + branch
+	}
+	if out, err := m.runCmd(ctx, "reset", "--hard", remoteRef); err != nil {
+		return fmt.Errorf("failed to reset to %s: %w: %s", remoteRef, err, out)
 	}
 
 	// NOTE

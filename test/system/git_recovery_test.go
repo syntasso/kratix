@@ -2,8 +2,8 @@ package system_test
 
 import (
 	"encoding/base64"
-	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -106,7 +106,13 @@ func giteaRepoURL() string {
 	password, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encodedPassword))
 	Expect(err).NotTo(HaveOccurred())
 
-	return fmt.Sprintf("https://gitea_admin:%s@localhost:31333/gitea_admin/kratix.git", string(password))
+	repoURL := url.URL{
+		Scheme: "https",
+		User:   url.UserPassword("gitea_admin", string(password)),
+		Host:   "localhost:31333",
+		Path:   "/gitea_admin/kratix.git",
+	}
+	return repoURL.String()
 }
 
 // cloneStateStore clones a fresh copy of the state store repository into a
