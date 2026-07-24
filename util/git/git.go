@@ -41,12 +41,12 @@ var (
 	httpsURLRegex = regexp.MustCompile("^(https://).*")
 )
 
-// minimumFetchInterval bounds how often ResetToRemote fetches from the remote.
+// DefaultMinimumFetchInterval bounds how often ResetToRemote fetches from the remote by default.
 // Writes to a state store are serialised, so when many WorkPlacements reconcile
 // against the same store in a burst we only need to refresh the clone once per
 // interval. It must stay below the controllers' requeue interval so a failing
 // write always re-fetches on its next attempt.
-const minimumFetchInterval = 5 * time.Second
+const DefaultMinimumFetchInterval = 5 * time.Second
 
 type GitClientRequest struct {
 	RawRepoURL string
@@ -80,16 +80,17 @@ func NewGitClient(req GitClientRequest) (*nativeGitClient, error) {
 	}
 
 	client := &nativeGitClient{
-		accessToken:  accessToken,
-		repoURL:      req.RawRepoURL,
-		root:         req.Root,
-		creds:        req.Auth.Creds,
-		insecure:     req.Insecure,
-		proxy:        req.Proxy,
-		noProxy:      req.NoProxy,
-		gitConfigEnv: BuiltinGitConfigEnv,
-		log:          req.Log,
-		config:       config,
+		accessToken:          accessToken,
+		repoURL:              req.RawRepoURL,
+		root:                 req.Root,
+		creds:                req.Auth.Creds,
+		insecure:             req.Insecure,
+		proxy:                req.Proxy,
+		noProxy:              req.NoProxy,
+		gitConfigEnv:         BuiltinGitConfigEnv,
+		log:                  req.Log,
+		config:               config,
+		minimumFetchInterval: DefaultMinimumFetchInterval,
 	}
 	for i := range req.Opts {
 		req.Opts[i](client)
@@ -189,11 +190,18 @@ type nativeGitClient struct {
 	// access token or installation access token
 	accessToken string
 	// lastFetch records when we last fetched from the remote, used to coalesce
-	// fetches across reconciles (see minimumFetchInterval)
-	lastFetch time.Time
+	// fetches across reconciles.
+	lastFetch            time.Time
+	minimumFetchInterval time.Duration
 }
 
 type ClientOpts func(c *nativeGitClient)
+
+func WithMinimumFetchInterval(interval time.Duration) ClientOpts {
+	return func(c *nativeGitClient) {
+		c.minimumFetchInterval = interval
+	}
+}
 
 func serverNameWithoutPort(serverName string) string {
 	return strings.Split(serverName, ":")[0]
@@ -491,12 +499,13 @@ func (m *nativeGitClient) Fetch(revision string, depth int64) error {
 // change detection compare against the remote rather than a stale local clone.
 //
 // To keep the cost of the per-reconcile fetch in check, fetches are coalesced:
-// if we fetched within minimumFetchInterval we skip the fetch and reset to our
-// last known view of the remote.
+// if we fetched within the configured minimum fetch interval we skip the fetch
+// and reset to our last known view of the remote. An interval of 0 fetches every
+// time.
 func (m *nativeGitClient) ResetToRemote(branch string) error {
 	ctx := context.Background()
 
-	if time.Since(m.lastFetch) > minimumFetchInterval {
+	if m.minimumFetchInterval == 0 || time.Since(m.lastFetch) > m.minimumFetchInterval {
 		if err := m.fetch(ctx, branch, 1); err != nil {
 			return fmt.Errorf("failed to fetch latest remote state: %w", err)
 		}

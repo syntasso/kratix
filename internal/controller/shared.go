@@ -48,7 +48,7 @@ var (
 		creds map[string][]byte) (writers.StateStoreWriter, error) = writers.NewS3Writer
 
 	newGitWriter func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string,
-		creds map[string][]byte) (writers.StateStoreWriter, error) = writers.NewGitWriter
+		creds map[string][]byte, opts ...writers.GitWriterOption) (writers.StateStoreWriter, error) = writers.NewGitWriter
 )
 
 type opts struct {

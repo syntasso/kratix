@@ -6,6 +6,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -50,7 +51,26 @@ type batchFileRemover interface {
 	RemoveFiles(files ...string) error
 }
 
-func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (StateStoreWriter, error) {
+type GitWriterOption func(*gitWriterConfig)
+
+type gitWriterConfig struct {
+	minimumFetchInterval time.Duration
+}
+
+func WithMinimumFetchInterval(interval time.Duration) GitWriterOption {
+	return func(c *gitWriterConfig) {
+		c.minimumFetchInterval = interval
+	}
+}
+
+func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte, opts ...GitWriterOption) (StateStoreWriter, error) {
+	config := gitWriterConfig{
+		minimumFetchInterval: git.DefaultMinimumFetchInterval,
+	}
+	for _, opt := range opts {
+		opt(&config)
+	}
+
 	repoPath := strings.TrimPrefix(path.Join(
 		stateStoreSpec.Path,
 		destinationPath,
@@ -71,6 +91,9 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			// https://github.com/syntasso/kratix/blob/59231e70b0a4a428067e3b909fd2e9dc07110997/lib/writers/git.go#L373
 			Insecure: true,
 			Log:      logger,
+			Opts: []git.ClientOpts{
+				git.WithMinimumFetchInterval(config.minimumFetchInterval),
+			},
 		})
 	if err != nil {
 		return nil, fmt.Errorf("could not create git native client: %w", err)

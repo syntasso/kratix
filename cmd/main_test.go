@@ -17,8 +17,13 @@ limitations under the License.
 package main
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	gitutil "github.com/syntasso/kratix/util/git"
 )
 
 var _ = Describe("jobCacheSelector", func() {
@@ -55,5 +60,47 @@ var _ = Describe("getResourceBindingDefaultVersion", func() {
 	It("returns floating for an unrecognised resourceBindingVersionStrategy value", func() {
 		config := &KratixConfig{ResourceBindingVersionStrategy: "invalid"}
 		Expect(getResourceBindingDefaultVersion(config)).To(Equal(ResourceBindingDefaultVersionFloating))
+	})
+})
+
+var _ = Describe("getGitMinimumFetchInterval", func() {
+	It("returns the default when config is nil", func() {
+		Expect(getGitMinimumFetchInterval(nil)).To(Equal(gitutil.DefaultMinimumFetchInterval))
+	})
+
+	It("returns the default when git config is not set", func() {
+		Expect(getGitMinimumFetchInterval(&KratixConfig{})).To(Equal(gitutil.DefaultMinimumFetchInterval))
+	})
+
+	It("returns the default when minimumFetchInterval is not set", func() {
+		config := &KratixConfig{Git: &GitConfig{}}
+		Expect(getGitMinimumFetchInterval(config)).To(Equal(gitutil.DefaultMinimumFetchInterval))
+	})
+
+	It("returns zero when minimumFetchInterval is zero", func() {
+		config := &KratixConfig{
+			Git: &GitConfig{
+				MinimumFetchInterval: &metav1.Duration{Duration: 0},
+			},
+		}
+		Expect(getGitMinimumFetchInterval(config)).To(Equal(time.Duration(0)))
+	})
+
+	It("returns the configured minimumFetchInterval", func() {
+		config := &KratixConfig{
+			Git: &GitConfig{
+				MinimumFetchInterval: &metav1.Duration{Duration: 30 * time.Second},
+			},
+		}
+		Expect(getGitMinimumFetchInterval(config)).To(Equal(30 * time.Second))
+	})
+
+	It("returns the default when minimumFetchInterval is negative", func() {
+		config := &KratixConfig{
+			Git: &GitConfig{
+				MinimumFetchInterval: &metav1.Duration{Duration: -1 * time.Second},
+			},
+		}
+		Expect(getGitMinimumFetchInterval(config)).To(Equal(gitutil.DefaultMinimumFetchInterval))
 	})
 })

@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
+	gitutil "github.com/syntasso/kratix/util/git"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -28,15 +30,29 @@ type RepositoryCache interface {
 
 type repositoryCache struct {
 	sync.Mutex
-	gitRepositoryCache map[string]*Repository
-	s3RepositoryCache  map[string]*Repository
+	gitRepositoryCache      map[string]*Repository
+	s3RepositoryCache       map[string]*Repository
+	gitMinimumFetchInterval time.Duration
 }
 
-func NewRepositoryCache() RepositoryCache {
-	return &repositoryCache{
-		gitRepositoryCache: map[string]*Repository{},
-		s3RepositoryCache:  map[string]*Repository{},
+type RepositoryCacheOption func(*repositoryCache)
+
+func WithGitMinimumFetchInterval(interval time.Duration) RepositoryCacheOption {
+	return func(c *repositoryCache) {
+		c.gitMinimumFetchInterval = interval
 	}
+}
+
+func NewRepositoryCache(opts ...RepositoryCacheOption) RepositoryCache {
+	cache := &repositoryCache{
+		gitRepositoryCache:      map[string]*Repository{},
+		s3RepositoryCache:       map[string]*Repository{},
+		gitMinimumFetchInterval: gitutil.DefaultMinimumFetchInterval,
+	}
+	for _, opt := range opts {
+		opt(cache)
+	}
+	return cache
 }
 
 func (c *repositoryCache) InitRepository(logger logr.Logger, stateStore StateStore, secret corev1.Secret) (*Repository, *StateStoreError) {
@@ -117,6 +133,7 @@ func (c *repositoryCache) initGitRepository(logger logr.Logger, store StateStore
 		stateStore.Spec,
 		"",
 		secret.Data,
+		writers.WithMinimumFetchInterval(c.gitMinimumFetchInterval),
 	)
 	if err != nil {
 		return nil, NewInitialiseWriterError(fmt.Errorf("unable to create git writer: %w", err))

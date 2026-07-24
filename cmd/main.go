@@ -64,6 +64,7 @@ import (
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/fetchers"
+	gitutil "github.com/syntasso/kratix/util/git"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -83,6 +84,7 @@ type KratixConfig struct {
 	Telemetry                      *telemetry.Config             `json:"telemetry,omitempty"`
 	Logging                        *LoggingConfig                `json:"logging,omitempty"`
 	ResourceBindingVersionStrategy ResourceBindingDefaultVersion `json:"resourceBindingVersionStrategy,omitempty"`
+	Git                            *GitConfig                    `json:"git,omitempty"`
 }
 
 // ResourceBindingDefaultVersion controls the version strategy for ResourceBindings.
@@ -98,6 +100,10 @@ const (
 type LoggingConfig struct {
 	Structured *bool   `json:"structured,omitempty"`
 	Level      *string `json:"level,omitempty"`
+}
+
+type GitConfig struct {
+	MinimumFetchInterval *metav1.Duration `json:"minimumFetchInterval,omitempty"`
 }
 
 type Workflows struct {
@@ -301,7 +307,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	repositoryCache := controller.NewRepositoryCache()
+	repositoryCache := controller.NewRepositoryCache(
+		controller.WithGitMinimumFetchInterval(getGitMinimumFetchInterval(kratixConfig)),
+	)
 
 	scheduler := controller.Scheduler{
 		Client:        mgr.GetClient(),
@@ -558,6 +566,23 @@ func getResourceBindingDefaultVersion(kratixConfig *KratixConfig) ResourceBindin
 		return ResourceBindingDefaultVersionFloating
 	}
 	return v
+}
+
+func getGitMinimumFetchInterval(kratixConfig *KratixConfig) time.Duration {
+	if kratixConfig == nil || kratixConfig.Git == nil || kratixConfig.Git.MinimumFetchInterval == nil {
+		return gitutil.DefaultMinimumFetchInterval
+	}
+
+	interval := kratixConfig.Git.MinimumFetchInterval.Duration
+	if interval < 0 {
+		setupLog.Error(fmt.Errorf("invalid Kratix Config"),
+			"git.minimumFetchInterval cannot be negative; set to default value",
+			"minimumFetchInterval", interval,
+			"defaultMinimumFetchInterval", gitutil.DefaultMinimumFetchInterval)
+		return gitutil.DefaultMinimumFetchInterval
+	}
+
+	return interval
 }
 
 func getRegularReconciliationInterval(kratixConfig *KratixConfig) time.Duration {

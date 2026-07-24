@@ -22,3 +22,9 @@ data:
     logging:
       structured: true
       level: info
+    git:
+      # minimumFetchInterval controls how often Kratix fetches the latest remote
+      # Git state before resetting a cached GitStateStore clone. Defaults to 5s.
+      # Set to 0s to fetch before every write. Changes are loaded at controller
+      # startup, so restart the Kratix controller pod after changing this value.
+      minimumFetchInterval: 5s

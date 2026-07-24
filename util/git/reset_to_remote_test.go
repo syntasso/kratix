@@ -22,9 +22,10 @@ var _ = Describe("ResetToRemote", func() {
 	BeforeEach(func() {
 		remoteURL, seedDir = setupRemoteRepo()
 		client = &nativeGitClient{
-			repoURL: remoteURL,
-			creds:   NopCreds{},
-			log:     logr.Discard(),
+			repoURL:              remoteURL,
+			creds:                NopCreds{},
+			log:                  logr.Discard(),
+			minimumFetchInterval: DefaultMinimumFetchInterval,
 		}
 		_, err := client.Clone("main")
 		Expect(err).NotTo(HaveOccurred())
@@ -65,6 +66,23 @@ var _ = Describe("ResetToRemote", func() {
 			content, err := os.ReadFile(filepath.Join(client.Root(), "file.txt"))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(content)).To(Equal("original"))
+		})
+	})
+
+	When("the minimum fetch interval is zero", func() {
+		It("fetches and picks up remote changes every time", func() {
+			client.minimumFetchInterval = 0
+
+			Expect(os.WriteFile(filepath.Join(seedDir, "file.txt"), []byte("changed remotely"), 0o644)).To(Succeed())
+			gitInDir(seedDir, "add", ".")
+			gitInDir(seedDir, "commit", "-m", "remote change")
+			gitInDir(seedDir, "push", "origin", "main")
+
+			Expect(client.ResetToRemote("main")).To(Succeed())
+
+			content, err := os.ReadFile(filepath.Join(client.Root(), "file.txt"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal("changed remotely"))
 		})
 	})
 })
