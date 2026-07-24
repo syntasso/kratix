@@ -41,7 +41,12 @@ var (
 	httpsURLRegex = regexp.MustCompile("^(https://).*")
 )
 
-const maxPushAttempts = 3
+// DefaultMinimumFetchInterval bounds how often ResetToRemote fetches from the remote by default.
+// Writes to a state store are serialised, so when many WorkPlacements reconcile
+// against the same store in a burst we only need to refresh the clone once per
+// interval. It must stay below the controllers' requeue interval so a failing
+// write always re-fetches on its next attempt.
+const DefaultMinimumFetchInterval = 5 * time.Second
 
 type GitClientRequest struct {
 	RawRepoURL string
@@ -75,16 +80,17 @@ func NewGitClient(req GitClientRequest) (*nativeGitClient, error) {
 	}
 
 	client := &nativeGitClient{
-		accessToken:  accessToken,
-		repoURL:      req.RawRepoURL,
-		root:         req.Root,
-		creds:        req.Auth.Creds,
-		insecure:     req.Insecure,
-		proxy:        req.Proxy,
-		noProxy:      req.NoProxy,
-		gitConfigEnv: BuiltinGitConfigEnv,
-		log:          req.Log,
-		config:       config,
+		accessToken:          accessToken,
+		repoURL:              req.RawRepoURL,
+		root:                 req.Root,
+		creds:                req.Auth.Creds,
+		insecure:             req.Insecure,
+		proxy:                req.Proxy,
+		noProxy:              req.NoProxy,
+		gitConfigEnv:         BuiltinGitConfigEnv,
+		log:                  req.Log,
+		config:               config,
+		minimumFetchInterval: DefaultMinimumFetchInterval,
 	}
 	for i := range req.Opts {
 		req.Opts[i](client)
@@ -183,9 +189,19 @@ type nativeGitClient struct {
 	gitConfigEnv []string
 	// access token or installation access token
 	accessToken string
+	// lastFetch records when we last fetched from the remote, used to coalesce
+	// fetches across reconciles.
+	lastFetch            time.Time
+	minimumFetchInterval time.Duration
 }
 
 type ClientOpts func(c *nativeGitClient)
+
+func WithMinimumFetchInterval(interval time.Duration) ClientOpts {
+	return func(c *nativeGitClient) {
+		c.minimumFetchInterval = interval
+	}
+}
 
 func serverNameWithoutPort(serverName string) string {
 	return strings.Split(serverName, ":")[0]
@@ -429,36 +445,18 @@ func (m *nativeGitClient) CommitAndPush(branch, message, author string, email st
 		pushArgs = append(pushArgs, branch)
 	}
 
-	for attempt := 1; attempt <= maxPushAttempts; attempt++ {
-		err = m.runCredentialedCmd(ctx, pushArgs...)
-		if err == nil {
-			break
-		}
-		if !isNonFastForwardPushError(err) {
-			return "", fmt.Errorf("failed to push: %w", err)
-		}
-		if attempt == maxPushAttempts {
-			return "", fmt.Errorf("failed to push after %d attempts due to concurrent updates: %w", maxPushAttempts, err)
-		}
-
-		rebaseArgs := []string{
-			"-c", fmt.Sprintf("user.name=%s", author),
-			"-c", fmt.Sprintf("user.email=%s", email),
-			"pull", "--rebase", "origin",
-		}
-		if branch != "" {
-			rebaseArgs = append(rebaseArgs, branch)
-		}
-
-		err = m.runCredentialedCmd(ctx, rebaseArgs...)
-		if err != nil {
-			return "", fmt.Errorf("failed to rebase local changes onto latest remote state: %w", err)
-		}
+	// A single fast-forward push. ResetToRemote has already synced the clone to
+	// the remote tip before this write, so the push normally succeeds. If another
+	// writer pushed in the meantime the push is rejected; rather than rebasing
+	// (which is conflict-prone), we return an error and let the reconcile requeue.
+	// The next attempt re-syncs to the remote and retries from a clean base.
+	if err := m.runCredentialedCmd(ctx, pushArgs...); err != nil {
+		return "", fmt.Errorf("failed to push: %w", err)
 	}
 
 	commitSha, err := m.runCmd(ctx, "rev-parse", "HEAD")
 	if err != nil {
-		return "", fmt.Errorf("failed to push: %w", err)
+		return "", fmt.Errorf("failed to determine commit sha: %w", err)
 	}
 
 	return commitSha, nil
@@ -494,43 +492,47 @@ func (m *nativeGitClient) Fetch(revision string, depth int64) error {
 	return err
 }
 
-// Checkout switches the working directory to the specified revision (branch, tag, or commit),
-// updating all files to match that revision's state. Changes the current branch (updates
-// .git/HEAD) and modifies working directory files. After checkout, performs aggressive
-// cleanup to remove all untracked files, directories, and nested repositories.
+// ResetToRemote discards any local divergence and makes the working directory
+// match the tip of the remote branch. It runs before every write so the writer
+// always starts from the true remote state: this prevents the writer from
+// getting stuck when the remote has been changed outside of Kratix, and makes
+// change detection compare against the remote rather than a stale local clone.
 //
-// Parameters:
-//
-//	revision: Branch, tag, or commit to checkout (empty string or "HEAD" defaults to "origin/HEAD")
-//
-// Behaviour:
-//   - Uses --force flag to discard any local modifications
-//   - Runs git clean -ffdx after checkout to remove:
-//   - Untracked files and directories (first "f")
-//   - Untracked nested Git repositories like submodules (second "f")
-//   - Ignored files from .gitignore ("x")
-//   - All untracked directories ("d")
-//
-// Returns:
-//   - Empty string on success
-//   - Command output on error, along with the error itself
-func (m *nativeGitClient) Checkout(revision string) (string, error) {
-	if revision == "" || revision == "HEAD" {
-		revision = "origin/HEAD"
-	}
+// To keep the cost of the per-reconcile fetch in check, fetches are coalesced:
+// if we fetched within the configured minimum fetch interval we skip the fetch
+// and reset to our last known view of the remote. An interval of 0 fetches every
+// time.
+func (m *nativeGitClient) ResetToRemote(branch string) error {
 	ctx := context.Background()
-	if out, err := m.runCmd(ctx, "checkout", "--force", revision); err != nil {
-		return out, fmt.Errorf("failed to checkout %s: %w", revision, err)
+
+	if m.minimumFetchInterval == 0 || time.Since(m.lastFetch) > m.minimumFetchInterval {
+		if err := m.fetch(ctx, branch, 1); err != nil {
+			return fmt.Errorf("failed to fetch latest remote state: %w", err)
+		}
+		m.lastFetch = time.Now()
 	}
+
+	// Reset to the remote-tracking ref rather than HEAD so that any local
+	// divergence — including a commit left behind by a previously rejected push —
+	// is discarded, not just uncommitted changes.
+	remoteRef := "origin/HEAD"
+	if branch != "" {
+		remoteRef = "origin/" + branch
+	}
+	if out, err := m.runCmd(ctx, "reset", "--hard", remoteRef); err != nil {
+		return fmt.Errorf("failed to reset to %s: %w: %s", remoteRef, err, out)
+	}
+
 	// NOTE
 	// The double “f” in the arguments is not a typo: the first “f” tells
 	// `git clean` to delete untracked files and directories, and the second “f”
 	// tells it to clean untracked nested Git repositories (for example a
 	// submodule which has since been removed).
 	if out, err := m.runCmd(ctx, "clean", "-ffdx"); err != nil {
-		return out, fmt.Errorf("failed to clean: %w", err)
+		return fmt.Errorf("failed to clean worktree: %w: %s", err, out)
 	}
-	return "", nil
+
+	return nil
 }
 
 // Clone performs a shallow single-branch clone and returns the temporary
@@ -553,6 +555,10 @@ func (m *nativeGitClient) Clone(branch string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not clone repository: %w", err)
 	}
+
+	// The freshly cloned repo is already at the remote tip, so the first write
+	// after a clone doesn't need to fetch again straight away.
+	m.lastFetch = time.Now()
 
 	return localDir, nil
 }
@@ -593,22 +599,6 @@ func (m *nativeGitClient) HasChanges() (bool, error) {
 	}
 
 	return false, fmt.Errorf("failed to check staged changes: %w", err)
-}
-
-func isNonFastForwardPushError(err error) bool {
-	msg := strings.ToLower(err.Error())
-	needles := []string{
-		"non-fast-forward",
-		"fetch first",
-		"failed to push some refs",
-		"[rejected]",
-	}
-	for _, needle := range needles {
-		if strings.Contains(msg, needle) {
-			return true
-		}
-	}
-	return false
 }
 
 // Helper function to parse a time duration from an environment variable. Returns a

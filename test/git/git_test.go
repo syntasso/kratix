@@ -145,7 +145,7 @@ var _ = Describe("Git tests", func() {
 				))
 			})
 
-			It("fails to clone the repository", func() {
+			It("fails to push to a branch that does not exist", func() {
 				client, err := git.NewGitClient(git.GitClientRequest{
 					RawRepoURL: httpPrivateRepo,
 					Auth:       basicAuthCreds,
@@ -163,9 +163,7 @@ var _ = Describe("Git tests", func() {
 
 				_, err = client.CommitAndPush("invalid-fake-branch", "TEST: test", "test-user", "test-user@syntasso.io")
 				Expect(err).To(HaveOccurred())
-				Expect(err).To(MatchError(
-					ContainSubstring("fatal: couldn't find remote ref invalid-fake-branch")),
-				)
+				Expect(err).To(MatchError(ContainSubstring("failed to push")))
 			})
 		})
 
@@ -192,10 +190,13 @@ var _ = Describe("Git tests", func() {
 					Auth:       basicAuthCreds,
 					Insecure:   true,
 					Log:        logger,
+					Opts: []git.ClientOpts{
+						git.WithMinimumFetchInterval(0),
+					},
 				}
 			})
 
-			It("can still commit and push to the repository when there are no conflicts", func() {
+			It("recovers the client whose view of the remote is stale", func() {
 				clientOne, err := git.NewGitClient(gitClientRequest)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -204,7 +205,6 @@ var _ = Describe("Git tests", func() {
 
 				var pathOne, pathTwo string
 				By("cloning to two different paths", func() {
-					var err error
 					pathOne, err = clientOne.Clone("main")
 					Expect(err).ToNot(HaveOccurred())
 
@@ -212,41 +212,66 @@ var _ = Describe("Git tests", func() {
 					Expect(err).ToNot(HaveOccurred())
 				})
 
-				var testFilesOne, testFilesTwo []string
+				var testFilesOne []string
 				var testDirOne, testDirTwo string
 				randomIDOne := rand.Int()
 				randomIDTwo := rand.Int()
-				By("creating test assets", func() {
+				By("creating test assets in both clones", func() {
 					testDirOne, testFilesOne = createTestAssets(pathOne, randomIDOne)
-					testDirTwo, testFilesTwo = createTestAssets(pathTwo, randomIDTwo)
+					testDirTwo, _ = createTestAssets(pathTwo, randomIDTwo)
 				})
 
-				By("pushing the files to the repository", func() {
+				By("pushing from the first clone successfully", func() {
 					_, err := clientOne.Add(filepath.Join(clientOne.Root(), testDirOne))
 					Expect(err).ToNot(HaveOccurred())
 
 					_, err = clientOne.CommitAndPush(
 						"main", "TEST: test", "test-user", "test-user@syntasso.io")
 					Expect(err).ToNot(HaveOccurred())
+				})
 
-					_, err = clientTwo.Add(filepath.Join(clientTwo.Root(), testDirTwo))
+				By("rejecting the push from the second clone, now that the remote has moved", func() {
+					_, err := clientTwo.Add(filepath.Join(clientTwo.Root(), testDirTwo))
+					Expect(err).ToNot(HaveOccurred())
+
+					// Option A no longer rebases on rejection; the writer requeues,
+					// re-syncs to the remote, and retries at the reconcile level.
+					_, err = clientTwo.CommitAndPush(
+						"main", "TEST: test", "test-user", "test-user@syntasso.io")
+					Expect(err).To(MatchError(ContainSubstring("failed to push")))
+				})
+
+				By("validating only the first clone's files were pushed before recovery", func() {
+					validateOnRemoteRepo(gitClientRequest, branch, testFilesOne, randomIDOne, false)
+				})
+
+				var testFilesTwo []string
+				By("resetting the second clone to the remote and retrying the write", func() {
+					Expect(clientTwo.ResetToRemote("main")).To(Succeed())
+
+					testDirTwo, testFilesTwo = createTestAssets(clientTwo.Root(), randomIDTwo)
+					_, err := clientTwo.Add(filepath.Join(clientTwo.Root(), testDirTwo))
 					Expect(err).ToNot(HaveOccurred())
 
 					_, err = clientTwo.CommitAndPush(
-						"main", "TEST: test", "test-user", "test-user@syntasso.io")
+						"main", "TEST: test after reset", "test-user", "test-user@syntasso.io")
 					Expect(err).ToNot(HaveOccurred())
 				})
 
-				By("validating the files were pushed successfully", func() {
+				By("validating the second clone's files were pushed after recovery", func() {
 					validateOnRemoteRepo(gitClientRequest, branch, testFilesOne, randomIDOne, false)
 					validateOnRemoteRepo(gitClientRequest, branch, testFilesTwo, randomIDTwo, false)
 				})
 
-				By("removing the files from the repository", func() {
-					cleanUpRepo(clientOne, branch, testDirOne)
-					cleanUpRepo(clientTwo, branch, testDirTwo)
-				})
+				By("cleaning up", func() {
+					Expect(clientTwo.RemoveDirectory(filepath.Join(clientTwo.Root(), testDirOne))).To(Succeed())
+					Expect(clientTwo.RemoveDirectory(filepath.Join(clientTwo.Root(), testDirTwo))).To(Succeed())
+					_, err := clientTwo.CommitAndPush(branch, "TEST: remove files", "test-user", "test-user@syntasso.io")
+					Expect(err).ToNot(HaveOccurred())
 
+					os.RemoveAll(clientOne.Root())
+					os.RemoveAll(clientTwo.Root())
+				})
 			})
 		})
 	})
@@ -357,16 +382,6 @@ func validateOnRemoteRepo(
 			Expect(string(content)).To(ContainSubstring(fmt.Sprintf("random-%d", randomID)))
 		}
 	}
-}
-
-func cleanUpRepo(client writers.GitExecutor, branch string, testDir string) {
-	err := client.RemoveDirectory(filepath.Join(client.Root(), testDir))
-	Expect(err).ToNot(HaveOccurred())
-
-	_, err = client.CommitAndPush(branch, "TEST: remove files", "test-user", "test-user@syntasso.io")
-	Expect(err).ToNot(HaveOccurred())
-
-	os.RemoveAll(filepath.Join(client.Root()))
 }
 
 func genBasicAuthCreds() *git.Auth {
