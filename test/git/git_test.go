@@ -190,10 +190,13 @@ var _ = Describe("Git tests", func() {
 					Auth:       basicAuthCreds,
 					Insecure:   true,
 					Log:        logger,
+					Opts: []git.ClientOpts{
+						git.WithMinimumFetchInterval(0),
+					},
 				}
 			})
 
-			It("rejects the push from the client whose view of the remote is stale", func() {
+			It("recovers the client whose view of the remote is stale", func() {
 				clientOne, err := git.NewGitClient(gitClientRequest)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -238,12 +241,35 @@ var _ = Describe("Git tests", func() {
 					Expect(err).To(MatchError(ContainSubstring("failed to push")))
 				})
 
-				By("validating only the first clone's files were pushed", func() {
+				By("validating only the first clone's files were pushed before recovery", func() {
 					validateOnRemoteRepo(gitClientRequest, branch, testFilesOne, randomIDOne, false)
 				})
 
+				var testFilesTwo []string
+				By("resetting the second clone to the remote and retrying the write", func() {
+					Expect(clientTwo.ResetToRemote("main")).To(Succeed())
+
+					testDirTwo, testFilesTwo = createTestAssets(clientTwo.Root(), randomIDTwo)
+					_, err := clientTwo.Add(filepath.Join(clientTwo.Root(), testDirTwo))
+					Expect(err).ToNot(HaveOccurred())
+
+					_, err = clientTwo.CommitAndPush(
+						"main", "TEST: test after reset", "test-user", "test-user@syntasso.io")
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				By("validating the second clone's files were pushed after recovery", func() {
+					validateOnRemoteRepo(gitClientRequest, branch, testFilesOne, randomIDOne, false)
+					validateOnRemoteRepo(gitClientRequest, branch, testFilesTwo, randomIDTwo, false)
+				})
+
 				By("cleaning up", func() {
-					cleanUpRepo(clientOne, branch, testDirOne)
+					Expect(clientTwo.RemoveDirectory(filepath.Join(clientTwo.Root(), testDirOne))).To(Succeed())
+					Expect(clientTwo.RemoveDirectory(filepath.Join(clientTwo.Root(), testDirTwo))).To(Succeed())
+					_, err := clientTwo.CommitAndPush(branch, "TEST: remove files", "test-user", "test-user@syntasso.io")
+					Expect(err).ToNot(HaveOccurred())
+
+					os.RemoveAll(clientOne.Root())
 					os.RemoveAll(clientTwo.Root())
 				})
 			})
