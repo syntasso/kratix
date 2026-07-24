@@ -384,16 +384,6 @@ func validateOnRemoteRepo(
 	}
 }
 
-func cleanUpRepo(client writers.GitExecutor, branch string, testDir string) {
-	err := client.RemoveDirectory(filepath.Join(client.Root(), testDir))
-	Expect(err).ToNot(HaveOccurred())
-
-	_, err = client.CommitAndPush(branch, "TEST: remove files", "test-user", "test-user@syntasso.io")
-	Expect(err).ToNot(HaveOccurred())
-
-	os.RemoveAll(filepath.Join(client.Root()))
-}
-
 func genBasicAuthCreds() *git.Auth {
 	return &git.Auth{
 		Creds: git.NewHTTPSCreds(
