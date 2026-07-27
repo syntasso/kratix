@@ -53,6 +53,12 @@ const (
 	KratixCrdPlural     = "KRATIX_CRD_PLURAL"
 	KratixClusterScoped = "KRATIX_CLUSTER_SCOPED"
 
+	// KratixRequiredPromiseVersionEnvVarPrefix and ...Suffix bracket the promise name in
+	// the env var exposing the version a requirement pins, e.g.
+	// KRATIX_REQUIRED_PROMISE_REDIS_VERSION.
+	KratixRequiredPromiseVersionEnvVarPrefix = "KRATIX_REQUIRED_PROMISE_"
+	KratixRequiredPromiseVersionEnvVarSuffix = "_VERSION"
+
 	WorkflowTypeLabel   = KratixPrefix + "workflow-type"
 	WorkflowActionLabel = KratixPrefix + "workflow-action"
 

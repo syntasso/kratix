@@ -765,6 +765,34 @@ var _ = Describe("Pipeline", func() {
 			})
 
 			Describe("DefaultEnvVars", func() {
+				When("the promise declares required promises", func() {
+					var envVars []corev1.EnvVar
+
+					BeforeEach(func() {
+						factory.Promise = promise.DeepCopy()
+						factory.Promise.Spec.RequiredPromises = []v1alpha1.RequiredPromise{
+							{Name: "redis", Version: "v1.2.0"},
+							{Name: "kafka-broker", Version: "v2.0.0"},
+							{Name: "unpinned"},
+						}
+
+						res, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						envVars = res.Job.Spec.Template.Spec.InitContainers[1].Env
+					})
+
+					It("exposes the required version so pipelines can target it", func() {
+						Expect(envVars).To(ContainElements(
+							corev1.EnvVar{Name: "KRATIX_REQUIRED_PROMISE_REDIS_VERSION", Value: "v1.2.0"},
+							corev1.EnvVar{Name: "KRATIX_REQUIRED_PROMISE_KAFKA_BROKER_VERSION", Value: "v2.0.0"},
+						))
+					})
+
+					It("omits requirements that pin no version", func() {
+						Expect(envVars).ToNot(ContainElement(HaveField("Name", "KRATIX_REQUIRED_PROMISE_UNPINNED_VERSION")))
+					})
+				})
+
 				It("should return a list of default environment variables", func() {
 					envVars := resources.Job.Spec.Template.Spec.InitContainers[1].Env
 					Expect(envVars).To(HaveLen(12))

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/hash"
@@ -17,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // The PipelineFactory defines the properties of the Promise pipeline.
@@ -171,7 +173,7 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 		objNamespace = p.ResourceRequest.GetNamespace()
 		objKind = p.ResourceRequest.GroupVersionKind().Kind
 	}
-	return []corev1.EnvVar{
+	envVars := []corev1.EnvVar{
 		{Name: KratixActionEnvVar, Value: string(p.WorkflowAction)},
 		{Name: KratixTypeEnvVar, Value: string(p.WorkflowType)},
 		{Name: KratixPromiseNameEnvVar, Value: p.Promise.GetName()},
@@ -184,6 +186,50 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 		{Name: KratixCrdPlural, Value: p.CRDPlural},
 		{Name: KratixClusterScoped, Value: strconv.FormatBool(p.ClusterScoped)},
 	}
+
+	return append(envVars, p.requiredPromiseVersionEnvVars()...)
+}
+
+// requiredPromiseVersionEnvVars exposes the version each requirement pins, so a pipeline can
+// target that version rather than hardcoding it — for example by raising a ResourceBinding
+// before requesting a resource from the required Promise.
+//
+// Read from the Promise spec rather than its status on purpose. For resource workflows the
+// spec has already been replaced with the pinned PromiseRevision's spec, so a resource
+// pinned to an older revision sees that revision's requirements; the status would leak the
+// live Promise's requirements into it.
+func (p *PipelineFactory) requiredPromiseVersionEnvVars() []corev1.EnvVar {
+	var envVars []corev1.EnvVar
+	seen := map[string]string{}
+
+	for _, req := range p.Promise.Spec.RequiredPromises {
+		// No version pinned means no version to expose.
+		if req.Version == "" {
+			continue
+		}
+
+		name := requiredPromiseVersionEnvVarName(req.Name)
+		if previous, collides := seen[name]; collides {
+			// Promise names are DNS-1123 subdomains, so "a.b" and "a-b" both normalise to
+			// A_B. Last one wins, which is deterministic given spec ordering.
+			logf.Log.WithName("pipeline-factory").Info(
+				"required promises share an environment variable name; the last one wins",
+				"envVar", name, "promises", []string{previous, req.Name})
+		}
+		seen[name] = req.Name
+
+		envVars = append(envVars, corev1.EnvVar{Name: name, Value: req.Version})
+	}
+
+	return envVars
+}
+
+// requiredPromiseVersionEnvVarName converts a promise name into the env var carrying its
+// required version. Promise names are DNS-1123 subdomains, so only "-" and "." need mapping
+// to reach a valid env var name.
+func requiredPromiseVersionEnvVarName(promiseName string) string {
+	normalised := strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(promiseName))
+	return KratixRequiredPromiseVersionEnvVarPrefix + normalised + KratixRequiredPromiseVersionEnvVarSuffix
 }
 
 func (p *PipelineFactory) readerContainer() corev1.Container {

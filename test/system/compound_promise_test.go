@@ -55,6 +55,22 @@ var _ = Describe("Compound Promise", Label("compound-promise"), Serial, func() {
 				}, time.Minute*2, time.Second).Should(ContainSubstring("Resource requested"))
 			})
 
+			By("staying Available when the required promise is upgraded past the required version", func() {
+				platform.Kubectl("apply", "-f", "assets/compound-promise/sub-promise-v2.yaml")
+
+				Eventually(func() string {
+					return platform.Kubectl("get", "promise", "sub-promise")
+				}).Should(ContainSubstring("v2.0.0"))
+
+				Consistently(func() string {
+					return platform.Kubectl("get", "promise", "compound-promise")
+				}, 30*time.Second, 2*time.Second).Should(ContainSubstring("Available"))
+
+				Expect(platform.Kubectl("get", "promise", "compound-promise", "-o",
+					`jsonpath={.status.conditions[?(@.type=="RequirementsFulfilled")].status}`),
+				).To(Equal("True"))
+			})
+
 			By("marking the Promise as Unavailable when the required promise is deleted", func() {
 				platform.EventuallyKubectlDelete("promise", "sub-promise")
 
