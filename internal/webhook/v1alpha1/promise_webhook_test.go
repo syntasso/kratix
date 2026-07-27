@@ -318,7 +318,7 @@ var _ = Describe("PromiseWebhook", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(warnings).To(ConsistOf(
 					`Required Promise "redis" at version "v1.0.0" not installed`,
-					`Required Promise "kafka" installed, but no revision found at version "v1.2.0"; it is currently at "v1.0.0"`,
+					`Required Promise "kafka" installed, but no revision found at version "v1.2.0"`,
 					`Promise will not be available until the above issue(s) is resolved`,
 				))
 
@@ -326,7 +326,7 @@ var _ = Describe("PromiseWebhook", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(warnings).To(ConsistOf(
 					`Required Promise "redis" at version "v1.0.0" not installed`,
-					`Required Promise "kafka" installed, but no revision found at version "v1.2.0"; it is currently at "v1.0.0"`,
+					`Required Promise "kafka" installed, but no revision found at version "v1.2.0"`,
 					`Promise will not be available until the above issue(s) is resolved`,
 				))
 			})

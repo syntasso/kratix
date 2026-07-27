@@ -237,8 +237,8 @@ func validateRequiredPromisesAreAvailable(p *v1alpha1.Promise) admission.Warning
 		}
 		if !satisfied {
 			warnings = append(warnings, fmt.Sprintf(
-				"Required Promise %q installed, but no revision found at version %q; it is currently at %q",
-				requirement.Name, requirement.Version, promise.Status.Version))
+				"Required Promise %q installed, but no revision found at version %q",
+				requirement.Name, requirement.Version))
 		}
 	}
 
