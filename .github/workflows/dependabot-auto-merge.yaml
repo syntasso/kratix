@@ -123,7 +123,7 @@ jobs:
       - name: Merge
         if: steps.eligible.outputs.result == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_ACTION_TRIGGER_TOKEN }}
         run: |
           echo "Auto-merging: ${{ steps.eligible.outputs.reason }}"
           gh pr merge ${{ github.event.pull_request.number }} \
