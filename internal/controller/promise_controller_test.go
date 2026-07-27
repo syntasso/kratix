@@ -359,7 +359,7 @@ var _ = Describe("PromiseController", func() {
 					})
 				})
 
-				When("the a required promise is not installed at the specified version", func() {
+				When("the a required promise version does not exist", func() {
 					BeforeEach(func() {
 						installRequiredPromise("kafka", "v1.0.0", "Available")
 						installRequiredPromise("telemetry", "v1.1.0", "Available")
@@ -408,14 +408,14 @@ var _ = Describe("PromiseController", func() {
 					})
 				})
 
-				When("a required promise has been upgraded past the required version", func() {
+				When("the required promise version is not the latest Promise revision", func() {
 					BeforeEach(func() {
-						installRequiredPromise("kafka", "v2.0.0", "Available")
 						installPromiseRevision("kafka", "v1.2.0")
+						installRequiredPromise("kafka", "v2.0.0", "Available")
 						installRequiredPromise("telemetry", "v1.1.0", "Available")
 					})
 
-					It("stays fulfilled against the retained revision", func() {
+					It("sets 'RequirementsFulfilled' condition to true and promise is available", func() {
 						_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 						})
@@ -441,7 +441,10 @@ var _ = Describe("PromiseController", func() {
 						))
 
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
-						Expect(*reconciler.StartedDynamicControllers[promise.GetDynamicControllerName(logr.Logger{})].CanCreateResources).To(BeTrue())
+						Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
+						Expect(condErr).NotTo(HaveOccurred())
+						assertPromiseAvailableCondition(cond)
 					})
 				})
 
@@ -457,7 +460,7 @@ var _ = Describe("PromiseController", func() {
 							installRequiredPromise("kafka", "v9.9.9", "Available")
 						})
 
-						It("accepts whichever version is installed", func() {
+						It("sets 'RequirementsFulfilled' condition to true and promise is available", func() {
 							_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 								funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 							})
@@ -474,89 +477,24 @@ var _ = Describe("PromiseController", func() {
 									State: "Requirement installed",
 								},
 							))
-						})
-					})
 
-					When("the required promise is unavailable", func() {
-						BeforeEach(func() {
-							installRequiredPromise("kafka", "v9.9.9", "Unavailable")
-						})
-
-						It("gates on availability, because expressing no version tracks whatever is live", func() {
-							_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-								funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-							})
-
-							Expect(err).To(MatchError("reconcile loop detected"))
-							Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-
-							requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
+							Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+							Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+							cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 							Expect(condErr).NotTo(HaveOccurred())
-							Expect(requirementsCond.Status).To(Equal(metav1.ConditionFalse))
-							Expect(promise.Status.RequiredPromises).To(ConsistOf(
-								v1alpha1.RequiredPromiseStatus{
-									Name:  "kafka",
-									State: "Requirement not available",
-								},
-							))
-						})
-					})
-
-					When("the required promise has not written its first revision yet", func() {
-						BeforeEach(func() {
-							installRequiredPromiseWithoutRevision("kafka", "v9.9.9", "Available")
-						})
-
-						It("is satisfied, because the promise is installed and no version was pinned", func() {
-							_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-								funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-							})
-
-							Expect(err).NotTo(HaveOccurred())
-							Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-
-							requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
-							Expect(condErr).NotTo(HaveOccurred())
-							Expect(requirementsCond.Status).To(Equal(metav1.ConditionTrue))
-							Expect(promise.Status.RequiredPromises).To(ConsistOf(
-								v1alpha1.RequiredPromiseStatus{
-									Name:  "kafka",
-									State: "Requirement installed",
-								},
-							))
-						})
-					})
-
-					When("the required promise is not installed", func() {
-						It("is not fulfilled", func() {
-							_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-								funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-							})
-
-							Expect(err).To(MatchError("reconcile loop detected"))
-							Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-
-							requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
-							Expect(condErr).NotTo(HaveOccurred())
-							Expect(requirementsCond.Status).To(Equal(metav1.ConditionFalse))
-							Expect(promise.Status.RequiredPromises).To(ConsistOf(
-								v1alpha1.RequiredPromiseStatus{
-									Name:  "kafka",
-									State: "Requirement not installed",
-								},
-							))
+							assertPromiseAvailableCondition(cond)
 						})
 					})
 				})
 
-				When("a required promise is unavailable at a version the requirement does not ask for", func() {
+				When("a required promise is unavailable", func() {
 					BeforeEach(func() {
 						installRequiredPromise("kafka", "v2.0.0", "Unavailable")
 						installPromiseRevision("kafka", "v1.2.0")
 						installRequiredPromise("telemetry", "v1.1.0", "Available")
 					})
 
-					It("is not fulfilled", func() {
+					It("RequiredPromise is not fulfilled and promise is unavailable", func() {
 						_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 						})
@@ -582,7 +520,10 @@ var _ = Describe("PromiseController", func() {
 						))
 
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
-						Expect(*reconciler.StartedDynamicControllers[promise.GetDynamicControllerName(logr.Logger{})].CanCreateResources).To(BeFalse())
+						Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
+						Expect(condErr).NotTo(HaveOccurred())
+						assertPromiseUnavailableCondition(cond)
 					})
 				})
 
@@ -593,7 +534,7 @@ var _ = Describe("PromiseController", func() {
 							installRequiredPromise("telemetry", "v1.1.0", "Available")
 						})
 
-						It("returns false for the RequirementsFulfilled condition", func() {
+						It("returns false for the RequirementsFulfilled condition and promise is unavailable", func() {
 							_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 								funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 							})
@@ -2715,14 +2656,6 @@ func assertPromiseUnavailableCondition(cond *metav1.Condition) {
 // status, along with the PromiseRevision the Promise controller would have created for that
 // version. Use installPromiseRevision to add revisions the promise has since upgraded past.
 func installRequiredPromise(name, version, status string) {
-	installRequiredPromiseWithoutRevision(name, version, status)
-	installPromiseRevision(name, version)
-}
-
-// installRequiredPromiseWithoutRevision creates a required Promise but no PromiseRevision
-// for it, as the Promise controller leaves it in the window before it writes the first
-// revision.
-func installRequiredPromiseWithoutRevision(name, version, status string) {
 	requiredPromise := &v1alpha1.Promise{}
 	requiredPromiseName := types.NamespacedName{
 		Name: name,
@@ -2741,15 +2674,16 @@ func installRequiredPromiseWithoutRevision(name, version, status string) {
 	requiredPromise.Status.Kratix.Status = status
 	requiredPromise.Status.Kratix.Version = version
 	Expect(fakeK8sClient.Status().Update(ctx, requiredPromise)).To(Succeed())
+
+	installPromiseRevision(name, version)
 }
 
 // installPromiseRevision creates the PromiseRevision the Promise controller would have left
-// behind for a version of a promise, without moving the promise's live version.
+// behind for a version of a promise, without moving the promise's live version. The Promise
+// itself need not exist yet, so revisions can be declared in whichever order reads best.
 func installPromiseRevision(promiseName, version string) {
-	promise := &v1alpha1.Promise{}
-	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promiseName}, promise)).To(Succeed())
-
-	revision := v1alpha1.NewPromiseRevision(promise, version)
+	revision := v1alpha1.NewPromiseRevision(
+		&v1alpha1.Promise{ObjectMeta: metav1.ObjectMeta{Name: promiseName}}, version)
 	Expect(fakeK8sClient.Create(ctx, revision)).To(Succeed())
 }
 

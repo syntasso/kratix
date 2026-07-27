@@ -284,8 +284,8 @@ var _ = Describe("PromiseWebhook", func() {
 	})
 
 	When("Required Promises", func() {
-		When("the required promises are not satisfied", func() {
-			It("returns a list of warnings", func() {
+		When("the required promise revision cannot be found", func() {
+			It("returns warnings", func() {
 				err := fakeClient.Create(context.TODO(), &v1alpha1.Promise{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "kafka",
@@ -332,8 +332,8 @@ var _ = Describe("PromiseWebhook", func() {
 			})
 		})
 
-		When("a required promise has been upgraded past the required version", func() {
-			It("returns no warnings, because the revision for that version is retained", func() {
+		When("there are multiple revisions and the required revision is found", func() {
+			It("returns no warnings", func() {
 				kafka := &v1alpha1.Promise{
 					ObjectMeta: metav1.ObjectMeta{Name: "kafka"},
 					Status:     v1alpha1.PromiseStatus{Version: "v2.0.0"},
@@ -357,11 +357,11 @@ var _ = Describe("PromiseWebhook", func() {
 			})
 		})
 
-		When("a requirement pins no version", func() {
-			It("returns no warnings once the required promise is installed, revision or not", func() {
+		When("a requirement pins no version and the promise is installed", func() {
+			It("returns no warnings", func() {
 				kafka := &v1alpha1.Promise{
 					ObjectMeta: metav1.ObjectMeta{Name: "kafka"},
-					Status:     v1alpha1.PromiseStatus{Version: "v2.0.0"},
+					Status:     v1alpha1.PromiseStatus{Version: "i-am-a-random-version"},
 				}
 				Expect(fakeClient.Create(context.TODO(), kafka)).To(Succeed())
 
