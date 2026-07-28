@@ -1,6 +1,10 @@
 package writers_test
 
 import (
+	"context"
+	"net/url"
+	"time"
+
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -126,6 +130,41 @@ var _ = Describe("S3", func() {
 			It("should return a valid S3Writer", func() {
 				_, err := writers.NewS3Writer(logger, stateStoreSpec, dest.Spec.Path, nil)
 				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+		Context("dual-stack endpoint resolution", func() {
+			// minio-go resolves Amazon S3 endpoints to their dual-stack variant by
+			// default, which is unreachable from IPv4-only VPCs. The request host is
+			// only observable via a presigned URL, so assert on that.
+			requestHost := func(spec v1alpha1.BucketStateStoreSpec) string {
+				w, err := writers.NewS3Writer(logger, spec, dest.Spec.Path, map[string][]byte{
+					"accessKeyID":     []byte("accessKeyID"),
+					"secretAccessKey": []byte("secretAccessKey"),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				u, err := w.(*writers.S3Writer).RepoClient.PresignedGetObject(
+					context.Background(), spec.BucketName, "obj", time.Minute, url.Values{})
+				Expect(err).NotTo(HaveOccurred())
+				return u.Host
+			}
+
+			BeforeEach(func() {
+				stateStoreSpec.Endpoint = "s3.us-east-2.amazonaws.com"
+				stateStoreSpec.Insecure = false
+				stateStoreSpec.BucketName = "test-bucket-name"
+			})
+
+			It("uses the configured endpoint by default", func() {
+				Expect(requestHost(stateStoreSpec)).To(Equal("test-bucket-name.s3.us-east-2.amazonaws.com"))
+			})
+
+			When("useDualStack is true", func() {
+				It("uses the dual-stack endpoint", func() {
+					stateStoreSpec.UseDualStack = true
+					Expect(requestHost(stateStoreSpec)).To(Equal("test-bucket-name.s3.dualstack.us-east-2.amazonaws.com"))
+				})
 			})
 		})
 

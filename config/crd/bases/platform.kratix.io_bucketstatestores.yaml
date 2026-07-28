@@ -96,6 +96,12 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              useDualStack:
+                description: |-
+                  Toggle to use AWS S3 dual-stack (IPv4/IPv6) endpoints. Only has an effect
+                  on Amazon S3 endpoints; ignored by other S3-compatible providers.
+                  Defaults to false, meaning the endpoint is used exactly as configured.
+                type: boolean
             required:
             - bucketName
             - endpoint
