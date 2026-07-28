@@ -43,6 +43,12 @@ type BucketStateStoreSpec struct {
 	//+kubebuilder:validation:Optional
 	Insecure bool `json:"insecure"`
 
+	// Toggle to use AWS S3 dual-stack (IPv4/IPv6) endpoints. Only has an effect
+	// on Amazon S3 endpoints; ignored by other S3-compatible providers.
+	// Defaults to false, meaning the endpoint is used exactly as configured.
+	//+kubebuilder:validation:Optional
+	UseDualStack bool `json:"useDualStack"`
+
 	// Authentication method used to access the StateStore.
 	// Default to accessKey; options are accessKey and IAM.
 	//+kubebuilder:validation:Enum=accessKey;IAM
