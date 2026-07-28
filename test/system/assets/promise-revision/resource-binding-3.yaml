@@ -1,0 +1,18 @@
+# A ResourceBinding raised before its Resource Request, pinning the request to a version
+# other than latest. The name is deliberately not the one Kratix would generate: bindings
+# are identified by their labels, so this must be adopted rather than duplicated.
+apiVersion: platform.kratix.io/v1alpha1
+kind: ResourceBinding
+metadata:
+  name: pre-created-binding-for-rr-three
+  namespace: default
+  labels:
+    kratix.io/promise-name: upgrade
+    kratix.io/resource-name: upgrade-rr-three
+spec:
+  promiseRef:
+    name: upgrade
+  resourceRef:
+    name: upgrade-rr-three
+    namespace: default
+  version: v0.1.0-BETA

@@ -898,12 +898,11 @@ func (r *PromiseReconciler) evaluateRequirement(ctx context.Context, promise *v1
 		r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, "RequirementsNotInstalled", "RequirementsNotInstalled", "%s", fmt.Sprintf("Required Promise %s not installed or unknown state", required.Name))
 
 	default:
-		if required.Status.Version != req.Version || required.Status.Status != v1alpha1.PromiseStatusAvailable {
-			condition.Reason, state = generateRequirementState(required.Status.Version, req.Version, required.Status.Status)
-			updateConditionNotFulfilled(condition, condition.Reason, "Requirements not fulfilled")
-			r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, condition.Reason, condition.Reason, "%s", fmt.Sprintf("Waiting for required Promise %s: %s ", required.Name, state))
-		} else {
-			state = requirementStateInstalled
+		var reason string
+		state, reason = r.evaluateRequirementAgainstRevisions(ctx, req, required)
+		if reason != "" {
+			updateConditionNotFulfilled(condition, reason, "Requirements not fulfilled")
+			r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, reason, reason, "%s", fmt.Sprintf("Waiting for required Promise %s: %s ", required.Name, state))
 		}
 
 		r.markRequiredPromiseAsRequired(ctx, req.Version, promise, required)
@@ -1802,6 +1801,33 @@ func (r *PromiseReconciler) deleteWork(o opts, promise *v1alpha1.Promise) error 
 	return nil
 }
 
+// PromisesRequiringRevision maps a PromiseRevision to the Promises that declare its Promise
+// in spec.requiredPromises, so a compound Promise waiting on a version wakes up as soon as
+// a revision for it appears. Requirements resolve against revisions, so revisions — not just
+// Promises — are an input to the RequirementsFulfilled condition.
+func (r *PromiseReconciler) PromisesRequiringRevision(ctx context.Context, obj client.Object) []reconcile.Request {
+	promiseName := obj.GetLabels()[v1alpha1.PromiseNameLabel]
+	if promiseName == "" {
+		return nil
+	}
+
+	promise := &v1alpha1.Promise{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: promiseName}, promise); err != nil {
+		if !apierrors.IsNotFound(err) {
+			logging.Error(r.Log, err, "failed to get Promise for PromiseRevision", "promise", promiseName)
+		}
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for _, req := range promise.Status.RequiredBy {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: req.Promise.Name},
+		})
+	}
+	return requests
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -1817,6 +1843,10 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				}
 				return resources
 			}),
+		).
+		Watches(
+			&v1alpha1.PromiseRevision{},
+			handler.EnqueueRequestsFromMapFunc(r.PromisesRequiringRevision),
 		).
 		// Reconcile a Promise when one of its Work resources changes.
 		// This triggers the Promise reconciliation when a Work resource changes to update the "Reconciled" and
@@ -2121,14 +2151,55 @@ func updateConditionNotFulfilled(condition *metav1.Condition, reason, message st
 	condition.Message = message
 }
 
-func generateRequirementState(fetchedVersion, requiredVersion, availability string) (string, string) {
-	if fetchedVersion != requiredVersion {
-		return "RequirementsNotInstalled", requirementStateNotInstalledAtSpecifiedVersion
+// evaluateRequirementAgainstRevisions decides whether an installed required Promise
+// satisfies a requirement, returning the requirement state and, when it is not satisfied,
+// the condition reason to report. An empty reason means the requirement is fulfilled.
+// It uses promise revisions to resolve versions.
+func (r *PromiseReconciler) evaluateRequirementAgainstRevisions(
+	ctx context.Context, req v1alpha1.RequiredPromise, required *v1alpha1.Promise,
+) (state, reason string) {
+	exists, err := r.requiredRevisionExists(ctx, req, required)
+	switch {
+	case err != nil:
+		logging.Error(r.Log, err, "failed to look up PromiseRevision for requirement",
+			"requirement", req.Name, "version", req.Version)
+		return requirementUnknownInstallationState, "RequirementsNotInstalled"
+
+	case !exists:
+		return requirementStateNotInstalledAtSpecifiedVersion, "RequirementsNotInstalled"
+
+	// Availability is a property of the Promise, not of a version: an Unavailable Promise
+	// cannot serve a request at any version, pinned or not, because the dynamic controller
+	// refuses to fulfil requests while its Promise is Unavailable. So it gates whatever
+	// version the requirement asks for.
+	// TODO: we should consider adding availability status to PromiseRevisions.
+	case required.Status.Status != v1alpha1.PromiseStatusAvailable:
+		return requirementStateNotAvailable, "RequirementsNotAvailable"
+
+	default:
+		return requirementStateInstalled, ""
 	}
-	if availability != v1alpha1.PromiseStatusAvailable {
-		return "RequirementsNotAvailable", requirementStateNotAvailable
+}
+
+// requiredRevisionExists reports whether the required Promise has a PromiseRevision
+// satisfying the requirement.
+func (r *PromiseReconciler) requiredRevisionExists(
+	ctx context.Context, req v1alpha1.RequiredPromise, required *v1alpha1.Promise,
+) (bool, error) {
+	// No version pinned means any version will do, and callers only reach here if the
+	// required Promise is confirmed installed, so nothing left for us to check.
+	if req.Version == "" {
+		return true, nil
 	}
-	return "", ""
+
+	_, err := promiseRevisionByExactVersion(ctx, r.Client, required, req.Version)
+	if stderrors.Is(err, errPromiseRevisionNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func addPromiseSpanAttributes(traceCtx *reconcileTrace, promise *v1alpha1.Promise) {

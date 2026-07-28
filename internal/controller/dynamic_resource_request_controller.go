@@ -48,6 +48,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crcontroller "sigs.k8s.io/controller-runtime/pkg/controller"
@@ -425,7 +426,7 @@ func (r *DynamicResourceRequestController) ensureResourceStatus(
 func (r *DynamicResourceRequestController) syncNoPipelineBindingUpgradeStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured) error {
 	resourceBinding, err := r.getResourceBindingForRR(ctx, promiseName, rr)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
+		if errors.Is(err, errResourceBindingNotFound) {
 			return nil
 		}
 		return fmt.Errorf("failed to get resourceBinding: %w", err)
@@ -505,15 +506,7 @@ func shouldMarkResourceBindingUpgradeInProgress(resourceBinding *v1alpha1.Resour
 }
 
 func (r *DynamicResourceRequestController) getResourceBindingForRR(ctx context.Context, promiseName string, rr *unstructured.Unstructured) (*v1alpha1.ResourceBinding, error) {
-	resourceBinding := &v1alpha1.ResourceBinding{}
-	err := r.Client.Get(ctx, types.NamespacedName{
-		Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promiseName)),
-		Namespace: rr.GetNamespace(),
-	}, resourceBinding)
-	if err != nil {
-		return nil, err
-	}
-	return resourceBinding, nil
+	return r.findResourceBinding(ctx, rr.GetNamespace(), rr.GetName(), promiseName)
 }
 
 func (r *DynamicResourceRequestController) applyResourceBindingUpgradeStatus(
@@ -600,12 +593,22 @@ func shouldRecordUpgradeSucceededCondition(
 }
 
 func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured, promise *v1alpha1.Promise) error {
-	resourceBinding := &v1alpha1.ResourceBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
-			Namespace: rr.GetNamespace(),
-		},
+	// Adopt whatever Binding already identifies this resource rather than assuming the name
+	// Kratix would have chosen: a Binding may have been created ahead of the resource
+	// request to pin it to a specific version.
+	resourceBinding, err := r.fetchResourceBinding(ctx, rr, promise)
+	if err != nil && !errors.Is(err, errResourceBindingNotFound) {
+		return err
 	}
+	if resourceBinding == nil {
+		resourceBinding = &v1alpha1.ResourceBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
+				Namespace: rr.GetNamespace(),
+			},
+		}
+	}
+
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, resourceBinding, func() error {
 		// Exclude one-shot trigger labels — propagating them would cause the
 		// ResourceBinding controller to re-trigger reconciliation in an infinite loop.
@@ -1111,13 +1114,9 @@ func (r *DynamicResourceRequestController) handleDeletePipelineFailure(o opts, p
 // ensureResourceBindingRemoved deletes the ResourceBinding for this resource request if it exists.
 // It is used at the end of delete reconciliation once all RR finalizers are cleared.
 func (r *DynamicResourceRequestController) ensureResourceBindingRemoved(o opts, rr *unstructured.Unstructured, promise *v1alpha1.Promise) error {
-	resourceBinding := &v1alpha1.ResourceBinding{}
-	namespacedName := types.NamespacedName{
-		Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
-		Namespace: rr.GetNamespace(),
-	}
-	if err := r.Client.Get(o.ctx, namespacedName, resourceBinding); err != nil {
-		if apierrors.IsNotFound(err) {
+	resourceBinding, err := r.fetchResourceBinding(o.ctx, rr, promise)
+	if err != nil {
+		if errors.Is(err, errResourceBindingNotFound) {
 			return nil
 		}
 		return err
@@ -1129,16 +1128,9 @@ func (r *DynamicResourceRequestController) ensureResourceBindingRemoved(o opts, 
 }
 
 func (r *DynamicResourceRequestController) deleteResourceBinding(o opts, rr *unstructured.Unstructured, promise *v1alpha1.Promise, finalizer string) error {
-	resourceBinding := &v1alpha1.ResourceBinding{}
-
-	namespacedName := types.NamespacedName{
-		Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
-		Namespace: rr.GetNamespace(),
-	}
-
-	err := r.Client.Get(o.ctx, namespacedName, resourceBinding)
+	resourceBinding, err := r.fetchResourceBinding(o.ctx, rr, promise)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
+		if errors.Is(err, errResourceBindingNotFound) {
 			controllerutil.RemoveFinalizer(rr, finalizer)
 			if err := r.Client.Update(o.ctx, rr); err != nil {
 				logging.Error(o.logger, err, "failed updating resource request while removing finalizer")
@@ -1146,6 +1138,7 @@ func (r *DynamicResourceRequestController) deleteResourceBinding(o opts, rr *uns
 			}
 			return nil
 		}
+		return err
 	}
 
 	err = r.Client.Delete(o.ctx, resourceBinding)
@@ -1319,17 +1312,28 @@ func (r *DynamicResourceRequestController) fetchResourceBinding(
 	rr *unstructured.Unstructured,
 	promise *v1alpha1.Promise,
 ) (*v1alpha1.ResourceBinding, error) {
+	return r.findResourceBinding(ctx, rr.GetNamespace(), rr.GetName(), promise.GetName())
+}
+
+// findResourceBinding returns the ResourceBinding for a resource, identified by its labels.
+// Every path that reads, updates or deletes a Binding resolves it this way, so a Binding
+// created ahead of the resource request — to pin the request to a version other than latest
+// — is adopted rather than duplicated, whatever it is named.
+func (r *DynamicResourceRequestController) findResourceBinding(
+	ctx context.Context,
+	namespace, resourceName, promiseName string,
+) (*v1alpha1.ResourceBinding, error) {
 	bindings := &v1alpha1.ResourceBindingList{}
 	if err := r.Client.List(ctx, bindings, &client.ListOptions{
-		Namespace:     rr.GetNamespace(),
-		LabelSelector: labels.SelectorFromSet(resourceBindingLabels(rr, promise)),
+		Namespace:     namespace,
+		LabelSelector: labels.SelectorFromSet(resourceBindingLabelsFor(resourceName, promiseName)),
 	}); err != nil {
 		return nil, err
 	}
 
 	if len(bindings.Items) > 1 {
 		return nil, fmt.Errorf("found multiple ResourceBindings for Resource %s in namespace %s;"+
-			"there should be one ResourceBinding per Resource", rr.GetName(), rr.GetNamespace())
+			"there should be one ResourceBinding per Resource", resourceName, namespace)
 	} else if len(bindings.Items) == 0 {
 		return nil, errResourceBindingNotFound
 	}
@@ -1445,9 +1449,27 @@ func fetchRevisionForDelete(ctx context.Context, c client.Client, promise *v1alp
 }
 
 func resourceBindingLabels(rr *unstructured.Unstructured, promise *v1alpha1.Promise) map[string]string {
-	l := promise.GenerateSharedLabels()
-	l[v1alpha1.ResourceNameLabel] = rr.GetName()
+	return resourceBindingLabelsFor(rr.GetName(), promise.GetName())
+}
+
+// resourceBindingLabelsFor builds the labels that identify the ResourceBinding for a
+// resource. These labels, not the object's name, are how Kratix finds a Binding; the
+// deterministic name is only used to name one that does not exist yet.
+func resourceBindingLabelsFor(resourceName, promiseName string) map[string]string {
+	l := v1alpha1.GenerateSharedLabelsForPromise(promiseName)
+	l[v1alpha1.ResourceNameLabel] = resourceNameLabelValue(resourceName)
 	return l
+}
+
+// resourceNameLabelValue returns a resource name in a form usable as a label value. Object
+// names may exceed the 63 characters Kubernetes allows in a label value, which would make
+// the Binding un-creatable, so longer names are replaced by a bounded derivation of the
+// full name.
+func resourceNameLabelValue(resourceName string) string {
+	if len(resourceName) <= validation.LabelValueMaxLength {
+		return resourceName
+	}
+	return objectutil.GenerateDeterministicObjectName(resourceName)
 }
 
 func latestRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promise) (*v1alpha1.PromiseRevision, error) {

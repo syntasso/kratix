@@ -234,7 +234,7 @@ type RequiredBy struct {
 type RequiredPromiseStatus struct {
 	// Name of the required Promise
 	Name string `json:"name,omitempty"`
-	// Installed version of the required Promise
+	// Version of the required Promise that this Promise requires
 	Version string `json:"version,omitempty"`
 	// Current state of the required Promise (e.g. "Available", "Unavailable")
 	State string `json:"state,omitempty"`

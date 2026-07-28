@@ -226,8 +226,19 @@ func validateRequiredPromisesAreAvailable(p *v1alpha1.Promise) admission.Warning
 			promiselog.Error(err, "failed to get requirement", "requirement", requirement.Name, "version", requirement.Version)
 			continue
 		}
-		if promise.Status.Version != requirement.Version {
-			warnings = append(warnings, fmt.Sprintf("Required Promise %q installed but not at a compatible version, want: %q have: %q", requirement.Name, requirement.Version, promise.Status.Version))
+		// Requirements are satisfied by the PromiseRevisions a Promise has left behind, not
+		// by the version it happens to be running, so a Promise upgraded past the required
+		// version still satisfies it.
+		satisfied, err := requiredRevisionExists(requirement, promise)
+		if err != nil {
+			promiselog.Error(err, "failed to look up revisions for requirement",
+				"requirement", requirement.Name, "version", requirement.Version)
+			continue
+		}
+		if !satisfied {
+			warnings = append(warnings, fmt.Sprintf(
+				"Required Promise %q installed, but no revision found at version %q",
+				requirement.Name, requirement.Version))
 		}
 	}
 
@@ -235,6 +246,30 @@ func validateRequiredPromisesAreAvailable(p *v1alpha1.Promise) admission.Warning
 		warnings = append(warnings, "Promise will not be available until the above issue(s) is resolved")
 	}
 	return warnings
+}
+
+// requiredRevisionExists reports whether the required Promise has a PromiseRevision
+// satisfying the requirement. Mirrors the controller's rule so an admission warning cannot
+// contradict the status the controller will write moments later.
+func requiredRevisionExists(requirement v1alpha1.RequiredPromise, required *v1alpha1.Promise) (bool, error) {
+	// No version pinned means any version will do, and the caller has already established
+	// the Promise is installed.
+	if requirement.Version == "" {
+		return true, nil
+	}
+
+	revisions := &v1alpha1.PromiseRevisionList{}
+	if err := k8sClient.List(context.TODO(), revisions,
+		client.MatchingLabels(required.GenerateSharedLabels())); err != nil {
+		return false, err
+	}
+
+	for _, revision := range revisions.Items {
+		if revision.Spec.Version == requirement.Version {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func validateCRDChanges(p, oldPromise *v1alpha1.Promise) error {
