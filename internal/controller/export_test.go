@@ -20,6 +20,10 @@ func SetNewS3Writer(f func(logger logr.Logger, stateStoreSpec v1alpha1.BucketSta
 	newS3Writer = f
 }
 
+func ResourceNameLabelValue(resourceName string) string {
+	return resourceNameLabelValue(resourceName)
+}
+
 func SetNewGitWriter(f func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string,
 	creds map[string][]byte) (writers.StateStoreWriter, error)) {
 	newGitWriter = func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string,

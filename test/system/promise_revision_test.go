@@ -20,6 +20,7 @@ var _ = Describe("Promise Revisions", func() {
 	promiseName := "upgrade"
 	rrOneName := "upgrade-rr-one"
 	rrTwoName := "upgrade-rr-two"
+	rrThreeName := "upgrade-rr-three"
 
 	BeforeEach(func() {
 		SetDefaultEventuallyTimeout(4 * time.Minute)
@@ -29,6 +30,7 @@ var _ = Describe("Promise Revisions", func() {
 
 	AfterEach(func() {
 		platform.EventuallyKubectlDelete("upgrades", rrTwoName)
+		platform.EventuallyKubectlDelete("upgrades", rrThreeName)
 		platform.EventuallyKubectlDelete("promise", promiseName)
 	})
 
@@ -51,7 +53,9 @@ var _ = Describe("Promise Revisions", func() {
 
 			Eventually(func() string {
 				return platform.KubectlAllowFail("get", "promiserevisions",
-					"-l", fmt.Sprintf("%s=%s,%s=%s", platformv1alpha1.PromiseNameLabel, promiseName, platformv1alpha1.LatestRevisionLabel, platformv1alpha1.MetadataBoolTrue),
+					"-l", fmt.Sprintf("%s=%s,%s=%s",
+						platformv1alpha1.PromiseNameLabel, promiseName,
+						platformv1alpha1.LatestRevisionLabel, platformv1alpha1.MetadataBoolTrue),
 				)
 			}).Should(SatisfyAll(
 				ContainSubstring("NAME"), ContainSubstring(promiseName),
@@ -77,8 +81,10 @@ var _ = Describe("Promise Revisions", func() {
 			for _, resourceName := range []string{rrOneName, rrTwoName} {
 				Eventually(func(g Gomega) {
 					name := getBindingName(promiseName, resourceName)
-					g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.spec.version}'")).To(ContainSubstring("latest"))
-					g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.lastAppliedVersion}'")).To(ContainSubstring(initialPromiseVersion))
+					g.Expect(platform.Kubectl("get", "--namespace=default",
+						name, "-o=jsonpath='{.spec.version}'")).To(ContainSubstring("latest"))
+					g.Expect(platform.Kubectl("get", "--namespace=default",
+						name, "-o=jsonpath='{.status.lastAppliedVersion}'")).To(ContainSubstring(initialPromiseVersion))
 				}).Should(Succeed())
 			}
 		})
@@ -161,7 +167,8 @@ var _ = Describe("Promise Revisions", func() {
 		By("moving the latest revision label to the new promise version", func() {
 			Eventually(func() string {
 				return platform.Kubectl("get", "promiserevisions",
-					"-l", fmt.Sprintf("%s=%s,%s!=%s", platformv1alpha1.PromiseNameLabel, promiseName, platformv1alpha1.LatestRevisionLabel, platformv1alpha1.MetadataBoolTrue),
+					"-l", fmt.Sprintf("%s=%s,%s!=%s", platformv1alpha1.PromiseNameLabel,
+						promiseName, platformv1alpha1.LatestRevisionLabel, platformv1alpha1.MetadataBoolTrue),
 				)
 			}).Should(SatisfyAll(
 				ContainSubstring(initialPromiseVersion),
@@ -170,7 +177,8 @@ var _ = Describe("Promise Revisions", func() {
 
 			Eventually(func() string {
 				return platform.Kubectl("get", "promiserevisions",
-					"-l", fmt.Sprintf("%s=%s,%s=%s", platformv1alpha1.PromiseNameLabel, promiseName, platformv1alpha1.LatestRevisionLabel, platformv1alpha1.MetadataBoolTrue),
+					"-l", fmt.Sprintf("%s=%s,%s=%s", platformv1alpha1.PromiseNameLabel,
+						promiseName, platformv1alpha1.LatestRevisionLabel, platformv1alpha1.MetadataBoolTrue),
 				)
 			}).Should(SatisfyAll(
 				ContainSubstring(updatedPromiseVersion),
@@ -345,6 +353,29 @@ var _ = Describe("Promise Revisions", func() {
 				ContainSubstring(fmt.Sprintf("%s-%s", rrTwoName, promiseName)),
 				Not(ContainSubstring(rrOneName)),
 			))
+		})
+
+		// A binding raised ahead of the request pins it to a version other than latest
+		By("adopting a resource binding created before the request", func() {
+			preCreatedBindingName := "pre-created-binding-for-rr-three"
+
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-binding-3.yaml"))
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-request-3.yaml"))
+
+			Eventually(func() string {
+				return platform.Kubectl("get", "upgrades", rrThreeName)
+			}).Should(ContainSubstring("Reconciled"))
+
+			Eventually(func(g Gomega) {
+				g.Expect(platform.Kubectl("get", "upgrades", rrThreeName,
+					"-o=jsonpath='{.status.promiseVersion}'")).To(ContainSubstring(initialPromiseVersion))
+
+				bindings := strings.TrimSpace(platform.Kubectl("get", "--namespace=default", "resourcebindings",
+					"-l", fmt.Sprintf("kratix.io/promise-name=%s,kratix.io/resource-name=%s", promiseName, rrThreeName),
+					"-o=name"))
+				g.Expect(strings.Split(bindings, "\n")).To(ConsistOf(
+					"resourcebinding.platform.kratix.io/" + preCreatedBindingName))
+			}).Should(Succeed())
 		})
 	})
 })

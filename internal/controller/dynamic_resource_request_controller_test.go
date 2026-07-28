@@ -17,6 +17,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -1312,6 +1313,83 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
 			resReq = createResourceRequest(resourceRequestPath)
 			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
+		})
+
+		When("a ResourceBinding already exists", func() {
+			const handWrittenName = "my-hand-written-binding"
+
+			BeforeEach(func() {
+				createPromiseRevision(fakeK8sClient, promise, "v1.1.0")
+				Expect(fakeK8sClient.Create(ctx, &v1alpha1.ResourceBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      handWrittenName,
+						Namespace: resReq.GetNamespace(),
+						Labels: map[string]string{
+							"kratix.io/promise-name":  promise.GetName(),
+							"kratix.io/resource-name": resReq.GetName(),
+						},
+					},
+					Spec: v1alpha1.ResourceBindingSpec{
+						PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
+						ResourceRef: v1alpha1.ResourceRef{Name: resReq.GetName(), Namespace: resReq.GetNamespace()},
+						Version:     "v1.1.0",
+					},
+				})).To(Succeed())
+			})
+
+			It("adopts it instead of creating a second one", func() {
+				setReconcileConfigureWorkflowToReturnFinished()
+				_, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+
+				bindings := &v1alpha1.ResourceBindingList{}
+				Expect(fakeK8sClient.List(ctx, bindings)).To(Succeed())
+				Expect(bindings.Items).To(HaveLen(1))
+				Expect(bindings.Items[0].GetName()).To(Equal(handWrittenName))
+				Expect(bindings.Items[0].Spec.Version).To(Equal("v1.1.0"))
+			})
+
+			It("reconciles the resource at the pinned version", func() {
+				setReconcileConfigureWorkflowToReturnFinished()
+				_, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				Expect(resourceutil.GetStatus(resReq, "promiseVersion")).To(Equal("v1.1.0"))
+			})
+
+			It("deletes it with the resource request", func() {
+				setReconcileConfigureWorkflowToReturnFinished()
+				_, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
+				_, err = t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).To(MatchError("reconcile loop detected"))
+
+				setReconcileDeleteWorkflowToReturnFinished(resReq)
+				_, err = t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+
+				bindings := &v1alpha1.ResourceBindingList{}
+				Expect(fakeK8sClient.List(ctx, bindings)).To(Succeed())
+				Expect(bindings.Items).To(BeEmpty())
+			})
+		})
+
+		When("the resource name is too long to be a label value", func() {
+			It("can still generate a valid label value", func() {
+				longName := strings.Repeat("a", 70)
+				value := controller.ResourceNameLabelValue(longName)
+
+				Expect(value).NotTo(Equal(longName))
+				Expect(len(value)).To(BeNumerically("<=", content.LabelValueMaxLength))
+			})
+
+			It("leaves resource names that are within limit unchanged", func() {
+				Expect(controller.ResourceNameLabelValue("example")).To(Equal("example"))
+				Expect(controller.ResourceNameLabelValue(strings.Repeat("a", 63))).To(Equal(strings.Repeat("a", 63)))
+			})
 		})
 
 		When("creating a new resource", func() {
