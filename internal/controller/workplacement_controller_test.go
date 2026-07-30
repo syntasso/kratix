@@ -234,6 +234,14 @@ var _ = Describe("WorkPlacementReconciler", func() {
 				Expect(counts).NotTo(HaveKey(telemetry.WorkPlacementWriteResultFailure))
 			})
 
+			It("requeues after the configured reconciliation interval so files are re-written periodically", func() {
+				reconciler.ReconciliationInterval = controller.DefaultReconciliationInterval
+
+				result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
+			})
+
 			It("records a failure metric when the state store write fails", func() {
 				fakeWriter.UpdateFilesReturns("", fmt.Errorf("boom"))
 
