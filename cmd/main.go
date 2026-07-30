@@ -76,16 +76,16 @@ func init() {
 }
 
 type KratixConfig struct {
-	Workflows                      Workflows                     `json:"workflows"`
-	NumberOfJobsToKeep             int                           `json:"numberOfJobsToKeep,omitempty"`
-	ControllerLeaderElection       *LeaderElectionConfig         `json:"controllerLeaderElection,omitempty"`
-	SelectiveCache                 bool                          `json:"selectiveCache,omitempty"`
-	ReconciliationInterval         *metav1.Duration              `json:"reconciliationInterval,omitempty"`
-	WorkPlacementRewriteInterval   *metav1.Duration              `json:"workPlacementRewriteInterval,omitempty"`
-	Telemetry                      *telemetry.Config             `json:"telemetry,omitempty"`
-	Logging                        *LoggingConfig                `json:"logging,omitempty"`
-	ResourceBindingVersionStrategy ResourceBindingDefaultVersion `json:"resourceBindingVersionStrategy,omitempty"`
-	Git                            *GitConfig                    `json:"git,omitempty"`
+	Workflows                        Workflows                     `json:"workflows"`
+	NumberOfJobsToKeep               int                           `json:"numberOfJobsToKeep,omitempty"`
+	ControllerLeaderElection         *LeaderElectionConfig         `json:"controllerLeaderElection,omitempty"`
+	SelectiveCache                   bool                          `json:"selectiveCache,omitempty"`
+	ReconciliationInterval           *metav1.Duration              `json:"reconciliationInterval,omitempty"`
+	StateStoreReconciliationInterval *metav1.Duration              `json:"stateStoreReconciliationInterval,omitempty"`
+	Telemetry                        *telemetry.Config             `json:"telemetry,omitempty"`
+	Logging                          *LoggingConfig                `json:"logging,omitempty"`
+	ResourceBindingVersionStrategy   ResourceBindingDefaultVersion `json:"resourceBindingVersionStrategy,omitempty"`
+	Git                              *GitConfig                    `json:"git,omitempty"`
 }
 
 // ResourceBindingDefaultVersion controls the version strategy for ResourceBindings.
@@ -416,12 +416,12 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controller.WorkPlacementReconciler{
-		Client:          mgr.GetClient(),
-		Log:             ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
-		VersionCache:    make(map[string]string),
-		RepositoryCache: repositoryCache,
-		EventRecorder:   mgr.GetEventRecorder("WorkPlacementController"),
-		RewriteInterval: getWorkPlacementRewriteInterval(kratixConfig),
+		Client:                           mgr.GetClient(),
+		Log:                              ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
+		VersionCache:                     make(map[string]string),
+		RepositoryCache:                  repositoryCache,
+		EventRecorder:                    mgr.GetEventRecorder("WorkPlacementController"),
+		StateStoreReconciliationInterval: getStateStoreReconciliationInterval(kratixConfig),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
 		os.Exit(1)
@@ -596,13 +596,13 @@ func getRegularReconciliationInterval(kratixConfig *KratixConfig) time.Duration 
 	return kratixConfig.ReconciliationInterval.Duration
 }
 
-func getWorkPlacementRewriteInterval(kratixConfig *KratixConfig) time.Duration {
-	if kratixConfig == nil || kratixConfig.WorkPlacementRewriteInterval == nil {
-		setupLog.Info("workPlacementRewriteInterval is nil; setting to the default value",
-			"defaultWorkPlacementRewriteInterval", controller.DefaultReconciliationInterval)
+func getStateStoreReconciliationInterval(kratixConfig *KratixConfig) time.Duration {
+	if kratixConfig == nil || kratixConfig.StateStoreReconciliationInterval == nil {
+		setupLog.Info("stateStoreReconciliationInterval is nil; setting to the default value",
+			"defaultStateStoreReconciliationInterval", controller.DefaultReconciliationInterval)
 		return controller.DefaultReconciliationInterval
 	}
-	return kratixConfig.WorkPlacementRewriteInterval.Duration
+	return kratixConfig.StateStoreReconciliationInterval.Duration
 }
 
 func telemetryConfigFromKratixConfig(cfg *KratixConfig) *telemetry.Config {
