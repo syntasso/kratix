@@ -235,7 +235,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 			})
 
 			It("requeues after the configured reconciliation interval so files are re-written periodically", func() {
-				reconciler.ReconciliationInterval = controller.DefaultReconciliationInterval
+				reconciler.RewriteInterval = controller.DefaultReconciliationInterval
 
 				result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
 				Expect(err).NotTo(HaveOccurred())

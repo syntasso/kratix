@@ -68,10 +68,10 @@ type WorkPlacementReconciler struct {
 
 	RepositoryCache RepositoryCache
 
-	// ReconciliationInterval is how often a WorkPlacement re-writes its files to
-	// the state store even when nothing has changed. When zero, no periodic
-	// re-write is scheduled and the WorkPlacement is only reconciled on events.
-	ReconciliationInterval time.Duration
+	// RewriteInterval is how often a WorkPlacement re-writes its files to the
+	// state store even when nothing has changed. When zero, no periodic re-write
+	// is scheduled and the WorkPlacement is only reconciled on events.
+	RewriteInterval time.Duration
 }
 
 type workPlacementReconcileContext struct {
@@ -89,7 +89,7 @@ type workPlacementReconcileContext struct {
 
 	versionCache map[string]string
 
-	reconciliationInterval time.Duration
+	rewriteInterval time.Duration
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements,verbs=get;list;watch;create;update;patch;delete
@@ -152,7 +152,7 @@ func (r *WorkPlacementReconciler) newReconcileContext(ctx context.Context, logge
 		repositoryCache: r.RepositoryCache,
 		versionCache:    r.VersionCache,
 
-		reconciliationInterval: r.ReconciliationInterval,
+		rewriteInterval: r.RewriteInterval,
 	}, nil
 }
 
@@ -227,7 +227,7 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 	// Requeue so the files are periodically re-written to the state store, which
 	// corrects any drift even when nothing in the system has changed. When the
 	// interval is zero this behaves as before and does not requeue.
-	return ctrl.Result{RequeueAfter: w.reconciliationInterval}, nil
+	return ctrl.Result{RequeueAfter: w.rewriteInterval}, nil
 }
 
 func (w *workPlacementReconcileContext) updateResourceStatus(versionID string, err error) error {
