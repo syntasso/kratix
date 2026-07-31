@@ -1,0 +1,113 @@
+# Component Promise: Postgres.
+#
+# An ordinary, non-compound Promise. Nothing here is dry-run aware -- it never looks
+# at KRATIX_DRY_RUN. Its output is a pure function of its spec plus the resource's
+# metadata, so any diff a dry run reports is a genuine change.
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: postgres
+spec:
+  destinationSelectors:
+    - matchLabels:
+        environment: dev
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: postgres.example.kratix.io
+    spec:
+      group: example.kratix.io
+      names:
+        kind: Postgres
+        plural: postgres
+        singular: postgresdb
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          served: true
+          storage: true
+          schema:
+            openAPIV3Schema:
+              type: object
+              properties:
+                spec:
+                  type: object
+                  properties:
+                    version:
+                      type: string
+                    storageGb:
+                      type: integer
+                    replicas:
+                      type: integer
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: postgres-configure
+          spec:
+            containers:
+              - name: render
+                image: syntasso/test-bundle-image:v0.1.0
+                command:
+                  - sh
+                  - -c
+                  - |
+                    set -e
+                    name=$(yq '.metadata.name' /kratix/input/object.yaml)
+                    ns=$(yq '.metadata.namespace' /kratix/input/object.yaml)
+                    version=$(yq '.spec.version' /kratix/input/object.yaml)
+                    storage=$(yq '.spec.storageGb' /kratix/input/object.yaml)
+                    replicas=$(yq '.spec.replicas' /kratix/input/object.yaml)
+
+                    cat <<EOF > /kratix/output/postgres-statefulset.yaml
+                    apiVersion: apps/v1
+                    kind: StatefulSet
+                    metadata:
+                      name: ${name}
+                      namespace: ${ns}
+                    spec:
+                      replicas: ${replicas}
+                      serviceName: ${name}
+                      selector:
+                        matchLabels:
+                          app: ${name}
+                      template:
+                        metadata:
+                          labels:
+                            app: ${name}
+                        spec:
+                          containers:
+                            - name: postgres
+                              image: postgres:${version}
+                              ports:
+                                - containerPort: 5432
+                              volumeMounts:
+                                - name: data
+                                  mountPath: /var/lib/postgresql/data
+                      volumeClaimTemplates:
+                        - metadata:
+                            name: data
+                          spec:
+                            accessModes: ["ReadWriteOnce"]
+                            resources:
+                              requests:
+                                storage: ${storage}Gi
+                    EOF
+
+                    cat <<EOF > /kratix/output/postgres-service.yaml
+                    apiVersion: v1
+                    kind: Service
+                    metadata:
+                      name: ${name}
+                      namespace: ${ns}
+                    spec:
+                      clusterIP: None
+                      selector:
+                        app: ${name}
+                      ports:
+                        - port: 5432
+                          targetPort: 5432
+                    EOF

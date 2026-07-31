@@ -78,9 +78,52 @@ spec:
           status:
             description: DryRunStatus defines the observed state of DryRun.
             properties:
+              components:
+                description: |-
+                  Components reports one entry per component dry run raised by this one, so a
+                  consumer can see the shape and state of the preview without parsing the summary
+                  markdown. Empty for a non-compound request.
+                items:
+                  description: DryRunComponentStatus reports a single component dry
+                    run raised by a compound one.
+                  properties:
+                    dryRun:
+                      description: DryRun is the name of the DryRun raised for this
+                        component.
+                      type: string
+                    message:
+                      description: Message carries the detail when Phase is Failed.
+                      type: string
+                    namespace:
+                      description: Namespace of the component resource request.
+                      type: string
+                    phase:
+                      description: Phase is Pending, Succeeded or Failed.
+                      type: string
+                    promise:
+                      description: Promise serving the component request.
+                      type: string
+                    request:
+                      description: Request is the name of the component resource request.
+                      type: string
+                  required:
+                  - dryRun
+                  - phase
+                  - promise
+                  - request
+                  type: object
+                type: array
               conditions:
-                description: Conditions holds status conditions. The "Completed" condition
-                  is True once the summary has been written.
+                description: |-
+                  Conditions holds status conditions.
+
+                  "Completed" is True once the summary has been written. For a compound request it
+                  stays True even when a component failed, because a partial summary is still
+                  useful -- so do not gate on it alone.
+
+                  "ComponentsSucceeded" is set only for compound requests, and is False when any
+                  component failed or did not finish. That is the condition to gate on: it
+                  distinguishes "the run finished" from "the preview is complete".
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

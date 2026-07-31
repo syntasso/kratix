@@ -1,0 +1,91 @@
+# Component Promise: Ingress.
+#
+# Kind is IngressRoute rather than Ingress so `kubectl get ingress` stays
+# unambiguous against the built-in networking.k8s.io type. Also not dry-run aware.
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: ingress
+spec:
+  destinationSelectors:
+    - matchLabels:
+        environment: dev
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: ingressroutes.example.kratix.io
+    spec:
+      group: example.kratix.io
+      names:
+        kind: IngressRoute
+        plural: ingressroutes
+        singular: ingressroute
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          served: true
+          storage: true
+          schema:
+            openAPIV3Schema:
+              type: object
+              properties:
+                spec:
+                  type: object
+                  properties:
+                    host:
+                      type: string
+                    path:
+                      type: string
+                    tls:
+                      type: boolean
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: ingress-configure
+          spec:
+            containers:
+              - name: render
+                image: syntasso/test-bundle-image:v0.1.0
+                command:
+                  - sh
+                  - -c
+                  - |
+                    set -e
+                    name=$(yq '.metadata.name' /kratix/input/object.yaml)
+                    ns=$(yq '.metadata.namespace' /kratix/input/object.yaml)
+                    host=$(yq '.spec.host' /kratix/input/object.yaml)
+                    path=$(yq '.spec.path' /kratix/input/object.yaml)
+                    tls=$(yq '.spec.tls' /kratix/input/object.yaml)
+
+                    cat <<EOF > /kratix/output/ingress.yaml
+                    apiVersion: networking.k8s.io/v1
+                    kind: Ingress
+                    metadata:
+                      name: ${name}
+                      namespace: ${ns}
+                    spec:
+                      rules:
+                        - host: ${host}
+                          http:
+                            paths:
+                              - path: ${path}
+                                pathType: Prefix
+                                backend:
+                                  service:
+                                    name: ${name}-svc
+                                    port:
+                                      number: 80
+                    EOF
+
+                    if [ "${tls}" = "true" ]; then
+                      cat <<EOF >> /kratix/output/ingress.yaml
+                      tls:
+                        - hosts:
+                            - ${host}
+                          secretName: ${name}-tls
+                    EOF
+                    fi

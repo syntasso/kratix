@@ -1,0 +1,14 @@
+# The live compound request. This is the baseline the UPDATE dry run diffs against.
+apiVersion: example.kratix.io/v1alpha1
+kind: App
+metadata:
+  name: demo-app
+  namespace: default
+spec:
+  image: nginx:1.25
+  replicas: 2
+  tier: bronze
+  host: demo.example.com
+  tls: false
+  dbVersion: "15"
+  dbStorageGb: 10

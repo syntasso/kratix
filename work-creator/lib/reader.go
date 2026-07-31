@@ -75,9 +75,20 @@ func (r *Reader) resolveObject(ctx context.Context, client dynamic.Interface, pa
 	realObj, err := client.Resource(helpers.ObjectGVR(params)).Namespace(realNamespace).Get(ctx, realName, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			// New request — real resource doesn't exist yet; use the ephemeral RR as-is.
-			fmt.Fprintln(r.Out, "dry-run: real resource not found, using ephemeral RR")
-			return ephemeral
+			// New request — the resource doesn't exist yet, but we still know what it
+			// will be called. Present the intended name/namespace rather than the
+			// ephemeral RR's generated one, so the pipeline produces the output it
+			// would produce for real. This matters for compound Promises, whose
+			// pipelines derive component request names from the parent's name: without
+			// it, a brand-new compound request emits children named after the
+			// ephemeral RR.
+			fmt.Fprintf(r.Out, "dry-run: real resource %s/%s not found; using intended name with proposed spec\n", realNamespace, realName)
+			renamed := ephemeral.DeepCopy()
+			renamed.SetName(realName)
+			if realNamespace != "" {
+				renamed.SetNamespace(realNamespace)
+			}
+			return renamed
 		}
 		// Unexpected error: log and fall back rather than failing the pipeline.
 		fmt.Fprintf(r.Out, "dry-run: failed to fetch real resource %s/%s: %v; using ephemeral RR\n", realNamespace, realName, err)

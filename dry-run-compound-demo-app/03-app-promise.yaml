@@ -1,0 +1,163 @@
+# COMPOUND Promise: App.
+#
+# Its pipeline emits four documents:
+#   1. app-configmap.yaml        -- its own workload
+#   2. app-deployment.yaml       -- its own workload
+#   3. postgres-request.yaml     -- COMPONENT REQUEST for the postgres Promise
+#   4. ingressroute-request.yaml -- COMPONENT REQUEST for the ingress Promise
+#
+# The two component requests carry the kratix.io/parent-* labels. Those labels are
+# the entire contract. Kratix has no notion of a compound Promise, so nothing else
+# distinguishes a component request from any other YAML in the output.
+#
+# Note this pipeline NEVER reads KRATIX_DRY_RUN. It emits byte-identical output in
+# normal and dry-run mode; only Kratix's interpretation of that output changes. That
+# is what makes the preview trustworthy -- a dry run exercises the same code path a
+# real run does. Use KRATIX_DRY_RUN to suppress side effects (API calls, external
+# provisioning), never to change output.
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: app
+spec:
+  destinationSelectors:
+    - matchLabels:
+        environment: dev
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: apps.example.kratix.io
+    spec:
+      group: example.kratix.io
+      names:
+        kind: App
+        plural: apps
+        singular: app
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          served: true
+          storage: true
+          schema:
+            openAPIV3Schema:
+              type: object
+              properties:
+                spec:
+                  type: object
+                  properties:
+                    image:
+                      type: string
+                    replicas:
+                      type: integer
+                    tier:
+                      type: string
+                    host:
+                      type: string
+                    tls:
+                      type: boolean
+                    dbVersion:
+                      type: string
+                    dbStorageGb:
+                      type: integer
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: app-configure
+          spec:
+            containers:
+              - name: render
+                image: syntasso/test-bundle-image:v0.1.0
+                command:
+                  - sh
+                  - -c
+                  - |
+                    set -e
+                    name=$(yq '.metadata.name' /kratix/input/object.yaml)
+                    ns=$(yq '.metadata.namespace' /kratix/input/object.yaml)
+                    image=$(yq '.spec.image' /kratix/input/object.yaml)
+                    replicas=$(yq '.spec.replicas' /kratix/input/object.yaml)
+                    tier=$(yq '.spec.tier' /kratix/input/object.yaml)
+                    host=$(yq '.spec.host' /kratix/input/object.yaml)
+                    tls=$(yq '.spec.tls' /kratix/input/object.yaml)
+                    db_version=$(yq '.spec.dbVersion' /kratix/input/object.yaml)
+                    db_storage=$(yq '.spec.dbStorageGb' /kratix/input/object.yaml)
+
+                    # ---------- the compound Promise's own workloads ----------
+
+                    cat <<EOF > /kratix/output/app-configmap.yaml
+                    apiVersion: v1
+                    kind: ConfigMap
+                    metadata:
+                      name: ${name}-config
+                      namespace: ${ns}
+                    data:
+                      tier: "${tier}"
+                      image: "${image}"
+                      dbHost: "${name}-db"
+                    EOF
+
+                    cat <<EOF > /kratix/output/app-deployment.yaml
+                    apiVersion: apps/v1
+                    kind: Deployment
+                    metadata:
+                      name: ${name}
+                      namespace: ${ns}
+                    spec:
+                      replicas: ${replicas}
+                      selector:
+                        matchLabels:
+                          app: ${name}
+                      template:
+                        metadata:
+                          labels:
+                            app: ${name}
+                        spec:
+                          containers:
+                            - name: app
+                              image: ${image}
+                              env:
+                                - name: DB_HOST
+                                  value: ${name}-db
+                              ports:
+                                - containerPort: 8080
+                    EOF
+
+                    # ---------- component requests ----------
+                    # Labelled so Kratix can tell these apart from the workloads above
+                    # and link them back to this compound request.
+
+                    cat <<EOF > /kratix/output/postgres-request.yaml
+                    apiVersion: example.kratix.io/v1alpha1
+                    kind: Postgres
+                    metadata:
+                      name: ${name}-db
+                      namespace: ${ns}
+                      labels:
+                        kratix.io/parent-promise-name: app
+                        kratix.io/parent-resource-name: ${name}
+                        kratix.io/parent-resource-namespace: ${ns}
+                    spec:
+                      version: "${db_version}"
+                      storageGb: ${db_storage}
+                      replicas: 1
+                    EOF
+
+                    cat <<EOF > /kratix/output/ingressroute-request.yaml
+                    apiVersion: example.kratix.io/v1alpha1
+                    kind: IngressRoute
+                    metadata:
+                      name: ${name}-ingress
+                      namespace: ${ns}
+                      labels:
+                        kratix.io/parent-promise-name: app
+                        kratix.io/parent-resource-name: ${name}
+                        kratix.io/parent-resource-namespace: ${ns}
+                    spec:
+                      host: ${host}
+                      path: /
+                      tls: ${tls}
+                    EOF

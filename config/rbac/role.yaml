@@ -79,6 +79,7 @@ rules:
   resources:
   - bucketstatestores
   - destinations
+  - dryruns
   - gitstatestores
   - healthrecords
   - promisereleases
@@ -129,16 +130,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - platform.kratix.io
-  resources:
-  - dryruns
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:

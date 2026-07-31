@@ -1,0 +1,41 @@
+# Stand-in for the platform GitOps agent.
+#
+# In a real compound setup, the App's output is routed to a Destination representing
+# the platform cluster, and a GitOps agent there applies the component requests --
+# which is what brings the components into existence.
+#
+# This demo routes App output to `worker-1` instead, so nothing applies them. Apply
+# this file once by hand to create the components, so the UPDATE dry run has live
+# component Works to diff against. Without it, the UPDATE dry run still works but
+# every component file shows as *added* rather than *modified*.
+#
+# These specs must match EXACTLY what 03-app-promise.yaml emits for the spec in
+# 05-app-request.yaml. If they drift, the update diff shows spurious changes.
+---
+apiVersion: example.kratix.io/v1alpha1
+kind: Postgres
+metadata:
+  name: demo-app-db
+  namespace: default
+  labels:
+    kratix.io/parent-promise-name: app
+    kratix.io/parent-resource-name: demo-app
+    kratix.io/parent-resource-namespace: default
+spec:
+  version: "15"
+  storageGb: 10
+  replicas: 1
+---
+apiVersion: example.kratix.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: demo-app-ingress
+  namespace: default
+  labels:
+    kratix.io/parent-promise-name: app
+    kratix.io/parent-resource-name: demo-app
+    kratix.io/parent-resource-namespace: default
+spec:
+  host: demo.example.com
+  path: /
+  tls: false

@@ -1,0 +1,37 @@
+# Dry-run Destination, backed by the Gitea GitStateStore.
+#
+# The kratix.io/dry-run label is load-bearing: dry-run Works have their destination
+# selectors overridden to exactly this label. Without a Destination carrying it, a
+# dry-run Work is never placed, WorksSucceeded never goes True, and the DryRun hangs
+# with an empty status rather than failing.
+#
+# filepath.mode is nestedByMetadata (the default) so each preview's output nests under
+# its own request. A flat layout is easier to browse but every preview writes into one
+# directory, so two DryRuns previewing different requests of the same Promise collide
+# on identical filenames -- app-configmap.yaml, ingress.yaml, and the summary itself.
+# Last writer wins, silently.
+#
+# The trade-off is depth. Expect paths like:
+#
+#   dry-run/resources/<ns>/<promise>/kratix-dry-run-<dryrun-name>-<hash>/<pipeline>/<hash>/<file>
+#
+# The ephemeral request name is deterministic, so paths are stable across re-runs, but
+# they are not guessable. Read the summary from the API instead of browsing for it:
+#
+#   kubectl get work -l kratix.io/dry-run-summary=true,kratix.io/dry-run-owner=<name> \
+#     -o jsonpath='{.items[0].spec.workloadGroups[0].workloads[0].content}' \
+#     | base64 -d | gunzip
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: dry-run
+  labels:
+    kratix.io/dry-run: "true"
+spec:
+  path: dry-run
+  filepath:
+    mode: nestedByMetadata
+  stateStoreRef:
+    kind: GitStateStore
+    name: default
+  strictMatchLabels: false
