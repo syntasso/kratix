@@ -262,7 +262,7 @@ var _ = Describe("Pipeline", func() {
 						matchClusterRolesAndBindings(clusterRoles, clusterRoleBindings, factory, serviceAccount)
 
 						Expect(configMap).ToNot(BeNil())
-						matchConfigureConfigmap(configMap, factory)
+						matchConfigureConfigMap(configMap, factory)
 
 						Expect(resources.WorkflowType).To(Equal(factory.WorkflowType))
 						Expect(resources.WorkflowAction).To(Equal(factory.WorkflowAction))
@@ -349,7 +349,7 @@ var _ = Describe("Pipeline", func() {
 
 					matchResourceRolesAndBindings(roles, bindings, factory, serviceAccount, promiseCrd)
 					if expectedConfigMap {
-						matchConfigureConfigmap(configMap, factory)
+						matchConfigureConfigMap(configMap, factory)
 					} else {
 						Expect(configMap).To(BeNil())
 					}
@@ -2150,7 +2150,7 @@ func matchResourceRolesAndBindings(roles []rbacv1.Role, bindings []rbacv1.RoleBi
 	}))
 }
 
-func matchConfigureConfigmap(c *corev1.ConfigMap, factory *v1alpha1.PipelineFactory) {
+func matchConfigureConfigMap(c *corev1.ConfigMap, factory *v1alpha1.PipelineFactory) {
 	ExpectWithOffset(1, c.GetName()).To(Equal("destination-selectors-" + factory.Promise.GetName()))
 	ExpectWithOffset(1, c.GetNamespace()).To(Equal(factory.Namespace))
 	ExpectWithOffset(1, c.GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseNameLabel, factory.Promise.GetName()))
