@@ -72,10 +72,10 @@ var _ = Describe("Pipeline", func() {
 					},
 					{Name: "container-1", Image: "container-1-image"},
 				},
-				Volumes:          []corev1.Volume{{Name: "customVolume", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}},
+				ImagePullSecrets: []corev1.LocalObjectReference{{Name: "imagePullSecret"}},
 				NodeSelector:     map[string]string{"customNodeSelector": "nodeValue"},
 				Tolerations:      []corev1.Toleration{{Key: "customToleration", Operator: "Equal", Value: "nodeValue", Effect: "NoSchedule"}},
-				ImagePullSecrets: []corev1.LocalObjectReference{{Name: "imagePullSecret"}},
+				Volumes:          []corev1.Volume{{Name: "customVolume", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}},
 			},
 		}
 
@@ -84,6 +84,7 @@ var _ = Describe("Pipeline", func() {
 		}
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = globalDefaultSecurityContext
 		v1alpha1.DefaultImagePullPolicy = ""
+		v1alpha1.DefaultRestartPolicy = corev1.RestartPolicyOnFailure
 		v1alpha1.DefaultResourceRequirements = &corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{ //nolint:exhaustive
 				corev1.ResourceCPU:              resource.MustParse("100m"),
@@ -261,7 +262,7 @@ var _ = Describe("Pipeline", func() {
 						matchClusterRolesAndBindings(clusterRoles, clusterRoleBindings, factory, serviceAccount)
 
 						Expect(configMap).ToNot(BeNil())
-						matchConfigureConfigmap(configMap, factory)
+						matchConfigureConfigMap(configMap, factory)
 
 						Expect(resources.WorkflowType).To(Equal(factory.WorkflowType))
 						Expect(resources.WorkflowAction).To(Equal(factory.WorkflowAction))
@@ -348,7 +349,7 @@ var _ = Describe("Pipeline", func() {
 
 					matchResourceRolesAndBindings(roles, bindings, factory, serviceAccount, promiseCrd)
 					if expectedConfigMap {
-						matchConfigureConfigmap(configMap, factory)
+						matchConfigureConfigMap(configMap, factory)
 					} else {
 						Expect(configMap).To(BeNil())
 					}
@@ -676,6 +677,53 @@ var _ = Describe("Pipeline", func() {
 						resources, err := factory.Resources(nil)
 						Expect(err).ToNot(HaveOccurred())
 						Expect(resources.Job.Spec.BackoffLimit).To(BeNil())
+					})
+				})
+			})
+
+			Describe("RestartPolicy", func() {
+				When("a global default restart policy is set", func() {
+					BeforeEach(func() {
+						v1alpha1.DefaultRestartPolicy = corev1.RestartPolicyNever
+					})
+
+					It("sets the job restart policy to the global default", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(resources.Job.Spec.Template.Spec.RestartPolicy).To(Equal(corev1.RestartPolicyNever))
+					})
+				})
+
+				When("the pipeline specifies a restart policy", func() {
+					BeforeEach(func() {
+						pipeline.Spec.RestartPolicy = corev1.RestartPolicyAlways
+					})
+
+					It("uses the pipeline value", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(resources.Job.Spec.Template.Spec.RestartPolicy).To(Equal(corev1.RestartPolicyAlways))
+					})
+				})
+
+				When("both global and pipeline restart policies are set", func() {
+					BeforeEach(func() {
+						v1alpha1.DefaultRestartPolicy = corev1.RestartPolicyNever
+						pipeline.Spec.RestartPolicy = corev1.RestartPolicyAlways
+					})
+
+					It("gives precedence to the pipeline value", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(resources.Job.Spec.Template.Spec.RestartPolicy).To(Equal(corev1.RestartPolicyAlways))
+					})
+				})
+
+				When("no restart policy is specified", func() {
+					It("falls back to the previous default restart policy", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(resources.Job.Spec.Template.Spec.RestartPolicy).To(Equal(corev1.RestartPolicyOnFailure))
 					})
 				})
 			})
@@ -2102,7 +2150,7 @@ func matchResourceRolesAndBindings(roles []rbacv1.Role, bindings []rbacv1.RoleBi
 	}))
 }
 
-func matchConfigureConfigmap(c *corev1.ConfigMap, factory *v1alpha1.PipelineFactory) {
+func matchConfigureConfigMap(c *corev1.ConfigMap, factory *v1alpha1.PipelineFactory) {
 	ExpectWithOffset(1, c.GetName()).To(Equal("destination-selectors-" + factory.Promise.GetName()))
 	ExpectWithOffset(1, c.GetNamespace()).To(Equal(factory.Namespace))
 	ExpectWithOffset(1, c.GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseNameLabel, factory.Promise.GetName()))

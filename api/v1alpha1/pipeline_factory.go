@@ -327,6 +327,11 @@ func (p *PipelineFactory) pipelineJob(
 		backoffLimit = DefaultJobBackoffLimit
 	}
 
+	restartPolicy := p.Pipeline.Spec.RestartPolicy
+	if restartPolicy == "" {
+		restartPolicy = DefaultRestartPolicy
+	}
+
 	var initContainers []corev1.Container
 	var containers []corev1.Container
 
@@ -365,14 +370,14 @@ func (p *PipelineFactory) pipelineJob(
 					Annotations: podAnnotations,
 				},
 				Spec: corev1.PodSpec{
-					RestartPolicy:      corev1.RestartPolicyOnFailure,
-					ServiceAccountName: serviceAccount.GetName(),
 					Containers:         containers,
 					ImagePullSecrets:   imagePullSecrets,
 					InitContainers:     initContainers,
-					Volumes:            volumes,
 					NodeSelector:       nodeSelector,
+					RestartPolicy:      restartPolicy,
+					ServiceAccountName: serviceAccount.GetName(),
 					Tolerations:        tolerations,
+					Volumes:            volumes,
 				},
 			},
 		},
