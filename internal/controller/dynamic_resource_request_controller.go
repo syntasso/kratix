@@ -84,6 +84,7 @@ type DynamicResourceRequestController struct {
 	CanCreateResources          *bool
 	NumberOfJobsToKeep          int
 	ReconciliationInterval      time.Duration
+	ReconcileAfterFailure       bool
 	EventRecorder               events.EventRecorder
 	ResourceBindingPinned       bool
 	// DryRunEnabled mirrors featureFlags.dryRun from the Kratix config. When
@@ -219,7 +220,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	forcePipelineRun := shouldForcePipelineRun(completedCond, r.ReconciliationInterval) &&
+	forcePipelineRun := shouldForcePipelineRun(completedCond, r.ReconciliationInterval, r.ReconcileAfterFailure) &&
 		rr.GetLabels()[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	if restarted, err := r.restartOnReconciliationInterval(opts.ctx, logger, rr,
@@ -355,6 +356,10 @@ func (r *DynamicResourceRequestController) reconcileAfterConfigure(
 
 	if r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevisionUsed) {
 		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+	}
+
+	if r.ReconcileAfterFailure && workflowCompletedWithFailure(workflowCompletedCondition) {
+		return r.nextReconciliation(logger), nil
 	}
 
 	return ctrl.Result{}, nil
@@ -1760,10 +1765,12 @@ func updateObservedGeneration(
 	return opts.client.Status().Update(opts.ctx, rr)
 }
 
-func shouldForcePipelineRun(completedCond *clusterv1.Condition, reconciliationInterval time.Duration) bool {
-	return completedCond != nil &&
-		completedCond.Status == v1.ConditionTrue &&
-		time.Since(completedCond.LastTransitionTime.Time) > reconciliationInterval
+func shouldForcePipelineRun(completedCond *clusterv1.Condition, reconciliationInterval time.Duration, reconcileAfterFailure bool) bool {
+	if completedCond == nil || time.Since(completedCond.LastTransitionTime.Time) <= reconciliationInterval {
+		return false
+	}
+	return completedCond.Status == v1.ConditionTrue ||
+		(reconcileAfterFailure && workflowCompletedWithFailure(completedCond))
 }
 
 func (r *DynamicResourceRequestController) setPromiseLabels(ctx context.Context, promiseName string, rr *unstructured.Unstructured, resourceLabels map[string]string, logger logr.Logger) error {
