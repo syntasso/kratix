@@ -203,7 +203,7 @@ func (r *DryRunReconciler) ensureEphemeralRR(
 		}
 		spec := map[string]interface{}{}
 		if err := json.Unmarshal(dryRun.Spec.Resource.Raw, &spec); err != nil {
-			return fmt.Errorf("unmarshaling resource spec: %w", err)
+			return fmt.Errorf("unmarshalling resource spec: %w", err)
 		}
 		rrObj.Object["spec"] = spec
 		return nil
@@ -307,7 +307,7 @@ func (r *DryRunReconciler) ensureComponentDryRuns(
 		}
 		rawSpec, err := json.Marshal(spec)
 		if err != nil {
-			return nil, fmt.Errorf("marshaling spec of component request %s: %w", req.GetName(), err)
+			return nil, fmt.Errorf("marshalling spec of component request %s: %w", req.GetName(), err)
 		}
 
 		child := &v1alpha1.DryRun{
@@ -832,6 +832,8 @@ func dryRunLineDiff(old, updated string) string {
 			prefix = "+"
 		case diffmatchpatch.DiffDelete:
 			prefix = "-"
+		case diffmatchpatch.DiffEqual:
+			// Unchanged context lines keep the leading space.
 		}
 		for _, line := range lines {
 			fmt.Fprintf(&sb, "%s%s\n", prefix, line)

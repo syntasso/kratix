@@ -1039,22 +1039,34 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 		}
 	} else if workflowCompleted != nil && worksSucceeded != nil &&
 		workflowCompleted.Status == v1.ConditionTrue && worksSucceeded.Status == v1.ConditionTrue {
-		isDryRun := r.isDryRun(rr)
-		expectedReason := "Reconciled"
-		if isDryRun {
-			expectedReason = resourceutil.DryRunWorksSucceededReason
-		}
-		if reconciled == nil || reconciled.Status != v1.ConditionTrue || reconciled.Reason != expectedReason {
-			if isDryRun {
-				resourceutil.MarkReconciledAsDryRun(rr)
-			} else {
-				resourceutil.MarkReconciledTrue(rr)
-			}
-			updated = true
-			r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "ReconcileSucceeded", "ReconcileSucceeded", "%s", "Successfully reconciled")
-		}
+		updated = r.markReconciledSucceeded(rr, reconciled)
 	}
 	return updated
+}
+
+// markReconciledSucceeded sets Reconciled to True, using the dry-run reason when the
+// request is a dry run so a preview is never reported as a real reconciliation. It
+// returns whether the condition changed.
+func (r *DynamicResourceRequestController) markReconciledSucceeded(
+	rr *unstructured.Unstructured, reconciled *clusterv1.Condition,
+) bool {
+	isDryRun := r.isDryRun(rr)
+	expectedReason := "Reconciled"
+	if isDryRun {
+		expectedReason = resourceutil.DryRunWorksSucceededReason
+	}
+
+	if reconciled != nil && reconciled.Status == v1.ConditionTrue && reconciled.Reason == expectedReason {
+		return false
+	}
+
+	if isDryRun {
+		resourceutil.MarkReconciledAsDryRun(rr)
+	} else {
+		resourceutil.MarkReconciledTrue(rr)
+	}
+	r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "ReconcileSucceeded", "ReconcileSucceeded", "%s", "Successfully reconciled")
+	return true
 }
 
 func (r *DynamicResourceRequestController) updatePromiseVersionStatus(logger logr.Logger, rr *unstructured.Unstructured, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) bool {
