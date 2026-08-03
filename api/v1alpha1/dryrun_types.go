@@ -25,7 +25,8 @@ import (
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:categories=kratix
 
-// DryRun previews the output of a Kratix pipeline without applying it to a real Destination.
+// DryRun previews the output of a resource request without applying it to a real Destination.
+// Note that DryRun as a feature is under preview; its API is subject to breaking changes.
 type DryRun struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -36,10 +37,10 @@ type DryRun struct {
 
 // DryRunSpec defines the desired state of DryRun.
 type DryRunSpec struct {
-	// PromiseRef is the name of the Promise whose pipeline to dry-run.
+	// PromiseRef is the name of the Promise.
 	PromiseRef DryRunPromiseRef `json:"promiseRef"`
 	// ResourceRequestRef identifies the live ResourceRequest to diff against.
-	// When the referenced object is not found the diff treats the request as new (all files added).
+	// When the referenced object is not found, the diff treats the request as new (all files added).
 	ResourceRequestRef DryRunResourceRequestRef `json:"resourceRequestRef"`
 	// Resource is the spec to dry-run, in the shape expected by the Promise's resource API.
 	Resource runtime.RawExtension `json:"resource"`
@@ -77,9 +78,8 @@ type DryRunStatus struct {
 	// distinguishes "the run finished" from "the preview is complete".
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// Components reports one entry per component dry run raised by this one, so a
-	// consumer can see the shape and state of the preview without parsing the summary
-	// markdown. Empty for a non-compound request.
+	// Components reports all components DryRun created by this DryRun.
+	// Empty for a non-compound request.
 	Components []DryRunComponentStatus `json:"components,omitempty"`
 }
 

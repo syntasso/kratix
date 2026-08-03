@@ -5,6 +5,8 @@ metadata:
   namespace: kratix-platform-system
 data:
   config: |
+    featureFlags:
+      dryRun: true
     logging:
       level: debug
     workflows:

@@ -1,0 +1,15 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: DryRun
+metadata:
+  name: flag-preview
+  namespace: default
+spec:
+  promiseRef:
+    name: dryrunflag
+  # Deliberately names a request that does not exist: with nothing to diff against
+  # every file reads as added, which keeps this test independent of any real request.
+  resourceRequestRef:
+    name: does-not-exist
+    namespace: default
+  resource:
+    value: from-dry-run

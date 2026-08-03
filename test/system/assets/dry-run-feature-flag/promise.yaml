@@ -1,0 +1,64 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: dryrunflag
+spec:
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: dryrunflags.test.kratix.io
+    spec:
+      group: test.kratix.io
+      names:
+        kind: Dryrunflag
+        plural: dryrunflags
+        singular: dryrunflag
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          schema:
+            openAPIV3Schema:
+              type: object
+              properties:
+                spec:
+                  type: object
+                  properties:
+                    value:
+                      type: string
+          served: true
+          storage: true
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: resource-configure
+          spec:
+            jobOptions:
+              backoffLimit: 1
+            containers:
+              # The pipeline must write at least one file: the dry run summarises the
+              # Work its pipelines produced, so a pipeline with no output gives the
+              # controller nothing to diff and nothing to report.
+              - image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                name: gen-configmap
+                command:
+                  - /bin/sh
+                args:
+                  - -c
+                  - |
+                    set -eux
+                    name=$(yq '.metadata.name' /kratix/input/object.yaml)
+                    value=$(yq '.spec.value' /kratix/input/object.yaml)
+
+                    cat <<EOF > /kratix/output/configmap.yaml
+                    apiVersion: v1
+                    kind: ConfigMap
+                    metadata:
+                      name: ${name}
+                      namespace: default
+                    data:
+                      value: "${value}"
+                    EOF

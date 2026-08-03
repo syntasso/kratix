@@ -4,7 +4,16 @@ This document describes the changes made in the dry-run prototype and provides s
 
 ## Overview
 
-The prototype adds dry-run support to Kratix resource pipelines. When a ResourceRequest carries the label `kratix.io/dry-run: "true"`, Kratix:
+The whole feature is off by default, behind `featureFlags.dryRun` in the `kratix-platform-system/kratix` ConfigMap:
+
+```yaml
+featureFlags:
+  dryRun: true
+```
+
+With the flag off, the DryRun controller is never started and the dynamic resource request controller ignores dry-run labels, so a stray `kratix.io/dry-run` label cannot divert a real request. The flag is read once at startup, so toggling it requires restarting the controller manager. See [Prerequisites](#prerequisites).
+
+The prototype adds dry-run support to Kratix resource pipelines. When the flag is on and a ResourceRequest carries the label `kratix.io/dry-run: "true"`, Kratix:
 
 1. Injects `KRATIX_DRY_RUN=true` into every pipeline container (user containers, work-creator, status-writer).
 2. Stamps the resulting Work object with `kratix.io/dry-run: "true"`.
@@ -84,6 +93,9 @@ Two additions:
 ### Prerequisites
 
 - A running Kratix platform cluster (`kind-platform` or similar).
+- `featureFlags.dryRun: true` in the `kratix-platform-system/kratix` ConfigMap, followed by a
+  restart of `deployment/kratix-platform-controller-manager`. Verify with
+  `kubectl logs -n kratix-platform-system deployment/kratix-platform-controller-manager | grep "dry run feature flag"`.
 - A worker cluster registered as a Destination.
 - The prototype branch built and deployed (`feat/dry-run-prototype`).
 - MinIO or another state store configured.

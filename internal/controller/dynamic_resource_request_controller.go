@@ -86,6 +86,10 @@ type DynamicResourceRequestController struct {
 	ReconciliationInterval      time.Duration
 	EventRecorder               events.EventRecorder
 	ResourceBindingPinned       bool
+	// DryRunEnabled mirrors featureFlags.dryRun from the Kratix config. When
+	// false, dry-run labels on a resource request are ignored, so a stray label
+	// cannot divert a request into the dry-run paths.
+	DryRunEnabled bool
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
@@ -172,11 +176,13 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	// Clean up any stale dry-run Works when the dry-run label has been removed.
-	if cleaned, err := r.cleanupStaleDryRunWorks(ctx, logger, rr, promise); err != nil {
-		return ctrl.Result{}, err
-	} else if cleaned {
-		// Work deletion events will re-trigger reconciliation; nothing more to do here.
-		return ctrl.Result{}, nil
+	if r.DryRunEnabled {
+		if cleaned, err := r.cleanupStaleDryRunWorks(ctx, logger, rr, promise); err != nil {
+			return ctrl.Result{}, err
+		} else if cleaned {
+			// Work deletion events will re-trigger reconciliation; nothing more to do here.
+			return ctrl.Result{}, nil
+		}
 	}
 
 	if r.promiseCannotFulfilResourceRequests(promise) {
@@ -426,7 +432,7 @@ func (r *DynamicResourceRequestController) ensureResourceStatus(
 	}
 
 	// Skip summary generation for ephemeral RRs owned by a DryRun object — DryRunReconciler handles those.
-	if rr.GetLabels()[v1alpha1.DryRunLabel] == "true" && rr.GetLabels()[v1alpha1.DryRunOwnerLabel] == "" {
+	if r.isDryRun(rr) && rr.GetLabels()[v1alpha1.DryRunOwnerLabel] == "" {
 		worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 		if worksSucceeded != nil && worksSucceeded.Status == v1.ConditionTrue {
 			namespace := rr.GetNamespace()
@@ -848,6 +854,13 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 	return false
 }
 
+// isDryRun reports whether this resource request is a dry run. Always false
+// while the dry-run feature flag is off, so the label alone cannot activate
+// the dry-run paths.
+func (r *DynamicResourceRequestController) isDryRun(rr *unstructured.Unstructured) bool {
+	return r.DryRunEnabled && rr.GetLabels()[v1alpha1.DryRunLabel] == "true"
+}
+
 // cleanupStaleDryRunWorks deletes any Works labelled as dry-run when the RR
 // no longer carries the dry-run label. Returns true if any Works were deleted.
 func (r *DynamicResourceRequestController) cleanupStaleDryRunWorks(
@@ -856,7 +869,7 @@ func (r *DynamicResourceRequestController) cleanupStaleDryRunWorks(
 	rr *unstructured.Unstructured,
 	promise *v1alpha1.Promise,
 ) (bool, error) {
-	if rr.GetLabels()[v1alpha1.DryRunLabel] == "true" {
+	if r.isDryRun(rr) {
 		return false, nil
 	}
 
@@ -1026,7 +1039,7 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 		}
 	} else if workflowCompleted != nil && worksSucceeded != nil &&
 		workflowCompleted.Status == v1.ConditionTrue && worksSucceeded.Status == v1.ConditionTrue {
-		isDryRun := rr.GetLabels()[v1alpha1.DryRunLabel] == "true"
+		isDryRun := r.isDryRun(rr)
 		expectedReason := "Reconciled"
 		if isDryRun {
 			expectedReason = resourceutil.DryRunWorksSucceededReason

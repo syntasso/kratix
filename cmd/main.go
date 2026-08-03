@@ -85,6 +85,15 @@ type KratixConfig struct {
 	Logging                        *LoggingConfig                `json:"logging,omitempty"`
 	ResourceBindingVersionStrategy ResourceBindingDefaultVersion `json:"resourceBindingVersionStrategy,omitempty"`
 	Git                            *GitConfig                    `json:"git,omitempty"`
+	FeatureFlags                   *FeatureFlags                 `json:"featureFlags,omitempty"`
+}
+
+// FeatureFlags opts in to features that are off by default. Flags are read once
+// at startup, so toggling one requires restarting the controller manager.
+type FeatureFlags struct {
+	// DryRun starts the DryRun controller, which previews the output of a
+	// Promise's workflows without scheduling to a real Destination.
+	DryRun bool `json:"dryRun,omitempty"`
 }
 
 // ResourceBindingDefaultVersion controls the version strategy for ResourceBindings.
@@ -230,6 +239,8 @@ func main() {
 	podTTLAfterFinished := getPodTTLAfterFinished(kratixConfig)
 	resourceBindingDefaultVersion := getResourceBindingDefaultVersion(kratixConfig)
 	setupLog.Info("resource binding default version strategy configured", "defaultVersion", resourceBindingDefaultVersion)
+	dryRunFeatureEnabled := dryRunEnabled(kratixConfig)
+	setupLog.Info("dry run feature flag configured", "enabled", dryRunFeatureEnabled)
 
 	telemetryShutdown := func(context.Context) error { return nil }
 	if shutdown, err := telemetry.SetupTracerProvider(context.Background(), ctrl.Log.WithName("telemetry"), "kratix-controller-manager", telemetryConfigFromKratixConfig(kratixConfig)); err != nil {
@@ -327,6 +338,7 @@ func main() {
 		ReconciliationInterval: getRegularReconciliationInterval(kratixConfig),
 		EventRecorder:          mgr.GetEventRecorder("PromiseController"),
 		ResourceBindingPinned:  resourceBindingDefaultVersion == ResourceBindingDefaultVersionPinned,
+		DryRunEnabled:          dryRunFeatureEnabled,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
 		os.Exit(1)
@@ -448,13 +460,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.DryRunReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		Log:    ctrl.Log.WithName("controllers").WithName("DryRunController"),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DryRun")
-		os.Exit(1)
+	if dryRunFeatureEnabled {
+		if err := (&controller.DryRunReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+			Log:    ctrl.Log.WithName("controllers").WithName("DryRunController"),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "DryRun")
+			os.Exit(1)
+		}
 	}
 
 	//+kubebuilder:scaffold:builder
@@ -561,6 +575,12 @@ func getPodTTLAfterFinished(kratixConfig *KratixConfig) *time.Duration {
 
 	ttl := time.Duration(podTTLSecondsAfterFinished) * time.Second
 	return &ttl
+}
+
+// dryRunEnabled reports whether featureFlags.dryRun is set. Off unless the
+// Kratix ConfigMap explicitly opts in.
+func dryRunEnabled(kratixConfig *KratixConfig) bool {
+	return kratixConfig != nil && kratixConfig.FeatureFlags != nil && kratixConfig.FeatureFlags.DryRun
 }
 
 func getResourceBindingDefaultVersion(kratixConfig *KratixConfig) ResourceBindingDefaultVersion {

@@ -81,6 +81,9 @@ type PromiseReconciler struct {
 	ReconciliationInterval    time.Duration
 	EventRecorder             events.EventRecorder
 	ResourceBindingPinned     bool
+	// DryRunEnabled mirrors featureFlags.dryRun from the Kratix config. When
+	// false the dynamic controllers ignore dry-run labels entirely.
+	DryRunEnabled bool
 }
 
 const (
@@ -1143,6 +1146,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.NumberOfJobsToKeep = r.NumberOfJobsToKeep
 		dynamicController.ReconciliationInterval = r.ReconciliationInterval
 		dynamicController.ResourceBindingPinned = r.ResourceBindingPinned
+		dynamicController.DryRunEnabled = r.DryRunEnabled
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
 		if dynamicController.WatchStopped {
@@ -1173,6 +1177,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		ReconciliationInterval:      r.ReconciliationInterval,
 		EventRecorder:               r.Manager.GetEventRecorder("ResourceRequestController"),
 		ResourceBindingPinned:       r.ResourceBindingPinned,
+		DryRunEnabled:               r.DryRunEnabled,
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}
