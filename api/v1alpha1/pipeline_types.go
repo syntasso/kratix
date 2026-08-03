@@ -92,6 +92,7 @@ var (
 			corev1.ResourceEphemeralStorage: resource.MustParse("256Mi"),
 		},
 	}
+	DefaultRestartPolicy                         = corev1.RestartPolicyOnFailure
 	DefaultUserProvidedContainersSecurityContext *corev1.SecurityContext
 	DefaultImagePullPolicy                       corev1.PullPolicy
 	DefaultJobBackoffLimit                       *int32
@@ -101,18 +102,20 @@ var (
 type PipelineSpec struct {
 	// Ordered list of OCI containers to execute as part of this pipeline
 	Containers []Container `json:"containers,omitempty"`
-	// Additional volumes to mount into pipeline containers
-	Volumes []corev1.Volume `json:"volumes,omitempty"`
 	// References to Secrets in the same namespace used for pulling container images
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
-	// RBAC configuration for the pipeline ServiceAccount and additional permissions
-	RBAC RBAC `json:"rbac,omitempty"`
 	// Options for the Kubernetes Job that runs this pipeline
 	JobOptions JobOptions `json:"jobOptions,omitempty"`
 	// Node selector labels for scheduling the pipeline Job Pod
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// RBAC configuration for the pipeline ServiceAccount and additional permissions
+	RBAC RBAC `json:"rbac,omitempty"`
+	// Restart policy for the pipeline Job Pod; defaults to OnFailure
+	RestartPolicy corev1.RestartPolicy `json:"restartPolicy,omitempty"`
 	// Tolerations applied to the pipeline Job Pod for scheduling on tainted nodes
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// Additional volumes to mount into pipeline containers
+	Volumes []corev1.Volume `json:"volumes,omitempty"`
 }
 
 // RBAC defines the ServiceAccount and additional permissions for the pipeline
