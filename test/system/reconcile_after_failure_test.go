@@ -1,0 +1,123 @@
+package system_test
+
+import (
+	"path/filepath"
+	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"github.com/syntasso/kratix/test/kubeutils"
+)
+
+var _ = Describe("Reconcile after failure", Serial, func() {
+	const (
+		assetsPath    = "assets/reconcile-after-failure"
+		promiseName   = "reconcilable"
+		promiseKind   = "reconcilables"
+		rrName        = "example"
+		gateConfigMap = "reconcile-after-failure-gate"
+	)
+
+	workflowStatusJSONPath := `-o=jsonpath='{.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}'`
+
+	configureJobCount := func() int {
+		return jobCountForResourcePipeline(promiseName, "resource-configure")
+	}
+
+	BeforeEach(func() {
+		SetDefaultEventuallyTimeout(4 * time.Minute)
+		SetDefaultEventuallyPollingInterval(2 * time.Second)
+		kubeutils.SetTimeoutAndInterval(4*time.Minute, 2*time.Second)
+
+		platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise.yaml"))
+		Eventually(func() string {
+			return platform.Kubectl("get", "promise", promiseName)
+		}).Should(ContainSubstring("Available"))
+	})
+
+	AfterEach(func() {
+		platform.EventuallyKubectlDelete(promiseKind, rrName)
+		platform.EventuallyKubectlDelete("promise", promiseName)
+		platform.KubectlAllowFail("delete", "configmap", gateConfigMap, "-n", "default")
+
+		platform.Kubectl("apply", "-f", kratixConfigPath)
+		restartController()
+	})
+
+	When("reconcileAfterFailure is true", func() {
+		BeforeEach(func() {
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "kratix-config-retry.yaml"))
+			restartController()
+		})
+
+		It("re-runs failed workflows on the schedule and resumes to success", func() {
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-request.yaml"))
+
+			var firstFailedCount int
+			By("failing the configure workflow", func() {
+				Eventually(func(g Gomega) {
+					g.Expect(configureJobCount()).To(BeNumerically(">=", 1))
+					g.Expect(platform.Kubectl("get", "--namespace=default", promiseKind, rrName, workflowStatusJSONPath)).
+						To(ContainSubstring("False"))
+				}).Should(Succeed())
+				firstFailedCount = configureJobCount()
+			})
+
+			By("re-running the workflow automatically", func() {
+				Eventually(func(g Gomega) {
+					g.Expect(configureJobCount()).To(BeNumerically(">", firstFailedCount))
+				}).Should(Succeed())
+			})
+
+			By("succeeding once the gate exists", func() {
+				platform.Kubectl("create", "configmap", gateConfigMap, "-n", "default")
+				Eventually(func(g Gomega) {
+					g.Expect(platform.Kubectl("get", "--namespace=default", promiseKind, rrName, workflowStatusJSONPath)).
+						To(ContainSubstring("True"))
+				}).Should(Succeed())
+			})
+
+			By("continuing to reconcile after success", func() {
+				countAfterSuccess := configureJobCount()
+				Eventually(func(g Gomega) {
+					g.Expect(configureJobCount()).To(BeNumerically(">", countAfterSuccess))
+				}).Should(Succeed())
+			})
+		})
+	})
+
+	When("reconcileAfterFailure is false", func() {
+		BeforeEach(func() {
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "kratix-config-no-retry.yaml"))
+			restartController()
+		})
+
+		It("does not re-run failed workflows, but manual reconciliation works", func() {
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-request.yaml"))
+
+			var failedCount int
+			By("failing the configure workflow", func() {
+				Eventually(func(g Gomega) {
+					g.Expect(configureJobCount()).To(BeNumerically(">=", 1))
+					g.Expect(platform.Kubectl("get", "--namespace=default", promiseKind, rrName, workflowStatusJSONPath)).
+						To(ContainSubstring("False"))
+				}).Should(Succeed())
+				failedCount = configureJobCount()
+			})
+
+			By("not re-running on the schedule", func() {
+				Consistently(func(g Gomega) {
+					g.Expect(configureJobCount()).To(Equal(failedCount))
+				}, 30*time.Second, 3*time.Second).Should(Succeed())
+			})
+
+			By("re-running when manually labelled", func() {
+				platform.Kubectl("label", "--overwrite", "--namespace=default", promiseKind, rrName,
+					"kratix.io/manual-reconciliation=true")
+				Eventually(func(g Gomega) {
+					g.Expect(configureJobCount()).To(BeNumerically(">", failedCount))
+				}).Should(Succeed())
+			})
+		})
+	})
+})
