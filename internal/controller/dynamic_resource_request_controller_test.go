@@ -557,7 +557,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				reconciler.ReconcileAfterFailure = true
 			})
 
-			It("re-runs the resource.configure workflows and schedules the next reconciliation on the Default Reconciliation Interval", func() {
+			It("re-runs the resource configure workflows and schedules the next reconciliation", func() {
 				// Reconcile until the reconciliation loop reaches the evaluation of whether the
 				// pipelines should re-run
 				result, err := reconciler.Reconcile(ctx, request)
@@ -604,7 +604,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(result).To(Equal(ctrl.Result{}))
 				})
 
-				By("scheduling the next reconciliation on the Default Reconciliation Schedule", func() {
+				By("scheduling the next reconciliation", func() {
 					result, err = reconciler.Reconcile(ctx, request)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
@@ -623,7 +623,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 			})
 
-			It("does not re-run the resource.configure workflows", func() {
+			It("does not re-run the resource configure workflows", func() {
 				_, err := reconciler.Reconcile(ctx, request)
 				Expect(err).NotTo(HaveOccurred())
 
