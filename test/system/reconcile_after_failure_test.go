@@ -19,6 +19,7 @@ var _ = Describe("Reconcile after failure", Serial, func() {
 	)
 
 	workflowStatusJSONPath := `-o=jsonpath='{.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}'`
+	workflowTransitionJSONPath := `-o=jsonpath='{.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].lastTransitionTime}'`
 
 	configureJobCount := func() int {
 		return jobCountForResourcePipeline(promiseName, "resource-configure")
@@ -33,6 +34,10 @@ var _ = Describe("Reconcile after failure", Serial, func() {
 		Eventually(func() string {
 			return platform.Kubectl("get", "promise", promiseName)
 		}).Should(ContainSubstring("Available"))
+
+		// Wait for any Jobs from a previous spec to be garbage-collected so the
+		// configure-Job count starts from a clean, reliable baseline.
+		Eventually(configureJobCount).Should(Equal(0))
 	})
 
 	AfterEach(func() {
@@ -78,9 +83,13 @@ var _ = Describe("Reconcile after failure", Serial, func() {
 			})
 
 			By("continuing to reconcile after success", func() {
-				countAfterSuccess := configureJobCount()
+				// Job count is unreliable here: numberOfJobsToKeep prunes on the success
+				// path, pinning the count. A success re-run flips the condition
+				// True->InProgress->True, so lastTransitionTime advances each cycle.
+				transitionBeforeReRun := platform.Kubectl("get", "--namespace=default", promiseKind, rrName, workflowTransitionJSONPath)
 				Eventually(func(g Gomega) {
-					g.Expect(configureJobCount()).To(BeNumerically(">", countAfterSuccess))
+					g.Expect(platform.Kubectl("get", "--namespace=default", promiseKind, rrName, workflowTransitionJSONPath)).
+						NotTo(Equal(transitionBeforeReRun))
 				}).Should(Succeed())
 			})
 		})

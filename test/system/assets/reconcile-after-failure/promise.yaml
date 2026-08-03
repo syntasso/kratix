@@ -49,7 +49,7 @@ spec:
                 command: ["/bin/sh", "-c"]
                 args:
                   - |
-                    set -u
+                    set -eu
                     if kubectl get configmap reconcile-after-failure-gate -n default >/dev/null 2>&1; then
                       echo "gate present; configure succeeds"
                       exit 0
