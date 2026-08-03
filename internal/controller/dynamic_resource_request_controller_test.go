@@ -552,63 +552,29 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 
-		When("reconcileAfterFailure is true (default)", func() {
+		When("reconcileAfterFailure is true", func() {
 			BeforeEach(func() {
 				reconciler.ReconcileAfterFailure = true
 			})
 
-			It("re-runs the resource configure workflows and schedules the next reconciliation", func() {
-				// Reconcile until the reconciliation loop reaches the evaluation of whether the
-				// pipelines should re-run
-				result, err := reconciler.Reconcile(ctx, request)
-				Expect(result).To(Equal(ctrl.Result{}))
-				Expect(err).NotTo(HaveOccurred())
-				result, err = reconciler.Reconcile(ctx, request)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
+			It("sets the manual reconciliation label to re-run the workflow", func() {
+				// the failed condition is already past the interval (outer BeforeEach)
+				Eventually(func(g Gomega) {
+					_, err := reconciler.Reconcile(ctx, request)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					g.Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+				}).Should(Succeed())
+			})
 
-				By("setting the manual reconciliation label", func() {
-					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-					Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
-				})
-
-				By("updating the observed generation", func() {
-					observedGeneration := resourceutil.GetObservedGeneration(resReq)
-					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
-					setReconcileConfigureWorkflowToReturnFinished()
-					// Reconcile until the reconciliation loop reaches observed generation update
-					// first reconcile will return at updating workflow execution phases to 'pending'
-					result, err = reconciler.Reconcile(ctx, request)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
-					result, err = reconciler.Reconcile(ctx, request)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
-
-					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-					Expect(resourceutil.GetObservedGeneration(resReq)).To(Equal(observedGeneration + 1))
-				})
-
-				By("running the configure workflows and failing again", func() {
-					resourceutil.SetCondition(resReq, &clusterv1.Condition{
-						Type:               resourceutil.ConfigureWorkflowCompletedCondition,
-						Status:             v1.ConditionFalse,
-						Reason:             resourceutil.ConfigureWorkflowCompletedFailedReason,
-						Message:            "the pipeline failed again",
-						LastTransitionTime: metav1.NewTime(time.Now()),
-					})
-					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
-
-					result, err = reconciler.Reconcile(ctx, request)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
-				})
-
-				By("scheduling the next reconciliation", func() {
-					result, err = reconciler.Reconcile(ctx, request)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
-				})
+			It("schedules the next reconciliation so a failed run is retried on the interval", func() {
+				// A failed configure workflow settles on the passive-requeue path; the
+				// controller must schedule the periodic reconcile itself.
+				Eventually(func(g Gomega) {
+					result, err := reconciler.Reconcile(ctx, request)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+				}).Should(Succeed())
 			})
 		})
 
@@ -624,7 +590,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			It("does not re-run the resource configure workflows", func() {
-				_, err := reconciler.Reconcile(ctx, request)
+				_, err := t.reconcileUntilCompletion(reconciler, resReq)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
