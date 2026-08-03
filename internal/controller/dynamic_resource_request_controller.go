@@ -276,7 +276,16 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if passiveRequeue {
-		return ctrl.Result{}, r.syncResourceBindingUpgradeStatusOnPassiveRequeue(ctx, logger, promise.GetName(), rr, promiseRevisionUsed)
+		if err := r.syncResourceBindingUpgradeStatusOnPassiveRequeue(ctx, logger, promise.GetName(), rr, promiseRevisionUsed); err != nil {
+			return ctrl.Result{}, err
+		}
+		// A failed configure workflow settles here (ReconcileConfigure returns a passive
+		// requeue) and never reaches reconcileAfterConfigure, so schedule the periodic
+		// reconcile here to retry the run on the interval.
+		if r.ReconcileAfterFailure && workflowCompletedWithFailure(resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)) {
+			return r.nextReconciliation(logger), nil
+		}
+		return ctrl.Result{}, nil
 	}
 
 	return r.reconcileAfterConfigure(ctx, logger, opts, rr, promise, pipelineResources, bindingVersion, promiseRevisionUsed)
@@ -356,10 +365,6 @@ func (r *DynamicResourceRequestController) reconcileAfterConfigure(
 
 	if r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevisionUsed) {
 		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
-	}
-
-	if r.ReconcileAfterFailure && workflowCompletedWithFailure(workflowCompletedCondition) {
-		return r.nextReconciliation(logger), nil
 	}
 
 	return ctrl.Result{}, nil
