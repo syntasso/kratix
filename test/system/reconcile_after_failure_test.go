@@ -2,6 +2,7 @@ package system_test
 
 import (
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -16,6 +17,8 @@ var _ = Describe("Reconcile after failure", Serial, func() {
 		promiseKind   = "reconcilables"
 		rrName        = "example"
 		gateConfigMap = "reconcile-after-failure-gate"
+		// Must match numberOfJobsToKeep in kratix-config-retry.yaml
+		numberOfJobsToKeep = 2
 	)
 
 	workflowStatusJSONPath := `-o=jsonpath='{.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}'`
@@ -23,6 +26,36 @@ var _ = Describe("Reconcile after failure", Serial, func() {
 
 	configureJobCount := func() int {
 		return jobCountForResourcePipeline(promiseName, "resource-configure")
+	}
+
+	// Names, not a count: numberOfJobsToKeep caps the count, so a re-run is only
+	// reliably visible as a job name that was not there before.
+	configureJobNames := func() []string {
+		output := platform.Kubectl(
+			"get", "jobs", "-n", "default",
+			"-l", strings.Join([]string{
+				"kratix.io/promise-name=" + promiseName,
+				"kratix.io/workflow-type=resource",
+				"kratix.io/workflow-action=configure",
+				"kratix.io/pipeline-name=resource-configure",
+			}, ","),
+			"-o=jsonpath={.items[*].metadata.name}",
+		)
+		return strings.Fields(output)
+	}
+
+	configureJobsSince := func(previous []string) []string {
+		seen := map[string]bool{}
+		for _, name := range previous {
+			seen[name] = true
+		}
+		var added []string
+		for _, name := range configureJobNames() {
+			if !seen[name] {
+				added = append(added, name)
+			}
+		}
+		return added
 	}
 
 	BeforeEach(func() {
@@ -58,20 +91,32 @@ var _ = Describe("Reconcile after failure", Serial, func() {
 		It("re-runs failed workflows on the schedule and resumes to success", func() {
 			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-request.yaml"))
 
-			var firstFailedCount int
+			var jobsAtFirstFailure []string
 			By("failing the configure workflow", func() {
 				Eventually(func(g Gomega) {
 					g.Expect(configureJobCount()).To(BeNumerically(">=", 1))
 					g.Expect(platform.Kubectl("get", "--namespace=default", promiseKind, rrName, workflowStatusJSONPath)).
 						To(ContainSubstring("False"))
 				}).Should(Succeed())
-				firstFailedCount = configureJobCount()
+				jobsAtFirstFailure = configureJobNames()
 			})
 
 			By("re-running the workflow automatically", func() {
+				// Job names, not the count: failed jobs are now pruned to
+				// numberOfJobsToKeep, so the count stops growing once it caps.
 				Eventually(func(g Gomega) {
-					g.Expect(configureJobCount()).To(BeNumerically(">", firstFailedCount))
+					g.Expect(configureJobsSince(jobsAtFirstFailure)).NotTo(BeEmpty())
 				}).Should(Succeed())
+			})
+
+			By("pruning the failed jobs it re-runs", func() {
+				// A retry creates the next job before the previous failure is observed
+				// and pruned, so the steady state is numberOfJobsToKeep plus the run in
+				// flight. Without pruning on the failure path the count would climb
+				// past that within a few reconciliation intervals.
+				Consistently(func(g Gomega) {
+					g.Expect(configureJobCount()).To(BeNumerically("<=", numberOfJobsToKeep+1))
+				}, 30*time.Second, 2*time.Second).Should(Succeed())
 			})
 
 			By("succeeding once the gate exists", func() {
