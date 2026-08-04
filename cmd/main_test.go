@@ -22,6 +22,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/yaml"
 
 	gitutil "github.com/syntasso/kratix/util/git"
 )
@@ -60,6 +61,34 @@ var _ = Describe("getResourceBindingDefaultVersion", func() {
 	It("returns floating for an unrecognised resourceBindingVersionStrategy value", func() {
 		config := &KratixConfig{ResourceBindingVersionStrategy: "invalid"}
 		Expect(getResourceBindingDefaultVersion(config)).To(Equal(ResourceBindingDefaultVersionFloating))
+	})
+})
+
+var _ = Describe("dryRunEnabled", func() {
+	It("returns false when config is nil", func() {
+		Expect(dryRunEnabled(nil)).To(BeFalse())
+	})
+
+	It("returns false when featureFlags is not set", func() {
+		Expect(dryRunEnabled(&KratixConfig{})).To(BeFalse())
+	})
+
+	It("returns false when dryRun is not set", func() {
+		Expect(dryRunEnabled(&KratixConfig{FeatureFlags: &FeatureFlags{}})).To(BeFalse())
+	})
+
+	It("returns false when dryRun is explicitly false", func() {
+		Expect(dryRunEnabled(&KratixConfig{FeatureFlags: &FeatureFlags{DryRun: false}})).To(BeFalse())
+	})
+
+	It("returns true when dryRun is true", func() {
+		Expect(dryRunEnabled(&KratixConfig{FeatureFlags: &FeatureFlags{DryRun: true}})).To(BeTrue())
+	})
+
+	It("parses featureFlags.dryRun from the ConfigMap config", func() {
+		config := &KratixConfig{}
+		Expect(yaml.Unmarshal([]byte("featureFlags:\n  dryRun: true\n"), config)).To(Succeed())
+		Expect(dryRunEnabled(config)).To(BeTrue())
 	})
 })
 

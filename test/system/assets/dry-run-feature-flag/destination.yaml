@@ -1,0 +1,16 @@
+# Dry-run Works have their destination selectors overridden to exactly the
+# kratix.io/dry-run label, so without a Destination carrying it the Work is never
+# placed, WorksSucceeded never goes True, and the DryRun sits with an empty status.
+# That failure mode is indistinguishable from "the controller isn't running", which
+# is the very thing this suite is trying to tell apart -- hence the Destination.
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: dry-run-flag-test
+  labels:
+    kratix.io/dry-run: "true"
+spec:
+  path: dry-run-flag-test
+  stateStoreRef:
+    name: default
+    kind: BucketStateStore

@@ -115,6 +115,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	var directoriesToIgnoreForTheBaseScheduling []string
 	var defaultDestinationSelectors map[string]string
 	pipelineOutputDir := filepath.Join(rootDirectory, "input")
+
 	for _, workflowDestinationSelector := range workflowScheduling {
 		directory := workflowDestinationSelector.Directory
 		if !isRootDirectory(directory) {
@@ -222,6 +223,9 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}
 
 	workLabels := resourceutil.GetWorkLabels(promiseName, resourceName, resourceNamespace, pipelineName, workflowType)
+	if os.Getenv(v1alpha1.KratixDryRunEnvVar) == "true" {
+		workLabels[v1alpha1.DryRunLabel] = "true"
+	}
 
 	work.SetLabels(
 		labels.Merge(

@@ -44,9 +44,29 @@ const (
 	JobResourceKindAnnotation       = KratixPrefix + "job-resource-kind"
 	JobResourceAPIVersionAnnotation = KratixPrefix + "job-resource-api-version"
 
-	WorkTypePromise          = "promise"
-	WorkTypeResource         = "resource"
-	WorkTypeStaticDependency = "static-dependency"
+	WorkTypePromise                   = "promise"
+	WorkTypeResource                  = "resource"
+	WorkTypeStaticDependency          = "static-dependency"
+	DryRunLabel                       = KratixPrefix + "dry-run"
+	DryRunSummaryLabel                = KratixPrefix + "dry-run-summary"
+	DryRunOwnerLabel                  = KratixPrefix + "dry-run-owner"
+	DryRunResourceNameAnnotation      = KratixPrefix + "dry-run-resource-name"
+	DryRunResourceNamespaceAnnotation = KratixPrefix + "dry-run-resource-namespace"
+
+	// Compound Promise traceability. A compound Promise's workflow labels the
+	// component resource requests it emits, linking each back to the compound
+	// request that produced it. These are not dry-run specific: in a normal run
+	// the labels travel with the request onto the platform, so "which compound
+	// request created this?" is a label selector. Dry run additionally uses
+	// ParentResourceNameLabel to tell a component request apart from an ordinary
+	// workload in the compound Promise's pipeline output.
+	ParentPromiseNameLabel       = KratixPrefix + "parent-promise-name"
+	ParentResourceNameLabel      = KratixPrefix + "parent-resource-name"
+	ParentResourceNamespaceLabel = KratixPrefix + "parent-resource-namespace"
+
+	// DryRunParentLabel links a component DryRun back to the compound DryRun that
+	// raised it, so the compound one can find its children and aggregate them.
+	DryRunParentLabel = KratixPrefix + "dry-run-parent"
 )
 
 // WorkStatus defines the observed state of Work

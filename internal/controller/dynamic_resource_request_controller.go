@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"sort"
 	"strings"
 	"time"
 
@@ -34,6 +35,8 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
+	"github.com/syntasso/kratix/lib/compression"
+	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
@@ -83,6 +86,10 @@ type DynamicResourceRequestController struct {
 	ReconciliationInterval      time.Duration
 	EventRecorder               events.EventRecorder
 	ResourceBindingPinned       bool
+	// DryRunEnabled mirrors featureFlags.dryRun from the Kratix config. When
+	// false, dry-run labels on a resource request are ignored, so a stray label
+	// cannot divert a request into the dry-run paths.
+	DryRunEnabled bool
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
@@ -166,6 +173,16 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	if !rr.GetDeletionTimestamp().IsZero() {
 		logging.Info(logger, "deleting resource request")
 		return r.deleteResources(opts, promise, rr)
+	}
+
+	// Clean up any stale dry-run Works when the dry-run label has been removed.
+	if r.DryRunEnabled {
+		if cleaned, err := r.cleanupStaleDryRunWorks(ctx, logger, rr, promise); err != nil {
+			return ctrl.Result{}, err
+		} else if cleaned {
+			// Work deletion events will re-trigger reconciliation; nothing more to do here.
+			return ctrl.Result{}, nil
+		}
 	}
 
 	if r.promiseCannotFulfilResourceRequests(promise) {
@@ -412,6 +429,20 @@ func (r *DynamicResourceRequestController) ensureResourceStatus(
 	statusUpdate, err := r.generateResourceStatus(ctx, logger, rr, int64(len(pipelineResources)), workLabels, bindingVersion, promiseRevisionUsed)
 	if err != nil {
 		return false, err
+	}
+
+	// Skip summary generation for ephemeral RRs owned by a DryRun object — DryRunReconciler handles those.
+	if r.isDryRun(rr) && rr.GetLabels()[v1alpha1.DryRunOwnerLabel] == "" {
+		worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
+		if worksSucceeded != nil && worksSucceeded.Status == v1.ConditionTrue {
+			namespace := rr.GetNamespace()
+			if namespace == "" {
+				namespace = v1alpha1.SystemNamespace
+			}
+			if err := r.ensureDryRunSummary(ctx, logger, rr, namespace); err != nil {
+				return false, err
+			}
+		}
 	}
 
 	if statusUpdate {
@@ -823,6 +854,161 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 	return false
 }
 
+// isDryRun reports whether this resource request is a dry run. Always false
+// while the dry-run feature flag is off, so the label alone cannot activate
+// the dry-run paths.
+func (r *DynamicResourceRequestController) isDryRun(rr *unstructured.Unstructured) bool {
+	return r.DryRunEnabled && rr.GetLabels()[v1alpha1.DryRunLabel] == "true"
+}
+
+// cleanupStaleDryRunWorks deletes any Works labelled as dry-run when the RR
+// no longer carries the dry-run label. Returns true if any Works were deleted.
+func (r *DynamicResourceRequestController) cleanupStaleDryRunWorks(
+	ctx context.Context,
+	logger logr.Logger,
+	rr *unstructured.Unstructured,
+	promise *v1alpha1.Promise,
+) (bool, error) {
+	if r.isDryRun(rr) {
+		return false, nil
+	}
+
+	namespace := rr.GetNamespace()
+	if namespace == "" {
+		namespace = v1alpha1.SystemNamespace
+	}
+
+	workList := &v1alpha1.WorkList{}
+	selector := labels.Set{
+		v1alpha1.PromiseNameLabel:  promise.GetName(),
+		v1alpha1.ResourceNameLabel: rr.GetName(),
+		v1alpha1.DryRunLabel:       "true",
+	}.AsSelector()
+	if err := r.Client.List(ctx, workList, &client.ListOptions{
+		LabelSelector: selector,
+		Namespace:     namespace,
+	}); err != nil {
+		return false, err
+	}
+
+	if len(workList.Items) == 0 {
+		return false, nil
+	}
+
+	logging.Info(logger, "removing stale dry-run works", "count", len(workList.Items))
+	for i := range workList.Items {
+		if err := r.Client.Delete(ctx, &workList.Items[i]); err != nil && !apierrors.IsNotFound(err) {
+			return false, err
+		}
+	}
+	if err := r.updateManualReconcileToTrue(ctx, rr); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ensureDryRunSummary collects the kratix-diff.md from every pipeline's dry-run
+// Work, merges them into a single document, and writes it to the dry-run
+// Destination as kratix-dry-run-summary.md via a dedicated summary Work.
+// The summary Work carries DryRunSummaryLabel so it is excluded from the
+// WorksSucceeded tracking, avoiding any reconciliation loop.
+func (r *DynamicResourceRequestController) ensureDryRunSummary(
+	ctx context.Context,
+	logger logr.Logger,
+	rr *unstructured.Unstructured,
+	namespace string,
+) error {
+	workList := &v1alpha1.WorkList{}
+	selector := labels.Set{
+		v1alpha1.PromiseNameLabel:  r.PromiseIdentifier,
+		v1alpha1.ResourceNameLabel: rr.GetName(),
+		v1alpha1.DryRunLabel:       "true",
+	}.AsSelector()
+	if err := r.Client.List(ctx, workList, &client.ListOptions{
+		LabelSelector: selector,
+		Namespace:     namespace,
+	}); err != nil {
+		return err
+	}
+
+	type section struct {
+		pipeline string
+		content  string
+	}
+	var sections []section
+	for _, work := range workList.Items {
+		if work.GetLabels()[v1alpha1.DryRunSummaryLabel] == "true" {
+			continue
+		}
+		pipelineName := work.GetLabels()[v1alpha1.PipelineNameLabel]
+		for _, group := range work.Spec.WorkloadGroups {
+			for _, wl := range group.Workloads {
+				if wl.Filepath == "kratix-diff.md" {
+					content, err := compression.DecompressContent([]byte(wl.Content))
+					if err != nil {
+						return fmt.Errorf("decompressing diff for pipeline %s: %w", pipelineName, err)
+					}
+					sections = append(sections, section{pipeline: pipelineName, content: string(content)})
+				}
+			}
+		}
+	}
+
+	if len(sections) == 0 {
+		return nil
+	}
+
+	sort.Slice(sections, func(i, j int) bool { return sections[i].pipeline < sections[j].pipeline })
+
+	var sb strings.Builder
+	sb.WriteString("# Kratix Dry Run Summary\n\n")
+	for i, s := range sections {
+		if i > 0 {
+			sb.WriteString("\n---\n\n")
+		}
+		fmt.Fprintf(&sb, "## Pipeline: `%s`\n\n%s", s.pipeline, s.content)
+	}
+
+	compressedContent, err := compression.CompressContent([]byte(sb.String()))
+	if err != nil {
+		return fmt.Errorf("compressing dry-run summary: %w", err)
+	}
+
+	summaryWork := &v1alpha1.Work{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s-dry-run-summary", r.PromiseIdentifier, rr.GetName())),
+			Namespace: namespace,
+		},
+	}
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, summaryWork, func() error {
+		summaryWork.Labels = map[string]string{
+			v1alpha1.PromiseNameLabel:   r.PromiseIdentifier,
+			v1alpha1.ResourceNameLabel:  rr.GetName(),
+			v1alpha1.WorkTypeLabel:      string(v1alpha1.WorkflowTypeResource),
+			v1alpha1.DryRunLabel:        "true",
+			v1alpha1.DryRunSummaryLabel: "true",
+		}
+		summaryWork.Spec = v1alpha1.WorkSpec{
+			PromiseName:  r.PromiseIdentifier,
+			ResourceName: rr.GetName(),
+			WorkloadGroups: []v1alpha1.WorkloadGroup{{
+				ID:        hash.ComputeHash("dry-run-summary"),
+				Directory: v1alpha1.DefaultWorkloadGroupDirectory,
+				Workloads: []v1alpha1.Workload{{
+					Filepath: "kratix-dry-run-summary.md",
+					Content:  string(compressedContent),
+				}},
+			}},
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("upserting dry-run summary work: %w", err)
+	}
+	logging.Info(logger, "dry-run summary written", "pipelines", len(sections))
+	return nil
+}
+
 func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured) bool {
 	worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
@@ -853,13 +1039,34 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 		}
 	} else if workflowCompleted != nil && worksSucceeded != nil &&
 		workflowCompleted.Status == v1.ConditionTrue && worksSucceeded.Status == v1.ConditionTrue {
-		if reconciled == nil || reconciled.Status != v1.ConditionTrue {
-			resourceutil.MarkReconciledTrue(rr)
-			updated = true
-			r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "ReconcileSucceeded", "ReconcileSucceeded", "%s", "Successfully reconciled")
-		}
+		updated = r.markReconciledSucceeded(rr, reconciled)
 	}
 	return updated
+}
+
+// markReconciledSucceeded sets Reconciled to True, using the dry-run reason when the
+// request is a dry run so a preview is never reported as a real reconciliation. It
+// returns whether the condition changed.
+func (r *DynamicResourceRequestController) markReconciledSucceeded(
+	rr *unstructured.Unstructured, reconciled *clusterv1.Condition,
+) bool {
+	isDryRun := r.isDryRun(rr)
+	expectedReason := "Reconciled"
+	if isDryRun {
+		expectedReason = resourceutil.DryRunWorksSucceededReason
+	}
+
+	if reconciled != nil && reconciled.Status == v1.ConditionTrue && reconciled.Reason == expectedReason {
+		return false
+	}
+
+	if isDryRun {
+		resourceutil.MarkReconciledAsDryRun(rr)
+	} else {
+		resourceutil.MarkReconciledTrue(rr)
+	}
+	r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "ReconcileSucceeded", "ReconcileSucceeded", "%s", "Successfully reconciled")
+	return true
 }
 
 func (r *DynamicResourceRequestController) updatePromiseVersionStatus(logger logr.Logger, rr *unstructured.Unstructured, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) bool {
@@ -938,6 +1145,9 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, l
 
 	var failed, misplaced, ready, pending []string
 	for _, work := range works.Items {
+		if work.GetLabels()[v1alpha1.DryRunSummaryLabel] == "true" {
+			continue
+		}
 		readyCond := apiMeta.FindStatusCondition(work.Status.Conditions, "Ready")
 		message := "Pending"
 		if readyCond != nil && readyCond.Message != "" {
