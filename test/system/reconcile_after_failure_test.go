@@ -2,7 +2,6 @@ package system_test
 
 import (
 	"path/filepath"
-	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -28,34 +27,8 @@ var _ = Describe("Reconcile after failure", Serial, func() {
 		return jobCountForResourcePipeline(promiseName, "resource-configure")
 	}
 
-	// Names, not a count: numberOfJobsToKeep caps the count, so a re-run is only
-	// reliably visible as a job name that was not there before.
 	configureJobNames := func() []string {
-		output := platform.Kubectl(
-			"get", "jobs", "-n", "default",
-			"-l", strings.Join([]string{
-				"kratix.io/promise-name=" + promiseName,
-				"kratix.io/workflow-type=resource",
-				"kratix.io/workflow-action=configure",
-				"kratix.io/pipeline-name=resource-configure",
-			}, ","),
-			"-o=jsonpath={.items[*].metadata.name}",
-		)
-		return strings.Fields(output)
-	}
-
-	configureJobsSince := func(previous []string) []string {
-		seen := map[string]bool{}
-		for _, name := range previous {
-			seen[name] = true
-		}
-		var added []string
-		for _, name := range configureJobNames() {
-			if !seen[name] {
-				added = append(added, name)
-			}
-		}
-		return added
+		return jobNamesForResourcePipeline(promiseName, "resource-configure")
 	}
 
 	BeforeEach(func() {
@@ -105,7 +78,7 @@ var _ = Describe("Reconcile after failure", Serial, func() {
 				// Job names, not the count: failed jobs are now pruned to
 				// numberOfJobsToKeep, so the count stops growing once it caps.
 				Eventually(func(g Gomega) {
-					g.Expect(configureJobsSince(jobsAtFirstFailure)).NotTo(BeEmpty())
+					g.Expect(newJobNames(jobsAtFirstFailure, configureJobNames())).NotTo(BeEmpty())
 				}).Should(Succeed())
 			})
 
