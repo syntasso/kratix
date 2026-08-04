@@ -76,17 +76,17 @@ func init() {
 }
 
 type KratixConfig struct {
-	Workflows                      Workflows                     `json:"workflows"`
-	NumberOfJobsToKeep             int                           `json:"numberOfJobsToKeep,omitempty"`
-	ControllerLeaderElection       *LeaderElectionConfig         `json:"controllerLeaderElection,omitempty"`
-	SelectiveCache                 bool                          `json:"selectiveCache,omitempty"`
-	ReconciliationInterval         *metav1.Duration              `json:"reconciliationInterval,omitempty"`
-  StateStoreReconciliationInterval *metav1.Duration              `json:"stateStoreReconciliationInterval,omitempty"`
-	Telemetry                      *telemetry.Config             `json:"telemetry,omitempty"`
-	Logging                        *LoggingConfig                `json:"logging,omitempty"`
-	ResourceBindingVersionStrategy ResourceBindingDefaultVersion `json:"resourceBindingVersionStrategy,omitempty"`
-	Git                            *GitConfig                    `json:"git,omitempty"`
-	FeatureFlags                   *FeatureFlags                 `json:"featureFlags,omitempty"`
+	Workflows                        Workflows                     `json:"workflows"`
+	NumberOfJobsToKeep               int                           `json:"numberOfJobsToKeep,omitempty"`
+	ControllerLeaderElection         *LeaderElectionConfig         `json:"controllerLeaderElection,omitempty"`
+	SelectiveCache                   bool                          `json:"selectiveCache,omitempty"`
+	ReconciliationInterval           *metav1.Duration              `json:"reconciliationInterval,omitempty"`
+	StateStoreReconciliationInterval *metav1.Duration              `json:"stateStoreReconciliationInterval,omitempty"`
+	Telemetry                        *telemetry.Config             `json:"telemetry,omitempty"`
+	Logging                          *LoggingConfig                `json:"logging,omitempty"`
+	ResourceBindingVersionStrategy   ResourceBindingDefaultVersion `json:"resourceBindingVersionStrategy,omitempty"`
+	Git                              *GitConfig                    `json:"git,omitempty"`
+	FeatureFlags                     *FeatureFlags                 `json:"featureFlags,omitempty"`
 }
 
 // FeatureFlags opts in to features that are off by default. Flags are read once
