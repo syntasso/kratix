@@ -79,6 +79,7 @@ type PromiseReconciler struct {
 	StartedDynamicControllers map[string]*DynamicResourceRequestController
 	NumberOfJobsToKeep        int
 	ReconciliationInterval    time.Duration
+	ReconcileAfterFailure     bool
 	EventRecorder             events.EventRecorder
 	ResourceBindingPinned     bool
 	// DryRunEnabled mirrors featureFlags.dryRun from the Kratix config. When
@@ -1145,6 +1146,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.EventRecorder = r.Manager.GetEventRecorder("ResourceRequestController")
 		dynamicController.NumberOfJobsToKeep = r.NumberOfJobsToKeep
 		dynamicController.ReconciliationInterval = r.ReconciliationInterval
+		dynamicController.ReconcileAfterFailure = r.ReconcileAfterFailure
 		dynamicController.ResourceBindingPinned = r.ResourceBindingPinned
 		dynamicController.DryRunEnabled = r.DryRunEnabled
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
@@ -1175,6 +1177,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		CanCreateResources:          canCreateResources,
 		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
 		ReconciliationInterval:      r.ReconciliationInterval,
+		ReconcileAfterFailure:       r.ReconcileAfterFailure,
 		EventRecorder:               r.Manager.GetEventRecorder("ResourceRequestController"),
 		ResourceBindingPinned:       r.ResourceBindingPinned,
 		DryRunEnabled:               r.DryRunEnabled,

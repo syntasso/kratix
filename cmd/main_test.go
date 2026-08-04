@@ -133,3 +133,25 @@ var _ = Describe("getGitMinimumFetchInterval", func() {
 		Expect(getGitMinimumFetchInterval(config)).To(Equal(gitutil.DefaultMinimumFetchInterval))
 	})
 })
+
+var _ = Describe("getReconcileAfterFailure", func() {
+	It("returns true when config is nil", func() {
+		Expect(getReconcileAfterFailure(nil)).To(BeTrue())
+	})
+
+	It("returns true when workflows.reconcileAfterFailure is not set", func() {
+		Expect(getReconcileAfterFailure(&KratixConfig{})).To(BeTrue())
+	})
+
+	It("returns true when workflows.reconcileAfterFailure is explicitly true", func() {
+		enabled := true
+		config := &KratixConfig{Workflows: Workflows{ReconcileAfterFailure: &enabled}}
+		Expect(getReconcileAfterFailure(config)).To(BeTrue())
+	})
+
+	It("returns false when workflows.reconcileAfterFailure is explicitly false", func() {
+		disabled := false
+		config := &KratixConfig{Workflows: Workflows{ReconcileAfterFailure: &disabled}}
+		Expect(getReconcileAfterFailure(config)).To(BeFalse())
+	})
+})

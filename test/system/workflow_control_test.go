@@ -485,25 +485,59 @@ func jobCountForResourcePipeline(promiseName, pipelineName string) int {
 }
 
 func jobCountForWorkflow(workflowType, promiseName, pipelineName, action string) int {
-	ns := "kratix-platform-system"
-	if workflowType == "resource" {
-		ns = "default"
-	}
-	selector := strings.Join([]string{
-		"kratix.io/promise-name=" + promiseName,
-		"kratix.io/workflow-type=" + workflowType,
-		"kratix.io/workflow-action=" + action,
-		"kratix.io/pipeline-name=" + pipelineName,
-	}, ",")
 	output := platform.Kubectl(
 		"get", "jobs",
-		"-n", ns,
-		"-l", selector,
+		"-n", workflowJobNamespace(workflowType),
+		"-l", workflowJobSelector(workflowType, promiseName, pipelineName, action),
 		"-o=go-template={{len .items}}",
 	)
 	count, err := strconv.Atoi(strings.TrimSpace(output))
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	return count
+}
+
+// jobNamesForResourcePipeline is the pruning-resilient alternative to counting
+// jobs: numberOfJobsToKeep caps the count, and a failed run now prunes too, so a
+// re-run is only reliably visible as a job name that was not there before.
+func jobNamesForResourcePipeline(promiseName, pipelineName string) []string {
+	output := platform.Kubectl(
+		"get", "jobs",
+		"-n", workflowJobNamespace("resource"),
+		"-l", workflowJobSelector("resource", promiseName, pipelineName, "configure"),
+		"-o=jsonpath={.items[*].metadata.name}",
+	)
+	return strings.Fields(output)
+}
+
+// newJobNames returns the names in current that are absent from previous.
+func newJobNames(previous, current []string) []string {
+	seen := map[string]bool{}
+	for _, name := range previous {
+		seen[name] = true
+	}
+	var added []string
+	for _, name := range current {
+		if !seen[name] {
+			added = append(added, name)
+		}
+	}
+	return added
+}
+
+func workflowJobNamespace(workflowType string) string {
+	if workflowType == "resource" {
+		return "default"
+	}
+	return "kratix-platform-system"
+}
+
+func workflowJobSelector(workflowType, promiseName, pipelineName, action string) string {
+	return strings.Join([]string{
+		"kratix.io/promise-name=" + promiseName,
+		"kratix.io/workflow-type=" + workflowType,
+		"kratix.io/workflow-action=" + action,
+		"kratix.io/pipeline-name=" + pipelineName,
+	}, ",")
 }
 
 func workCountForResourcePipeline() int {

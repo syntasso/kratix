@@ -283,7 +283,7 @@ var _ = Describe("Promise Revisions", func() {
 		})
 
 		By("retrying when labelled for manual reconciliation", func() {
-			configureJobCount := jobCountForResourcePipeline(promiseName, "resource-configure")
+			jobsBeforeRetry := jobNamesForResourcePipeline(promiseName, "resource-configure")
 			platform.Kubectl("label", "--overwrite", "--namespace=default", name, "kratix.io/manual-reconciliation=true")
 			Eventually(func(g Gomega) {
 				g.Expect(
@@ -291,8 +291,12 @@ var _ = Describe("Promise Revisions", func() {
 						`-o=jsonpath='{.metadata.labels.kratix\.io/manual-reconciliation}'`),
 				).To(Equal(`''`))
 			}).Should(Succeed())
+			// A job count is unreliable here: this upgrade fails, and a failed run
+			// prunes to numberOfJobsToKeep, so the count springs back instead of
+			// growing. A retry is only reliably visible as a new job name.
 			Eventually(func(g Gomega) {
-				g.Expect(jobCountForResourcePipeline(promiseName, "resource-configure")).To(Equal(configureJobCount + 1))
+				g.Expect(newJobNames(jobsBeforeRetry, jobNamesForResourcePipeline(promiseName, "resource-configure"))).
+					NotTo(BeEmpty())
 			}).Should(Succeed())
 			Eventually(func(g Gomega) {
 				g.Expect(
