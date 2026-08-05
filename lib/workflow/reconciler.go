@@ -408,7 +408,18 @@ func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1
 
 	if isFailed(state.mostRecentJob) {
 		logging.Debug(opts.logger, "job failed", "job", state.mostRecentJob.Name, "pipeline", pipeline.Name)
-		return setFailedConditionAndEvents(opts, state, pipeline)
+		passiveRequeue, err := setFailedConditionAndEvents(opts, state, pipeline)
+		if err != nil {
+			return passiveRequeue, err
+		}
+		// A workflow that keeps failing never reaches the cleanup at the end of this
+		// function, so without pruning here its Jobs grow without bound once the
+		// periodic reconcile retries failed runs. This reconciler is shared, so the
+		// pruning applies to promise and resource workflows alike; only resources
+		// retry on the interval today, so a failing promise workflow is pruned when
+		// it is re-run manually or by a spec change. Jobs only, not the full
+		// cleanup(): Works are left alone while the workflow has not completed.
+		return passiveRequeue, cleanupJobs(opts, opts.namespace)
 	}
 
 	return false, cleanup(opts, opts.namespace)
@@ -572,16 +583,13 @@ func isRunning(job *batchv1.Job) bool {
 }
 
 func cleanup(opts Opts, namespace string) error {
+	if err := cleanupJobs(opts, namespace); err != nil {
+		return err
+	}
+
 	pipelineNames := map[string]bool{}
 	for _, pipeline := range opts.Resources {
-		l := labelsForAllWorkflowJobs(pipeline)
-		l[v1alpha1.PipelineNameLabel] = pipeline.Name
 		pipelineNames[pipeline.Name] = true
-		jobsForPipeline, _ := getJobsWithLabels(opts, l, namespace)
-		if err := cleanupJobs(opts, jobsForPipeline); err != nil {
-			logging.Error(opts.logger, err, "failed to delete old jobs")
-			return err
-		}
 	}
 
 	allPipelineWorks, err := resourceutil.GetWorksByType(opts.client, v1alpha1.Type(opts.workflowType), opts.parentObject)
@@ -604,21 +612,42 @@ func cleanup(opts Opts, namespace string) error {
 	return nil
 }
 
-func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
-	if len(pipelineJobsAtCurrentSpec) <= opts.numberOfJobsToKeep {
+// cleanupJobs prunes the job history of every pipeline in the workflow. It runs
+// both when the workflow completes and when a pipeline fails, so that a workflow
+// that never succeeds still respects numberOfJobsToKeep.
+func cleanupJobs(opts Opts, namespace string) error {
+	for _, pipeline := range opts.Resources {
+		l := labelsForAllWorkflowJobs(pipeline)
+		l[v1alpha1.PipelineNameLabel] = pipeline.Name
+		jobsForPipeline, err := getJobsWithLabels(opts, l, namespace)
+		if err != nil {
+			logging.Error(opts.logger, err, "failed to list jobs for pipeline", "pipeline", pipeline.Name)
+			return err
+		}
+		if err := pruneJobs(opts, jobsForPipeline); err != nil {
+			logging.Error(opts.logger, err, "failed to delete old jobs")
+			return err
+		}
+	}
+
+	return nil
+}
+
+func pruneJobs(opts Opts, jobsForPipeline []batchv1.Job) error {
+	if len(jobsForPipeline) <= opts.numberOfJobsToKeep {
 		logging.Debug(opts.logger,
-			"pipeline jobs at current spec do not exceed number of jobs to keep",
+			"pipeline jobs do not exceed number of jobs to keep",
 			"numberOfJobsToKeep", opts.numberOfJobsToKeep,
-			"number of pipeline jobs at current spec", len(pipelineJobsAtCurrentSpec))
+			"number of pipeline jobs", len(jobsForPipeline))
 		return nil
 	}
 
 	// Sort jobs by creation time
-	pipelineJobsAtCurrentSpec = resourceutil.SortJobsByCreationDateTime(pipelineJobsAtCurrentSpec, true)
+	jobsForPipeline = resourceutil.SortJobsByCreationDateTime(jobsForPipeline, true)
 
 	// Delete all but the last n jobs; n defaults to 5 and can be configured by env var for the operator
-	for i := 0; i < len(pipelineJobsAtCurrentSpec)-opts.numberOfJobsToKeep; i++ {
-		job := pipelineJobsAtCurrentSpec[i]
+	for i := 0; i < len(jobsForPipeline)-opts.numberOfJobsToKeep; i++ {
+		job := jobsForPipeline[i]
 		logging.Debug(opts.logger,
 			"deleting old job",
 			"name", job.GetName(),

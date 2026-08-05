@@ -82,6 +82,9 @@ type PromiseReconciler struct {
 	ReconcileAfterFailure     bool
 	EventRecorder             events.EventRecorder
 	ResourceBindingPinned     bool
+	// DryRunEnabled mirrors featureFlags.dryRun from the Kratix config. When
+	// false the dynamic controllers ignore dry-run labels entirely.
+	DryRunEnabled bool
 }
 
 const (
@@ -1145,6 +1148,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.ReconciliationInterval = r.ReconciliationInterval
 		dynamicController.ReconcileAfterFailure = r.ReconcileAfterFailure
 		dynamicController.ResourceBindingPinned = r.ResourceBindingPinned
+		dynamicController.DryRunEnabled = r.DryRunEnabled
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
 		if dynamicController.WatchStopped {
@@ -1176,6 +1180,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		ReconcileAfterFailure:       r.ReconcileAfterFailure,
 		EventRecorder:               r.Manager.GetEventRecorder("ResourceRequestController"),
 		ResourceBindingPinned:       r.ResourceBindingPinned,
+		DryRunEnabled:               r.DryRunEnabled,
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}
@@ -1198,6 +1203,9 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 				work := obj.(*v1alpha1.Work)
 				rrName, labelExists := work.Labels[v1alpha1.ResourceNameLabel]
 				if !labelExists || work.Labels[v1alpha1.PromiseNameLabel] != promise.GetName() {
+					return nil
+				}
+				if work.Labels[v1alpha1.DryRunSummaryLabel] == "true" {
 					return nil
 				}
 

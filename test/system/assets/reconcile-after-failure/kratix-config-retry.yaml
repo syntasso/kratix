@@ -8,6 +8,9 @@ data:
     logging:
       level: debug
     reconciliationInterval: 5s
+    # Kept low so the failed-job pruning assertion in the spec reaches the cap
+    # quickly; the spec references this value.
+    numberOfJobsToKeep: 2
     workflows:
       reconcileAfterFailure: true
       jobOptions:

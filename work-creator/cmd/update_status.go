@@ -102,6 +102,10 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 		return err
 	}
 
+	if os.Getenv(v1alpha1.KratixDryRunEnvVar) == "true" {
+		mergedStatus["message"] = "Dry run executed"
+	}
+
 	// Apply merged status to the existing object
 	existingObj.Object["status"] = mergedStatus
 
