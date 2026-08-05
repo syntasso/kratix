@@ -121,7 +121,8 @@ type Workflows struct {
 	DefaultImagePullPolicy          corev1.PullPolicy            `json:"defaultImagePullPolicy,omitempty"`
 	DefaultContainerResources       *corev1.ResourceRequirements `json:"defaultContainerResources,omitempty"`
 	JobOptions                      JobOptions                   `json:"jobOptions,omitempty"`
-	// Controls whether the periodic reconciliation re-runs resource workflows after they failed. Defaults to true
+	// ReconcileAfterFailure controls whether the periodic reconciliation re-runs a Promise's
+	// or resource request's configure workflows after the previous run failed. Defaults to true
 	ReconcileAfterFailure *bool `json:"reconcileAfterFailure,omitempty"`
 }
 

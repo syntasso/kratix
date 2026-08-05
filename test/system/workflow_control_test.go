@@ -509,6 +509,16 @@ func jobNamesForResourcePipeline(promiseName, pipelineName string) []string {
 	return strings.Fields(output)
 }
 
+func jobNamesForPromisePipeline(promiseName, pipelineName string) []string {
+	output := platform.Kubectl(
+		"get", "jobs",
+		"-n", workflowJobNamespace("promise"),
+		"-l", workflowJobSelector("promise", promiseName, pipelineName, "configure"),
+		"-o=jsonpath={.items[*].metadata.name}",
+	)
+	return strings.Fields(output)
+}
+
 // newJobNames returns the names in current that are absent from previous.
 func newJobNames(previous, current []string) []string {
 	seen := map[string]bool{}

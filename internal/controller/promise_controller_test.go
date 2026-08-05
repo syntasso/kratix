@@ -81,6 +81,7 @@ var _ = Describe("PromiseController", func() {
 			Log:                    l,
 			Manager:                m,
 			ReconciliationInterval: controller.DefaultReconciliationInterval,
+			ReconcileAfterFailure:  true,
 			EventRecorder:          eventRecorder,
 		}
 	})
@@ -1778,6 +1779,64 @@ var _ = Describe("PromiseController", func() {
 
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+				})
+			})
+		})
+
+		When("the previous promise.configure workflow failed", func() {
+			BeforeEach(func() {
+				promise = createPromise(promiseWithWorkflowPath)
+				setReconcileConfigureWorkflowToReturnFinished()
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName()}, promise)).To(Succeed())
+
+				uPromise, err := promise.ToUnstructured()
+				Expect(err).NotTo(HaveOccurred())
+				resourceutil.SetCondition(uPromise, &clusterv1.Condition{
+					Type:               resourceutil.ConfigureWorkflowCompletedCondition,
+					Status:             v1.ConditionFalse,
+					Message:            "the pipeline failed",
+					Reason:             resourceutil.ConfigureWorkflowCompletedFailedReason,
+					LastTransitionTime: metav1.NewTime(time.Now().Add(-reconciler.ReconciliationInterval).Add(-time.Minute)),
+				})
+				Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
+			})
+
+			When("reconcileAfterFailure is true (default)", func() {
+				BeforeEach(func() {
+					reconciler.ReconcileAfterFailure = true
+				})
+
+				It("re-runs the promise.configure workflow and schedules the next reconciliation", func() {
+					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					Expect(promise.Labels[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+				})
+			})
+
+			When("reconcileAfterFailure is false", func() {
+				BeforeEach(func() {
+					reconciler.ReconcileAfterFailure = false
+				})
+
+				It("does not re-run the promise.configure workflow or schedule a periodic reconciliation", func() {
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					Expect(promise.Labels[resourceutil.ManualReconciliationLabel]).NotTo(Equal("true"))
 				})
 			})
 		})

@@ -264,6 +264,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 
 	if passiveRequeue {
 		logging.Debug(logger, "reconciliation paused awaiting Promise configure workflow updates")
+		// A failed Promise configure workflow settles here (ReconcileConfigure returns a
+		// passive requeue) and never reaches the success guard later in Reconcile, so
+		// schedule the periodic reconcile here to retry the run on the interval.
+		if r.ReconcileAfterFailure && workflowCompletedWithFailure(
+			resourceutil.GetCondition(usPromise, resourceutil.ConfigureWorkflowCompletedCondition)) {
+			return r.nextReconciliation(logger), nil
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -965,7 +972,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
 
-	forcePipelineRun := passedReconciliationInterval(completedCond, r.ReconciliationInterval) &&
+	forcePipelineRun := passedReconciliationInterval(completedCond, r.ReconciliationInterval, r.ReconcileAfterFailure) &&
 		promise.Labels[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
@@ -2221,10 +2228,18 @@ func addPromiseSpanAttributes(traceCtx *reconcileTrace, promise *v1alpha1.Promis
 	)
 }
 
-func passedReconciliationInterval(completedCond *metav1.Condition, reconciliationInterval time.Duration) bool {
+func passedReconciliationInterval(completedCond *metav1.Condition, reconciliationInterval time.Duration, reconcileAfterFailure bool) bool {
+	if completedCond == nil || time.Since(completedCond.LastTransitionTime.Time) <= reconciliationInterval {
+		return false
+	}
+	return completedCond.Status == metav1.ConditionTrue ||
+		(reconcileAfterFailure && promiseWorkflowCompletedWithFailure(completedCond))
+}
+
+func promiseWorkflowCompletedWithFailure(completedCond *metav1.Condition) bool {
 	return completedCond != nil &&
-		completedCond.Status == metav1.ConditionTrue &&
-		time.Since(completedCond.LastTransitionTime.Time) > reconciliationInterval
+		completedCond.Status == metav1.ConditionFalse &&
+		completedCond.Reason == resourceutil.ConfigureWorkflowCompletedFailedReason
 }
 
 func nextRetryAt(promise v1alpha1.Promise) (time.Time, error) {

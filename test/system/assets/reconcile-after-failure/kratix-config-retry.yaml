@@ -12,7 +12,8 @@ data:
     # quickly; the spec references this value.
     numberOfJobsToKeep: 2
     workflows:
-      reconcileAfterFailure: true
+      # Intentionally omit reconcileAfterFailure: its default is true, and the
+      # system specs verify that default through the running controller.
       jobOptions:
         defaultBackoffLimit: 4
       defaultContainerSecurityContext:
