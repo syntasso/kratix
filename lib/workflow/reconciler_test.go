@@ -891,6 +891,57 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
+		When("a pipeline keeps failing", func() {
+			numberOfJobsToKeep := 2
+
+			// Runs a pipeline, fails it, and reconciles again so the failure is
+			// observed; mirrors what the periodic reconcile does once it re-runs a
+			// workflow whose previous run failed. Returns the failed job's name.
+			failPipelineRun := func() string {
+				GinkgoHelper()
+
+				labelPromiseForManualReconciliation(promise.Name)
+				newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
+				setParentWorkflowCountersStatus(uPromise, 0)
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise,
+					newWorkflowPipelines, "promise", numberOfJobsToKeep, namespace)
+
+				_, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				jobName := newWorkflowPipelines[0].Job.GetName()
+				markJobAsFailed(jobName)
+
+				_, err = workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				return jobName
+			}
+
+			It("deletes the oldest failed jobs", func() {
+				var mostRecentJobName string
+				for range numberOfJobsToKeep + 2 {
+					mostRecentJobName = failPipelineRun()
+				}
+
+				jobList := listJobs(namespace)
+				Expect(jobList).To(HaveLen(numberOfJobsToKeep))
+				Expect(findByName(jobList, mostRecentJobName)).To(BeTrue())
+			})
+
+			It("does not delete works belonging to pipelines that no longer exist", func() {
+				createFakeWorks([]v1alpha1.Pipeline{{
+					ObjectMeta: metav1.ObjectMeta{Name: "removed-pipeline"},
+				}}, promise.Name)
+
+				failPipelineRun()
+
+				works := v1alpha1.WorkList{}
+				Expect(fakeK8sClient.List(ctx, &works)).To(Succeed())
+				Expect(works.Items).To(HaveLen(1))
+			})
+		})
+
 		When("all pipelines have executed", func() {
 			var updatedWorkflows []v1alpha1.PipelineJobResources
 

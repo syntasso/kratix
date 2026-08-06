@@ -84,6 +84,7 @@ type DynamicResourceRequestController struct {
 	CanCreateResources          *bool
 	NumberOfJobsToKeep          int
 	ReconciliationInterval      time.Duration
+	ReconcileAfterFailure       bool
 	EventRecorder               events.EventRecorder
 	ResourceBindingPinned       bool
 	// DryRunEnabled mirrors featureFlags.dryRun from the Kratix config. When
@@ -219,7 +220,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	forcePipelineRun := shouldForcePipelineRun(completedCond, r.ReconciliationInterval) &&
+	forcePipelineRun := shouldForcePipelineRun(completedCond, r.ReconciliationInterval, r.ReconcileAfterFailure) &&
 		rr.GetLabels()[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	if restarted, err := r.restartOnReconciliationInterval(opts.ctx, logger, rr,
@@ -275,7 +276,16 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if passiveRequeue {
-		return ctrl.Result{}, r.syncResourceBindingUpgradeStatusOnPassiveRequeue(ctx, logger, promise.GetName(), rr, promiseRevisionUsed)
+		if err := r.syncResourceBindingUpgradeStatusOnPassiveRequeue(ctx, logger, promise.GetName(), rr, promiseRevisionUsed); err != nil {
+			return ctrl.Result{}, err
+		}
+		// A failed configure workflow settles here (ReconcileConfigure returns a passive
+		// requeue) and never reaches reconcileAfterConfigure, so schedule the periodic
+		// reconcile here to retry the run on the interval.
+		if r.ReconcileAfterFailure && workflowCompletedWithFailure(resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)) {
+			return r.nextReconciliation(logger), nil
+		}
+		return ctrl.Result{}, nil
 	}
 
 	return r.reconcileAfterConfigure(ctx, logger, opts, rr, promise, pipelineResources, bindingVersion, promiseRevisionUsed)
@@ -1760,10 +1770,12 @@ func updateObservedGeneration(
 	return opts.client.Status().Update(opts.ctx, rr)
 }
 
-func shouldForcePipelineRun(completedCond *clusterv1.Condition, reconciliationInterval time.Duration) bool {
-	return completedCond != nil &&
-		completedCond.Status == v1.ConditionTrue &&
-		time.Since(completedCond.LastTransitionTime.Time) > reconciliationInterval
+func shouldForcePipelineRun(completedCond *clusterv1.Condition, reconciliationInterval time.Duration, reconcileAfterFailure bool) bool {
+	if completedCond == nil || time.Since(completedCond.LastTransitionTime.Time) <= reconciliationInterval {
+		return false
+	}
+	return completedCond.Status == v1.ConditionTrue ||
+		(reconcileAfterFailure && workflowCompletedWithFailure(completedCond))
 }
 
 func (r *DynamicResourceRequestController) setPromiseLabels(ctx context.Context, promiseName string, rr *unstructured.Unstructured, resourceLabels map[string]string, logger logr.Logger) error {

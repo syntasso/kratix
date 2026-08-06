@@ -66,6 +66,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Log:                         l,
 			UID:                         "1234abcd",
 			ReconciliationInterval:      controller.DefaultReconciliationInterval,
+			ReconcileAfterFailure:       true,
 			EventRecorder:               eventRecorder,
 		}
 
@@ -520,6 +521,80 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			By("updating the last successful workflow configure time", func() {
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 				Expect(resourceutil.GetCondition(resReq, resourceutil.ConfigureWorkflowCompletedCondition).Status).To(Equal(v1.ConditionTrue))
+			})
+		})
+	})
+
+	When("the previous configure workflow failed", func() {
+		var request ctrl.Request
+		BeforeEach(func() {
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+			lastTransitionTime := time.Now().Add(-reconciler.ReconciliationInterval).Add(-time.Hour * 1)
+			if resReq.Object["status"] == nil {
+				resReq.Object["status"] = map[string]interface{}{}
+			}
+			resourceutil.SetCondition(resReq, &clusterv1.Condition{
+				Type:               resourceutil.ConfigureWorkflowCompletedCondition,
+				Status:             v1.ConditionFalse,
+				Reason:             resourceutil.ConfigureWorkflowCompletedFailedReason,
+				Message:            "the pipeline failed",
+				LastTransitionTime: metav1.NewTime(lastTransitionTime),
+			})
+			setWorksSucceeded(resReq)
+			setReconciled(resReq)
+			setWorkflowsCounterStatus(resReq)
+			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+			request = ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}}
+			result, err := reconciler.Reconcile(ctx, request)
+			Expect(result).To(Equal(ctrl.Result{}))
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		When("reconcileAfterFailure is true", func() {
+			BeforeEach(func() {
+				reconciler.ReconcileAfterFailure = true
+			})
+
+			It("sets the manual reconciliation label to re-run the workflow", func() {
+				// the failed condition is already past the interval (outer BeforeEach)
+				Eventually(func(g Gomega) {
+					_, err := reconciler.Reconcile(ctx, request)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					g.Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+				}).Should(Succeed())
+			})
+
+			It("schedules the next reconciliation so a failed run is retried on the interval", func() {
+				// A failed configure workflow settles on the passive-requeue path; the
+				// controller must schedule the periodic reconcile itself.
+				Eventually(func(g Gomega) {
+					result, err := reconciler.Reconcile(ctx, request)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+				}).Should(Succeed())
+			})
+		})
+
+		When("reconcileAfterFailure is false", func() {
+			BeforeEach(func() {
+				reconciler.ReconcileAfterFailure = false
+			})
+
+			It("does not schedule a periodic reconciliation", func() {
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+			})
+
+			It("does not re-run the resource configure workflows", func() {
+				_, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).NotTo(Equal("true"))
 			})
 		})
 	})
