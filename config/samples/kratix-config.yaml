@@ -11,9 +11,6 @@ data:
       defaultContainerSecurityContext:
         windowsOptions:
           runAsUserName: "setInKratixConfig"
-      # reconcileAfterFailure controls whether the periodic reconciliation (on the
-      # Default Reconciliation Interval) re-runs a Promise's or resource request's
-      # configure workflows after the previous run failed. Defaults to true.
       reconcileAfterFailure: true
     telemetry:
       traces:
