@@ -1,0 +1,62 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: reconcilable-promise-wf
+spec:
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: reconcilablepromises.test.kratix.io
+    spec:
+      group: test.kratix.io
+      names:
+        kind: ReconcilablePromise
+        plural: reconcilablepromises
+        singular: reconcilablepromise
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          served: true
+          storage: true
+          schema:
+            openAPIV3Schema:
+              type: object
+              properties:
+                spec:
+                  type: object
+                  properties:
+                    message:
+                      type: string
+  workflows:
+    promise:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: promise-configure
+          spec:
+            jobOptions:
+              backoffLimit: 0
+            rbac:
+              permissions:
+                - apiGroups: [""]
+                  resources: ["configmaps"]
+                  verbs: ["get"]
+            containers:
+              - name: gate
+                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                command: ["/bin/sh", "-c"]
+                args:
+                  - |
+                    set -eu
+                    if kubectl get configmap reconcile-after-failure-promise-hold -n kratix-platform-system >/dev/null 2>&1; then
+                      echo "hold present; keeping configure in progress"
+                      sleep 20
+                    fi
+                    if kubectl get configmap reconcile-after-failure-promise-gate -n kratix-platform-system >/dev/null 2>&1; then
+                      echo "gate present; configure succeeds"
+                      exit 0
+                    fi
+                    echo "gate absent; configure fails"
+                    exit 1

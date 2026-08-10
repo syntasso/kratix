@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kratix
+  namespace: kratix-platform-system
+data:
+  config: |
+    logging:
+      level: debug
+    reconciliationInterval: 10s
+    workflows:
+      reconcileAfterFailure: false
+      jobOptions:
+        defaultBackoffLimit: 4
+      defaultContainerSecurityContext:
+        windowsOptions:
+          runAsUserName: "setInKratixConfig"

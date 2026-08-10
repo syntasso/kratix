@@ -121,6 +121,7 @@ type Workflows struct {
 	DefaultImagePullPolicy          corev1.PullPolicy            `json:"defaultImagePullPolicy,omitempty"`
 	DefaultContainerResources       *corev1.ResourceRequirements `json:"defaultContainerResources,omitempty"`
 	JobOptions                      JobOptions                   `json:"jobOptions,omitempty"`
+	ReconcileAfterFailure           *bool                        `json:"reconcileAfterFailure,omitempty"`
 }
 
 type JobOptions struct {
@@ -337,6 +338,7 @@ func main() {
 		Scheme:                 mgr.GetScheme(),
 		NumberOfJobsToKeep:     getNumJobsToKeep(kratixConfig),
 		ReconciliationInterval: getRegularReconciliationInterval(kratixConfig),
+		ReconcileAfterFailure:  getReconcileAfterFailure(kratixConfig),
 		EventRecorder:          mgr.GetEventRecorder("PromiseController"),
 		ResourceBindingPinned:  resourceBindingDefaultVersion == ResourceBindingDefaultVersionPinned,
 		DryRunEnabled:          dryRunFeatureEnabled,
@@ -632,6 +634,13 @@ func getStateStoreReconciliationInterval(kratixConfig *KratixConfig) time.Durati
 		return controller.DefaultReconciliationInterval
 	}
 	return kratixConfig.StateStoreReconciliationInterval.Duration
+}
+
+func getReconcileAfterFailure(kratixConfig *KratixConfig) bool {
+	if kratixConfig == nil || kratixConfig.Workflows.ReconcileAfterFailure == nil {
+		return true
+	}
+	return *kratixConfig.Workflows.ReconcileAfterFailure
 }
 
 func telemetryConfigFromKratixConfig(cfg *KratixConfig) *telemetry.Config {

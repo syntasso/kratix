@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kratix
+  namespace: kratix-platform-system
+data:
+  config: |
+    logging:
+      level: debug
+    reconciliationInterval: 10s
+    # Kept low so the failed-job pruning assertion in the spec reaches the cap
+    # quickly; the spec references this value.
+    numberOfJobsToKeep: 2
+    workflows:
+      # Intentionally omit reconcileAfterFailure: its default is true, and the
+      # system specs verify that default through the running controller.
+      jobOptions:
+        defaultBackoffLimit: 4
+      defaultContainerSecurityContext:
+        windowsOptions:
+          runAsUserName: "setInKratixConfig"
