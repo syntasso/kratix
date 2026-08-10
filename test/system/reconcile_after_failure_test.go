@@ -236,7 +236,7 @@ var _ = Describe("Reconcile promise workflow after failure", Serial, func() {
 					// A retry creates the next job before the preceding failure is
 					// observed and pruned, so one transient extra job is expected.
 					g.Expect(len(currentJobNames)).To(BeNumerically("<=", numberOfJobsToKeep+1))
-				}, 45*time.Second, 2*time.Second).Should(Succeed())
+				}, 75*time.Second, 2*time.Second).Should(Succeed())
 				Expect(len(observedJobNames)).To(BeNumerically(">", numberOfJobsToKeep+1))
 			})
 

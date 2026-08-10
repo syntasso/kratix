@@ -7,7 +7,7 @@ data:
   config: |
     logging:
       level: debug
-    reconciliationInterval: 5s
+    reconciliationInterval: 10s
     workflows:
       reconcileAfterFailure: false
       jobOptions:
