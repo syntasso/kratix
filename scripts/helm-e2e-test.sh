@@ -10,10 +10,10 @@ if [ "$STATE_STORE" == "git" ]; then
     job_pod_namespace="gitea"
     job_pod_labels="app.kubernetes.io/instance=gitea"
 elif [ "$STATE_STORE" == "bucket" ]; then
-    platform_helm_values_path="hack/platform/helm-values-minio.yaml"
-    state_store_install_path="hack/platform/minio-install.yaml"
+    platform_helm_values_path="hack/platform/helm-values-bucket.yaml"
+    state_store_install_path="hack/platform/seaweedfs-install.yaml"
     job_pod_namespace="kratix-platform-system"
-    job_pod_labels="run=minio"
+    job_pod_labels="run=seaweedfs"
 else
     echo "No supported State Store specified"
     exit 1

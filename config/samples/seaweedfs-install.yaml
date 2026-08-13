@@ -1,0 +1,179 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  creationTimestamp: null
+  name: kratix-platform-system
+---
+# The S3 endpoint. Deliberately named `bucket` rather than `seaweedfs`: the Service
+# DNS name is the contract every downstream repo and doc hardcodes, so it stays
+# vendor-neutral and survives a future change of state store. The Deployment, its
+# labels and the image below name the implementation, which is fine - nothing
+# outside this file depends on those.
+#
+# nodePort 31337 is also a cross-repo contract: the kind extraPortMappings, the
+# -destination Helm values (172.18.0.2:31337) and the gitops-tk-resources all
+# depend on it.
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  name: bucket
+  namespace: kratix-platform-system
+spec:
+  ports:
+    - port: 80
+      protocol: TCP
+      targetPort: 8333
+      nodePort: 31337
+  selector:
+    run: seaweedfs
+  type: NodePort
+---
+# Secrets are namespaced, so the same credential ships twice: here for the server's
+# env vars, and again in `default` for the BucketStateStore secretRef below.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bucket-credentials
+  namespace: kratix-platform-system
+stringData:
+  accessKeyID: kratixadmin
+  secretAccessKey: kratixadmin
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    run: seaweedfs
+  name: seaweedfs
+  namespace: kratix-platform-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      run: seaweedfs
+  template:
+    metadata:
+      labels:
+        run: seaweedfs
+    spec:
+      containers:
+        - image: chrislusf/seaweedfs:4.41
+          name: seaweedfs
+          args:
+            - server
+            - -s3
+            - -s3.port=8333
+            - -dir=/data
+            # -ip is the address this server advertises to its own components and
+            # to clients the master redirects, so it must be routable from other
+            # pods. The Pod IP is, and needs no Service port of its own.
+            - -ip=$(POD_IP)
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: bucket-credentials
+                  key: accessKeyID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bucket-credentials
+                  key: secretAccessKey
+          ports:
+            - containerPort: 8333
+          # Readiness deliberately checks that the bucket exists, not just that the
+          # port is open. `quick-start.sh` and `scripts/helm-e2e-test.sh` both gate on
+          # `kubectl wait --for=condition=ready`, and they mean "the state store is
+          # usable" - a TCP probe would report ready before ensure-bucket had created
+          # the bucket, which is the race that wedged CI.
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "echo 's3.bucket.list' | weed shell -master=localhost:9333 2>/dev/null | awk '{print $1}' | grep -qx kratix"
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          volumeMounts:
+            - mountPath: /data
+              name: data-volume
+        # Bucket creation runs on EVERY pod start rather than once at install time.
+        # The data volume is an emptyDir, so a pod replacement loses the bucket; this
+        # loop puts it back. It also re-checks on an interval, so the bucket's
+        # existence is a continuously enforced invariant rather than a one-shot side
+        # effect. Kratix rewrites the objects on its own reconcile, so an empty-but-
+        # present bucket recovers by itself - but nothing in Kratix recreates the
+        # bucket (lib/writers/s3.go only warns when it is missing), which is why this
+        # container exists.
+        #
+        # Deliberately an ORDINARY container, not an initContainer with
+        # restartPolicy: Always. A native sidecar would do the same job but is GA only
+        # in Kubernetes 1.33 and beta-on-by-default from 1.29; below that the API
+        # server rejects restartPolicy on an init container and the WHOLE manifest
+        # fails to apply. A plain container has no version floor. The only things a
+        # native sidecar adds - start-before-main and terminate-after-main ordering -
+        # are not needed here: the loop below waits for the master itself, and there is
+        # nothing to flush at shutdown.
+        #
+        # It must NOT have a readinessProbe. Pod-Ready requires every container ready,
+        # and a probe-less helper reports Ready as soon as it starts, which says nothing
+        # about the bucket. The bucket-existence signal belongs on the main container's
+        # readinessProbe above.
+        #
+        # Everything is reachable on localhost because containers in a pod share a
+        # network namespace - no Service is involved. `weed shell` takes the master
+        # address and adds 10000 to reach master gRPC, so :9333 is correct as written.
+        - name: ensure-bucket
+          image: chrislusf/seaweedfs:4.41
+          command:
+            - sh
+            - -c
+            - |
+              set -u
+              bucket_exists() {
+                echo 's3.bucket.list' \
+                  | weed shell -master=localhost:9333 2>/dev/null \
+                  | awk '{print $1}' | grep -qx kratix
+              }
+              until echo 's3.bucket.list' | weed shell -master=localhost:9333 >/dev/null 2>&1; do
+                echo "waiting for the seaweedfs master to answer..."
+                sleep 2
+              done
+              while true; do
+                if ! bucket_exists; then
+                  echo "bucket 'kratix' is missing; creating it"
+                  echo 's3.bucket.create --name kratix' | weed shell -master=localhost:9333
+                  # weed shell can exit 0 without doing anything - and prints
+                  # "created bucket kratix" even when the bucket was already there -
+                  # so verify by listing rather than trusting the exit code or output.
+                  if bucket_exists; then
+                    echo "bucket 'kratix' created"
+                  else
+                    echo "ERROR: bucket 'kratix' still missing after create" >&2
+                  fi
+                fi
+                # Recovery from a pod restart does not depend on this interval - the
+                # first check runs immediately on container start. It only bounds
+                # recovery from an out-of-band bucket deletion.
+                sleep 10
+              done
+      volumes:
+        - name: data-volume
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bucket-credentials
+  namespace: default
+stringData:
+  accessKeyID: kratixadmin
+  secretAccessKey: kratixadmin

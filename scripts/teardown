@@ -19,7 +19,7 @@ main() {
 
     kw delete namespace kratix-worker-system || true
     kp -n kratix-platform-system delete deployment kratix-platform-controller-manager 2>/dev/null || true
-    kp -n kratix-platform-system delete deployment minio 2>/dev/null || true
+    kp -n kratix-platform-system delete deployment seaweedfs 2>/dev/null || true
     kp delete -f $root/hack/platform/gitea-install.yaml 2>/dev/null || true
 }
 

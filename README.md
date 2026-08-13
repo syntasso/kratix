@@ -3,7 +3,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/syntasso/kratix)](https://goreportcard.com/report/github.com/syntasso/kratix)
 [![X Follow](https://img.shields.io/badge/Follow-grey?logo=X&style=flat)](https://twitter.com/intent/follow?screen_name=kratixio)
 
-![Kratix](docs/deprecated/images/white_logo_color_background.jpg)
+![Kratix](docs/images/white_logo_color_background.jpg)
 
 κρατήστε μια υπόσχεση | *kratíste mia ypóschesi* | **Keep a promise**
 

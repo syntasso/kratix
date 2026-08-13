@@ -20,14 +20,18 @@ kratix_version=$(cat $PWD/distribution/kratix.yaml| grep "image: docker.io/synta
 
 images=(
   # Kind image
-  "docker.io/kindest/node:v1.24.7@sha256:577c630ce8e509131eab1aea12c022190978dd2f745aac5eb1fe65c0807eb315"
+  # Must stay >= the Kubernetes version the install manifests require. The SeaweedFS
+  # manifest uses a native sidecar (restartPolicy on an init container), which needs
+  # 1.29+ and is only GA in 1.33; older nodes reject the whole manifest.
+  # Keep in step with KIND_IMAGE in scripts/quick-start.sh.
+  "docker.io/kindest/node:v1.33.1"
 
   # Kratix Distribution Images
   "docker.io/syntasso/kratix-platform:${kratix_version}"
   "docker.io/syntassodev/kratix-platform:${kratix_version}"
 
   # Extra
-  "docker.io/minio/minio:RELEASE.2022-06-30T20-58-09Z"
+  "chrislusf/seaweedfs:4.41"
   "ghcr.io/fluxcd/helm-controller:v0.27.0"
   "ghcr.io/fluxcd/kustomize-controller:v0.31.0"
   "ghcr.io/fluxcd/notification-controller:v0.29.0"

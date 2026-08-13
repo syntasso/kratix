@@ -73,7 +73,7 @@ fast-quick-start: teardown ## Install Kratix without recreating the local cluste
 	RECREATE=false make quick-start
 
 quick-start: generate distribution ## Recreates the clusters and install Kratix
-	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh $(RECREATE_FLAG)  --local --git-and-minio
+	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh $(RECREATE_FLAG)  --local --git-and-bucket
 
 prepare-platform-as-destination: ## Installs flux onto platform cluster and registers as a destination
 	./scripts/register-destination --with-label environment=platform --context kind-platform --name platform-cluster
@@ -88,6 +88,13 @@ install-cert-manager: ## Install cert-manager on the platform cluster; used in t
 	kubectl wait --for condition=available -n cert-manager deployment/cert-manager --timeout 120s
 	kubectl wait --for condition=available -n cert-manager deployment/cert-manager-cainjector --timeout 120s
 	kubectl wait --for condition=available -n cert-manager deployment/cert-manager-webhook --timeout 120s
+
+s5cmd-cli: ## Install the s5cmd S3 CLI into ./bin, preconfigured for the local bucket
+	mkdir -p bin
+	$(call get-s5cmd-cli)
+
+bucket-env: ## Print the bucket env vars for other S3 tools. Apply with: eval "$(make -s bucket-env)"
+	@./scripts/s5cmd print-env
 
 ##@ Container Images
 
@@ -200,15 +207,32 @@ gitea-cli:
 	mkdir -p bin
 	$(call get-gitea-cli)
 
-define get-mc-cli
-@[ -f $(PROJECT_DIR)/bin/mc ] || { \
-curl --silent --output $(PROJECT_DIR)/bin/mc https://dl.min.io/aistor/mc/release/$(PLATFORM)-$(ARCH)/mc; \
-chmod +x $(PROJECT_DIR)/bin/mc; \
+S5CMD_VERSION ?= v2.3.0-acb67716
+# Release assets are named <os>-<arch>.tar.gz in s5cmd's own spelling: macOS/Linux,
+# and 64bit for x86.
+S5CMD_OS=Linux
+ifeq ($(PLATFORM),darwin)
+	S5CMD_OS=macOS
+endif
+S5CMD_ARCH=$(ARCH)
+ifneq (,$(filter $(ARCH),x86_64 amd64))
+	S5CMD_ARCH=64bit
+endif
+
+# bin/s5cmd is the wrapper in scripts/; the binary itself goes to bin/.s5cmd.
+# Extracting via a temp dir keeps tar from following that symlink and overwriting
+# the wrapper with the binary.
+define get-s5cmd-cli
+@[ -f $(PROJECT_DIR)/bin/.s5cmd ] || { \
+tmp=$$(mktemp -d); \
+curl --silent --location https://github.com/coreweave/s5cmd/releases/download/$(S5CMD_VERSION)/s5cmd_$(S5CMD_VERSION:v%=%)_$(S5CMD_OS)-$(S5CMD_ARCH).tar.gz \
+| tar --extract --gzip --directory $$tmp s5cmd; \
+mv $$tmp/s5cmd $(PROJECT_DIR)/bin/.s5cmd; \
+rm -rf $$tmp; \
+chmod +x $(PROJECT_DIR)/bin/.s5cmd; \
 }
+@ln -sf ../scripts/s5cmd $(PROJECT_DIR)/bin/s5cmd
 endef
-minio-cli:
-	mkdir -p bin
-	$(call get-mc-cli)
 
 .PHONY: list
 list:
