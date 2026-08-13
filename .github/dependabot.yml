@@ -42,6 +42,5 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    groups:
-      github-actions:
-        patterns: ["*"]
+    # No grouping — individual PRs per action allow the auto-merge workflow
+    # to safely merge each SHA update independently after CI passes.
