@@ -102,5 +102,61 @@ var _ = Describe("PromiseRevision", func() {
 			Expect(interval).To(Equal(3 * time.Minute))
 			Expect(fromRevision).To(BeTrue())
 		})
+
+		const specSnapshot = 3 * time.Minute
+
+		revisionWithAnnotation := func(annotation string) *platformv1alpha1.PromiseRevision {
+			revision := &platformv1alpha1.PromiseRevision{
+				Spec: platformv1alpha1.PromiseRevisionSpec{
+					PromiseSpec: platformv1alpha1.PromiseSpec{
+						Workflows: platformv1alpha1.Workflows{
+							Config: platformv1alpha1.WorkflowConfig{
+								ReconciliationInterval: &metav1.Duration{Duration: specSnapshot},
+							},
+						},
+					},
+				},
+			}
+			if annotation != "" {
+				revision.SetAnnotations(map[string]string{platformv1alpha1.ReconciliationIntervalAnnotation: annotation})
+			}
+			return revision
+		}
+
+		It("resolves to the annotation's value when it differs from the spec snapshot", func() {
+			revision := revisionWithAnnotation("5m")
+			interval, _ := revision.ReconciliationInterval(fallback)
+			Expect(interval).To(Equal(5 * time.Minute))
+		})
+
+		It("resolves to the spec snapshot when the annotation is absent", func() {
+			revision := revisionWithAnnotation("")
+			interval, _ := revision.ReconciliationInterval(fallback)
+			Expect(interval).To(Equal(3 * time.Minute))
+		})
+
+		It("resolves to the spec snapshot when the annotation is unparseable", func() {
+			revision := revisionWithAnnotation("not-a-duration")
+			interval, _ := revision.ReconciliationInterval(fallback)
+			Expect(interval).To(Equal(3 * time.Minute))
+			Expect(revision.ReconciliationIntervalAnnotationDeclined()).To(BeTrue())
+		})
+
+		It("resolves to the spec snapshot, not the global default, when the annotation is below the floor", func() {
+			revision := revisionWithAnnotation("30s")
+			interval, _ := revision.ReconciliationInterval(fallback)
+			Expect(interval).To(Equal(3 * time.Minute))
+			Expect(revision.ReconciliationIntervalAnnotationDeclined()).To(BeTrue())
+		})
+
+		It("does not report the annotation as declined when it is absent", func() {
+			revision := revisionWithAnnotation("")
+			Expect(revision.ReconciliationIntervalAnnotationDeclined()).To(BeFalse())
+		})
+
+		It("does not report the annotation as declined when it is valid", func() {
+			revision := revisionWithAnnotation("5m")
+			Expect(revision.ReconciliationIntervalAnnotationDeclined()).To(BeFalse())
+		})
 	})
 })

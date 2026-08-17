@@ -147,18 +147,42 @@ func (pr *PromiseRevision) ClearLatestRevisionLabel() {
 	delete(l, LatestRevisionLabel)
 }
 
-// MinReconciliationInterval is the floor the Promise validating webhook enforces for
-// spec.workflows.config.reconciliationInterval.
+// MinReconciliationInterval is the floor enforced by the Promise validating webhook for
+// spec.workflows.config.reconciliationInterval, by the PromiseRevision validating webhook for
+// ReconciliationIntervalAnnotation, and by ReconciliationInterval when it reads that annotation.
 const MinReconciliationInterval = time.Minute
 
-// ReconciliationInterval returns this revision's snapshot reconciliation interval and true, or
-// fallback and false when the snapshot does not declare one.
+// ReconciliationIntervalAnnotation overrides a revision's reconciliation interval ahead of its
+// spec snapshot. ReconciliationInterval reads it first; a value that fails to parse, or falls
+// below MinReconciliationInterval, is declined and falls through to the spec snapshot.
+const ReconciliationIntervalAnnotation = KratixPrefix + "reconciliation-interval"
+
+// ReconciliationInterval returns this revision's reconciliation interval and true: the value of
+// ReconciliationIntervalAnnotation if it parses and meets MinReconciliationInterval, otherwise
+// the spec snapshot's interval. It returns fallback and false when neither is set.
 func (pr *PromiseRevision) ReconciliationInterval(fallback time.Duration) (time.Duration, bool) {
+	if raw, ok := pr.GetAnnotations()[ReconciliationIntervalAnnotation]; ok {
+		if d, err := time.ParseDuration(raw); err == nil && d >= MinReconciliationInterval {
+			return d, true
+		}
+	}
 	interval := pr.Spec.PromiseSpec.Workflows.Config.ReconciliationInterval
 	if interval == nil {
 		return fallback, false
 	}
 	return interval.Duration, true
+}
+
+// ReconciliationIntervalAnnotationDeclined reports whether ReconciliationIntervalAnnotation is
+// set but was declined - unparseable, or below MinReconciliationInterval - so
+// ReconciliationInterval falls through to the spec snapshot instead.
+func (pr *PromiseRevision) ReconciliationIntervalAnnotationDeclined() bool {
+	raw, ok := pr.GetAnnotations()[ReconciliationIntervalAnnotation]
+	if !ok {
+		return false
+	}
+	d, err := time.ParseDuration(raw)
+	return err != nil || d < MinReconciliationInterval
 }
 
 func NewPromiseRevision(promise *Promise, version string) *PromiseRevision {
