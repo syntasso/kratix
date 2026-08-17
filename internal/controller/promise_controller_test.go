@@ -36,6 +36,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache/informertest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -2674,6 +2675,46 @@ var _ = Describe("PromiseController", func() {
 		It("enqueues nothing when the revision's Promise is gone", func() {
 			revision.SetLabels(map[string]string{v1alpha1.PromiseNameLabel: "does-not-exist"})
 			Expect(reconciler.PromisesRequiringRevision(ctx, revision)).To(BeEmpty())
+		})
+	})
+
+	Describe("Reconciling a Promise when its own PromiseRevision's reconciliation-interval annotation changes", func() {
+		var revision *v1alpha1.PromiseRevision
+
+		BeforeEach(func() {
+			promise = &v1alpha1.Promise{ObjectMeta: metav1.ObjectMeta{Name: "redis"}}
+			revision = v1alpha1.NewPromiseRevision(promise, "v1.0.0")
+		})
+
+		It("maps a PromiseRevision to its own Promise", func() {
+			Expect(controller.PromiseForRevision(ctx, revision)).To(ConsistOf(
+				reconcile.Request{NamespacedName: types.NamespacedName{Name: "redis"}},
+			))
+		})
+
+		It("enqueues nothing when the revision has no promise name", func() {
+			revision.Spec.PromiseRef.Name = ""
+			Expect(controller.PromiseForRevision(ctx, revision)).To(BeEmpty())
+		})
+
+		It("does not fire when the annotation is unchanged", func() {
+			oldRevision := revision.DeepCopy()
+			oldRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "5m"})
+			newRevision := revision.DeepCopy()
+			newRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "5m"})
+
+			predicate := controller.PromiseRevisionAnnotationChangedPredicate()
+			Expect(predicate.Update(event.UpdateEvent{ObjectOld: oldRevision, ObjectNew: newRevision})).To(BeFalse())
+		})
+
+		It("fires when the annotation value changes", func() {
+			oldRevision := revision.DeepCopy()
+			oldRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "5m"})
+			newRevision := revision.DeepCopy()
+			newRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "10m"})
+
+			predicate := controller.PromiseRevisionAnnotationChangedPredicate()
+			Expect(predicate.Update(event.UpdateEvent{ObjectOld: oldRevision, ObjectNew: newRevision})).To(BeTrue())
 		})
 	})
 })

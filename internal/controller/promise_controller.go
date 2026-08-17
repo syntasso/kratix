@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -1873,6 +1874,47 @@ func (r *PromiseReconciler) PromisesRequiringRevision(ctx context.Context, obj c
 	return requests
 }
 
+// promiseForRevision maps a PromiseRevision to its own Promise, read from spec.promiseRef.name.
+// That field is required and set once, from the Promise's own name, when the revision is
+// created; the shared labels mirror it but are ordinary metadata a client could edit, so the
+// spec field is the route that cannot point at the wrong Promise.
+func promiseForRevision(_ context.Context, obj client.Object) []reconcile.Request {
+	revision, ok := obj.(*v1alpha1.PromiseRevision)
+	if !ok {
+		return nil
+	}
+
+	promiseName := revision.GetPromiseName()
+	if promiseName == "" {
+		return nil
+	}
+
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: promiseName}}}
+}
+
+// promiseRevisionAnnotationChangedPredicate reports an Update event only when a PromiseRevision's
+// ReconciliationIntervalAnnotation value changes. The promise controller create-or-updates the
+// latest revision on every Promise reconcile, so a predicate that also fired on that steady-state
+// rewrite would enqueue the owning Promise on every tick.
+func promiseRevisionAnnotationChangedPredicate() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool {
+			return false
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldValue := e.ObjectOld.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]
+			newValue := e.ObjectNew.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]
+			return oldValue != newValue
+		},
+		DeleteFunc: func(event.DeleteEvent) bool {
+			return false
+		},
+		GenericFunc: func(event.GenericEvent) bool {
+			return false
+		},
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -1892,6 +1934,11 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&v1alpha1.PromiseRevision{},
 			handler.EnqueueRequestsFromMapFunc(r.PromisesRequiringRevision),
+		).
+		Watches(
+			&v1alpha1.PromiseRevision{},
+			handler.EnqueueRequestsFromMapFunc(promiseForRevision),
+			builder.WithPredicates(promiseRevisionAnnotationChangedPredicate()),
 		).
 		// Reconcile a Promise when one of its Work resources changes.
 		// This triggers the Promise reconciliation when a Work resource changes to update the "Reconciled" and
