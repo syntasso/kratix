@@ -399,24 +399,31 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 		revision.SetLabels(labels.Merge(l, promise.GenerateSharedLabels()))
 		revision.SetLatestRevisionLabel()
 
-		if interval, ok := promise.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]; ok {
-			annotations := revision.GetAnnotations()
-			if annotations == nil {
-				annotations = map[string]string{}
-			}
-			annotations[v1alpha1.ReconciliationIntervalAnnotation] = interval
-			revision.SetAnnotations(annotations)
+		// A PromiseRelease-managed Promise gets this annotation from installPromise merging
+		// the artefact's annotations onto the live Promise, not from an operator; mirroring
+		// it here would overwrite the one override path that works for that population, and
+		// the delete arm would erase it the moment the artefact stops carrying a value.
+		if _, managedByPromiseRelease := promise.Labels[promiseReleaseNameLabel]; !managedByPromiseRelease {
+			if interval, ok := promise.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]; ok {
+				annotations := revision.GetAnnotations()
+				if annotations == nil {
+					annotations = map[string]string{}
+				}
+				annotations[v1alpha1.ReconciliationIntervalAnnotation] = interval
+				revision.SetAnnotations(annotations)
 
-			// A Promise can carry an out-of-policy value from before the admission check
-			// existed; mirroring it here would fail the write on the revision's own
-			// webhook and abort this reconcile before the Promise's status is written.
-			if revision.ReconciliationIntervalAnnotationDeclined() {
+				// A Promise can carry an out-of-policy value from before the admission check
+				// existed; mirroring it here would fail the write on the revision's own
+				// webhook and abort this reconcile before the Promise's status is written.
+				_, reconciliationIntervalSource := revision.ReconciliationInterval(r.ReconciliationInterval)
+				if reconciliationIntervalSource != v1alpha1.ReconciliationIntervalFromAnnotation {
+					delete(revision.GetAnnotations(), v1alpha1.ReconciliationIntervalAnnotation)
+					logging.Warn(logger, "Promise reconciliation-interval annotation declined; not mirrored onto revision",
+						"promise", promise.GetName(), "annotation", v1alpha1.ReconciliationIntervalAnnotation)
+				}
+			} else {
 				delete(revision.GetAnnotations(), v1alpha1.ReconciliationIntervalAnnotation)
-				logging.Warn(logger, "Promise reconciliation-interval annotation declined; not mirrored onto revision",
-					"promise", promise.GetName(), "annotation", v1alpha1.ReconciliationIntervalAnnotation)
 			}
-		} else {
-			delete(revision.GetAnnotations(), v1alpha1.ReconciliationIntervalAnnotation)
 		}
 
 		return controllerutil.SetControllerReference(promise, revision, scheme.Scheme)

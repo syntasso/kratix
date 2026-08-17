@@ -2633,6 +2633,43 @@ var _ = Describe("PromiseController", func() {
 				})
 			})
 
+			When("the Promise is managed by a PromiseRelease", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					promise.Labels["kratix.io/promise-release-name"] = "redis"
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+				})
+
+				It("does not mirror the Promise's reconciliation-interval annotation onto the revision", func() {
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					promise.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "5m"})
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+					Expect(revision.GetAnnotations()).NotTo(HaveKey(v1alpha1.ReconciliationIntervalAnnotation))
+				})
+
+				It("leaves a hand-set annotation on the latest revision untouched by a reconcile", func() {
+					Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+					revision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "10m"})
+					Expect(fakeK8sClient.Update(ctx, revision)).To(Succeed())
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+					Expect(revision.GetAnnotations()).To(HaveKeyWithValue(v1alpha1.ReconciliationIntervalAnnotation, "10m"))
+				})
+			})
+
 			When("the Promise Version is not a valid Object Name", func() {
 				BeforeEach(func() {
 					promise.Labels[v1alpha1.PromiseVersionLabel] = "v1.ALLCAPS"
