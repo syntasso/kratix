@@ -109,6 +109,10 @@ func validatePromise(p *v1alpha1.Promise) ([]string, error) {
 		return nil, err
 	}
 
+	if err := validateReconciliationIntervalAnnotation(p.GetAnnotations()); err != nil {
+		return nil, err
+	}
+
 	return validateRequiredPromisesAreAvailable(p), nil
 }
 
