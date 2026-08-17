@@ -151,6 +151,9 @@ func (pr *PromiseRevision) ClearLatestRevisionLabel() {
 const MinReconciliationInterval = time.Minute
 
 // ReconciliationIntervalAnnotation overrides a revision's reconciliation interval.
+//
+// The revision for the Promise's current version mirrors this annotation from the Promise on
+// every reconcile. Revisions for older versions keep their annotation unchanged.
 const ReconciliationIntervalAnnotation = KratixPrefix + "reconciliation-interval"
 
 type ReconciliationIntervalSource string

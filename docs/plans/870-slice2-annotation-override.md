@@ -106,3 +106,10 @@ Not a sweep at the end — these are known now, so they are a task. Each needs i
 ## Amended during implementation
 
 Nothing yet. Deltas go here before hand-off; where this section and a task disagree, this section wins.
+
+1. **Slice 3 closed the friction this plan's briefing describes.** The "Friction it leaves her"
+   paragraph above says Penny must annotate each revision because annotating the Promise does
+   nothing. That is now only true for archived revisions: slice 3 mirrors the Promise's
+   `kratix.io/reconciliation-interval` onto the revision for its current version, so annotating
+   the Promise once is sufficient there. Hand-annotating that latest revision directly no longer
+   sticks — the mirror overwrites it on the next Promise reconcile.
