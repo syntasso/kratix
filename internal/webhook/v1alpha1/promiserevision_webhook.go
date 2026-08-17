@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -31,12 +32,34 @@ var _ admission.Validator[*platformv1alpha1.PromiseRevision] = &PromiseRevisionC
 
 // ValidateCreate implements admission.Validator so a webhook will be registered for the type PromiseRevision.
 func (v *PromiseRevisionCustomValidator) ValidateCreate(_ context.Context, obj *platformv1alpha1.PromiseRevision) (admission.Warnings, error) {
-	return nil, nil
+	return nil, validateReconciliationIntervalAnnotation(obj)
 }
 
 // ValidateUpdate implements admission.Validator so a webhook will be registered for the type PromiseRevision.
 func (v *PromiseRevisionCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj *platformv1alpha1.PromiseRevision) (admission.Warnings, error) {
-	return nil, nil
+	return nil, validateReconciliationIntervalAnnotation(newObj)
+}
+
+// validateReconciliationIntervalAnnotation rejects platformv1alpha1.ReconciliationIntervalAnnotation
+// values that ReconciliationInterval would otherwise decline silently: unparseable syntax and
+// values below platformv1alpha1.MinReconciliationInterval get distinct messages so the caller
+// knows which one to fix.
+func validateReconciliationIntervalAnnotation(revision *platformv1alpha1.PromiseRevision) error {
+	raw, ok := revision.GetAnnotations()[platformv1alpha1.ReconciliationIntervalAnnotation]
+	if !ok {
+		return nil
+	}
+
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return fmt.Errorf("metadata.annotations[%s]: Invalid value: %q: must be a valid duration",
+			platformv1alpha1.ReconciliationIntervalAnnotation, raw)
+	}
+	if d < platformv1alpha1.MinReconciliationInterval {
+		return fmt.Errorf("metadata.annotations[%s]: Invalid value: %q: must be at least %s",
+			platformv1alpha1.ReconciliationIntervalAnnotation, raw, platformv1alpha1.MinReconciliationInterval)
+	}
+	return nil
 }
 
 // ValidateDelete implements admission.Validator so a webhook will be registered for the type PromiseRevision.
