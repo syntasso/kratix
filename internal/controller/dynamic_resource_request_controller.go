@@ -220,7 +220,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	forcePipelineRun := shouldForcePipelineRun(completedCond, r.ReconciliationInterval, r.ReconcileAfterFailure) &&
+	reconciliationInterval := promiseRevisionUsed.ReconciliationInterval(r.ReconciliationInterval)
+	forcePipelineRun := shouldForcePipelineRun(completedCond, reconciliationInterval, r.ReconcileAfterFailure) &&
 		rr.GetLabels()[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	if restarted, err := r.restartOnReconciliationInterval(opts.ctx, logger, rr,
@@ -283,7 +284,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		// requeue) and never reaches reconcileAfterConfigure, so schedule the periodic
 		// reconcile here to retry the run on the interval.
 		if r.ReconcileAfterFailure && workflowCompletedWithFailure(resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)) {
-			return r.nextReconciliation(logger), nil
+			return r.nextReconciliation(logger, promiseRevisionUsed), nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -336,7 +337,7 @@ func (r *DynamicResourceRequestController) reconcileAfterConfigure(
 		if versionUpdated {
 			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 		}
-		return r.nextReconciliation(logger), r.cleanupWorkflowCountersAndExecution(ctx, logger, rr)
+		return r.nextReconciliation(logger, promiseRevisionUsed), r.cleanupWorkflowCountersAndExecution(ctx, logger, rr)
 	}
 
 	statusUpdated, err := r.ensureResourceStatus(ctx, logger, rr, promise, pipelineResources, bindingVersion, promiseRevisionUsed)
@@ -360,7 +361,7 @@ func (r *DynamicResourceRequestController) reconcileAfterConfigure(
 			}
 			return ctrl.Result{}, nil
 		}
-		return r.nextReconciliation(logger), nil
+		return r.nextReconciliation(logger, promiseRevisionUsed), nil
 	}
 
 	if r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevisionUsed) {
@@ -1462,9 +1463,14 @@ func workflowInProgress(workflowCompletedCondition *clusterv1.Condition) bool {
 		workflowCompletedCondition.Reason == resourceutil.PipelinesInProgressReason
 }
 
-func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) ctrl.Result {
-	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", r.ReconciliationInterval)
-	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
+func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger, promiseRevisionUsed *v1alpha1.PromiseRevision) ctrl.Result {
+	interval := promiseRevisionUsed.ReconciliationInterval(r.ReconciliationInterval)
+	source := "revision"
+	if promiseRevisionUsed.Spec.PromiseSpec.Workflows.Config.ReconciliationInterval == nil {
+		source = "globalDefault"
+	}
+	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", interval, "source", source)
+	return ctrl.Result{RequeueAfter: interval}
 }
 
 func (r *DynamicResourceRequestController) restartOnReconciliationInterval(
