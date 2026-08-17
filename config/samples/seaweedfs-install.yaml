@@ -2,13 +2,10 @@ apiVersion: v1
 kind: Namespace
 metadata:
   creationTimestamp: null
-  name: kratix-platform-system
+  name: seaweedfs
 ---
-# The S3 endpoint. Deliberately named `bucket` rather than `seaweedfs`: the Service
-# DNS name is the contract every downstream repo and doc hardcodes, so it stays
-# vendor-neutral and survives a future change of state store. The Deployment, its
-# labels and the image below name the implementation, which is fine - nothing
-# outside this file depends on those.
+# The S3 endpoint. Deliberately named `bucket` rather than `seaweedfs`: the DNS name
+# is the contract every downstream repo and doc hardcodes.
 #
 # nodePort 31337 is also a cross-repo contract: the kind extraPortMappings, the
 # -destination Helm values (172.18.0.2:31337) and the gitops-tk-resources all
@@ -18,7 +15,7 @@ kind: Service
 metadata:
   creationTimestamp: null
   name: bucket
-  namespace: kratix-platform-system
+  namespace: seaweedfs
 spec:
   ports:
     - port: 80
@@ -35,7 +32,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: bucket-credentials
-  namespace: kratix-platform-system
+  namespace: seaweedfs
 stringData:
   accessKeyID: kratixadmin
   secretAccessKey: kratixadmin
@@ -47,7 +44,7 @@ metadata:
   labels:
     run: seaweedfs
   name: seaweedfs
-  namespace: kratix-platform-system
+  namespace: seaweedfs
 spec:
   replicas: 1
   selector:

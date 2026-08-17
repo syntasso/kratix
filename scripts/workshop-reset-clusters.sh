@@ -12,7 +12,7 @@ if [ -z "$PLATFORM_CONTEXT" ] || [ -z "$WORKER_CONTEXT" ]; then
 fi
 
 # Delete the SeaweedFS deployment to wipe out the buckets
-kubectl delete --context $PLATFORM_CONTEXT deployment seaweedfs --namespace kratix-platform-system
+kubectl delete --context $PLATFORM_CONTEXT deployment seaweedfs --namespace seaweedfs
 
 # Delete Kratix deployment to stop dynamic controllers
 kubectl delete --context $PLATFORM_CONTEXT deployment -n kratix-platform-system kratix-platform-controller-manager

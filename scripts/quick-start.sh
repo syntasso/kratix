@@ -297,13 +297,13 @@ wait_for_seaweedfs() {
     wait_opts=$1
     # Wait for the pod to exist before waiting on its condition: `kubectl wait` errors
     # out rather than blocking when nothing matches the selector yet.
-    while ! kubectl get pods --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system \
+    while ! kubectl get pods --context kind-${PLATFORM_CLUSTER_NAME} -n seaweedfs \
         --selector run=seaweedfs --no-headers 2>/dev/null | grep -q .; do
         sleep 1
     done
     # No separate wait for bucket creation: the pod's readiness probe checks that the
     # bucket exists, so condition=ready already means the state store is usable.
-    kubectl wait pod --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system --selector run=seaweedfs --for=condition=ready ${wait_opts}
+    kubectl wait pod --context kind-${PLATFORM_CLUSTER_NAME} -n seaweedfs --selector run=seaweedfs --for=condition=ready ${wait_opts}
 }
 
 wait_for_local_repository() {
@@ -332,7 +332,7 @@ dump_reconcile_diagnostics() {
     log "\n--- state store on kind-${PLATFORM_CLUSTER_NAME} ---"
     kubectl --context kind-${PLATFORM_CLUSTER_NAME} get bucketstatestore,gitstatestore,destinations 2>&1 || true
     log "\n--- local repository pods (RESTARTS: the bucket lives on an emptyDir, but the ensure-bucket sidecar recreates it) ---"
-    kubectl --context kind-${PLATFORM_CLUSTER_NAME} get pods -n kratix-platform-system 2>&1 || true
+    kubectl --context kind-${PLATFORM_CLUSTER_NAME} get pods -n seaweedfs 2>&1 || true
     kubectl --context kind-${PLATFORM_CLUSTER_NAME} get pods -n gitea 2>&1 || true
 }
 

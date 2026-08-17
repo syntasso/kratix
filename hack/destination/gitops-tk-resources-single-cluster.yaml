@@ -8,7 +8,7 @@ spec:
   interval: 10s
   provider: generic
   bucketName: kratix
-  endpoint: bucket.kratix-platform-system.svc.cluster.local
+  endpoint: bucket.seaweedfs.svc.cluster.local
   insecure: true
   secretRef:
     name: bucket-credentials

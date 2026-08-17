@@ -8,5 +8,5 @@ stateStores:
       accesskey: a3JhdGl4YWRtaW4=
       secretkey: a3JhdGl4YWRtaW4=
   insecure: true
-  endpoint: bucket.kratix-platform-system.svc.cluster.local
+  endpoint: bucket.seaweedfs.svc.cluster.local
   bucket: kratix
