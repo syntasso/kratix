@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -104,7 +105,26 @@ func validatePromise(p *v1alpha1.Promise) ([]string, error) {
 	if err := validatePipelines(p); err != nil {
 		return nil, err
 	}
+
+	if err := validateReconciliationInterval(p); err != nil {
+		return nil, err
+	}
+
 	return validateRequiredPromisesAreAvailable(p), nil
+}
+
+const minReconciliationInterval = time.Minute
+
+func validateReconciliationInterval(p *v1alpha1.Promise) error {
+	interval := p.Spec.Workflows.Config.ReconciliationInterval
+	if interval == nil {
+		return nil
+	}
+	if interval.Duration < minReconciliationInterval {
+		return fmt.Errorf("spec.workflows.config.reconciliationInterval: Invalid value: %q: must be at least %s",
+			interval.Duration, minReconciliationInterval)
+	}
+	return nil
 }
 
 func validatePipelines(p *v1alpha1.Promise) error {
