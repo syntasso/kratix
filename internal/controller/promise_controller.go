@@ -2352,7 +2352,7 @@ func (r *PromiseReconciler) restartOnReconciliationInterval(
 	completedCond *metav1.Condition,
 	forcePipelineRun bool,
 ) (bool, error) {
-	if forcePipelineRun && !isManualReconcile(promise) {
+	if forcePipelineRun && !isManualReconcile(promise) && notWorkflowSuspended(promise) {
 		logging.Trace(logger, "pipeline completed too long ago; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.String())
 		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
 		return true, r.Client.Update(ctx, promise)

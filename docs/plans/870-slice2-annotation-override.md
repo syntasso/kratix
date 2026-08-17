@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| Stage | Plan written; build not started |
-| Tier | **light** — ~75 production lines, no contract move |
+| Stage | Landed — PR #878, stacked on #877 |
+| Tier | **light** — ~75 production lines, no contract move. **Budget 60 min; actual ~85 min.** See below. |
 | Issue | [#870](https://github.com/syntasso/kratix/issues/870) |
 | Base | `f7055364` (slice 1 tip, PR #877). 0 commits between it and my head; it is 7 ahead / **0 behind** `main` |
 | Workspace | jj workspace `kratix-870-s2` |
@@ -14,6 +14,20 @@
 | Open findings | none |
 | Parked | The briefing cannot be posted to #870 — GitHub API returning 503. Post when it recovers. |
 | Release level | Unreleased — branch and PR, no tag |
+
+### Budget: 60 min light-tier, ~85 min actual
+
+| Where it went | |
+|---|---|
+| Build, 5 tasks | 27.6 min |
+| Review, 2 dispatches | 18.6 min |
+| Fix wave 1, five review findings | 8.1 min |
+| Fix wave 2, the suspension escalation | 6.0 min |
+| Controller overhead — planning, gating, landing | ~25 min |
+
+Three overruns, only one of them unavoidable. The security finding and its fix were real work the tier did not anticipate (~15 min). A `jj squash` between two described commits opened an editor and blocked until it hit a timeout (~10 min, avoidable, now a step). The full gate caught a `unparam` the package smoke cannot see (~5 min) — that is the smoke/gate trade working as designed, not an overrun to remove.
+
+The triage itself was the miss: the note below flags the watch's blast radius and the tier was still taken as light. `implement-story` step 1 now carries a risk predicate alongside the size one.
 
 ### Why light, and the one thing the predicate misses
 
