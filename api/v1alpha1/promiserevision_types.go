@@ -147,14 +147,26 @@ func (pr *PromiseRevision) ClearLatestRevisionLabel() {
 	delete(l, LatestRevisionLabel)
 }
 
+// MinReconciliationInterval is the floor the Promise validating webhook enforces for
+// spec.workflows.config.reconciliationInterval. ReconciliationInterval enforces the same floor
+// on a revision's snapshot.
+const MinReconciliationInterval = time.Minute
+
 // ReconciliationInterval returns this revision's snapshot reconciliation interval, or fallback
-// if the snapshot does not set one.
+// if the snapshot does not set one or sets one below MinReconciliationInterval.
 func (pr *PromiseRevision) ReconciliationInterval(fallback time.Duration) time.Duration {
 	interval := pr.Spec.PromiseSpec.Workflows.Config.ReconciliationInterval
-	if interval == nil {
+	if interval == nil || interval.Duration < MinReconciliationInterval {
 		return fallback
 	}
 	return interval.Duration
+}
+
+// ReconciliationIntervalBelowMinimum reports whether the snapshot sets a reconciliation interval
+// that ReconciliationInterval will override with fallback.
+func (pr *PromiseRevision) ReconciliationIntervalBelowMinimum() bool {
+	interval := pr.Spec.PromiseSpec.Workflows.Config.ReconciliationInterval
+	return interval != nil && interval.Duration < MinReconciliationInterval
 }
 
 func NewPromiseRevision(promise *Promise, version string) *PromiseRevision {

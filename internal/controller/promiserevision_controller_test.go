@@ -18,7 +18,6 @@ package controller_test
 
 import (
 	"context"
-	"errors"
 	"os"
 
 	"github.com/go-logr/logr"
@@ -322,17 +321,5 @@ var _ = Describe("PromiseRevisionController", func() {
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()}, rr)).To(Succeed())
 			})
 		})
-	})
-})
-
-var _ = Describe("latestRevision", func() {
-	It("returns an error wrapping errNoLatestPromiseRevisionYet when no PromiseRevision is marked latest", func() {
-		promise := &v1alpha1.Promise{
-			ObjectMeta: metav1.ObjectMeta{Name: "no-latest-revision-yet"},
-		}
-
-		_, err := controller.LatestRevision(context.Background(), fakeK8sClient, promise)
-		Expect(err).To(HaveOccurred())
-		Expect(errors.Is(err, controller.ErrNoLatestPromiseRevisionYet)).To(BeTrue())
 	})
 })

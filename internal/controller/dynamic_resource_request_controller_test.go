@@ -2,6 +2,7 @@ package controller_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -70,7 +71,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			EventRecorder:               eventRecorder,
 		}
 
-		resReq = createResourceRequest(resourceRequestPath)
+		resReq = createResourceRequest()
 		resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 		createPromiseRevision(fakeK8sClient, promise, "v1.0.0")
 	})
@@ -654,12 +655,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 		createPinnedResourceRequest := func(name, pinnedVersion string) *unstructured.Unstructured {
 			GinkgoHelper()
-			yamlFile, err := os.ReadFile(resourceRequestPath)
-			Expect(err).NotTo(HaveOccurred())
-			rr := &unstructured.Unstructured{}
-			Expect(yaml.Unmarshal(yamlFile, rr)).To(Succeed())
-			rr.SetName(name)
-			Expect(fakeK8sClient.Create(ctx, rr)).To(Succeed())
+			rr := createResourceRequest(name)
 
 			Expect(fakeK8sClient.Create(ctx, &v1alpha1.ResourceBinding{
 				ObjectMeta: metav1.ObjectMeta{
@@ -705,6 +701,72 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			resultLatest := reconcileToRequeue(nnLatest)
 			Expect(resultLatest).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Minute}))
+		})
+
+		It("does not change a different Promise's resource request requeue", func() {
+			nn := reachSteadyState(resReq)
+
+			otherPromise := promiseFromFile(promiseWithWorkflowPath)
+			Expect(fakeK8sClient.Create(ctx, otherPromise)).To(Succeed())
+			otherPromiseName := client.ObjectKeyFromObject(otherPromise)
+			Expect(fakeK8sClient.Get(ctx, otherPromiseName, otherPromise)).To(Succeed())
+			otherPromise.UID = "5678efgh"
+			Expect(fakeK8sClient.Update(ctx, otherPromise)).To(Succeed())
+			Expect(fakeK8sClient.Get(ctx, otherPromiseName, otherPromise)).To(Succeed())
+			createPromiseRevision(fakeK8sClient, otherPromise, "v1.0.0")
+
+			otherRRGVK, otherRRCRD, err := otherPromise.GetAPI()
+			Expect(err).NotTo(HaveOccurred())
+			otherReconciler := &controller.DynamicResourceRequestController{
+				CanCreateResources:          ptr.True(),
+				Client:                      fakeK8sClient,
+				Scheme:                      scheme.Scheme,
+				GVK:                         otherRRGVK,
+				CRD:                         otherRRCRD,
+				PromiseIdentifier:           otherPromise.GetName(),
+				PromiseDestinationSelectors: otherPromise.Spec.DestinationSelectors,
+				Log:                         l,
+				UID:                         "5678efgh",
+				ReconciliationInterval:      controller.DefaultReconciliationInterval,
+				ReconcileAfterFailure:       true,
+				EventRecorder:               events.NewFakeRecorder(1024),
+			}
+			otherRR := createResourceRequest("other-promise-request")
+
+			driveToSteadyState := func(rec *controller.DynamicResourceRequestController, rr *unstructured.Unstructured) types.NamespacedName {
+				GinkgoHelper()
+				_, err := t.reconcileUntilCompletion(rec, rr)
+				Expect(err).NotTo(HaveOccurred())
+
+				setReconcileConfigureWorkflowToReturnFinished()
+				setConfigureWorkflowStatus(rr, v1.ConditionTrue)
+				result, err := t.reconcileUntilCompletion(rec, rr)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: rec.ReconciliationInterval}))
+				return client.ObjectKeyFromObject(rr)
+			}
+			otherNN := driveToSteadyState(otherReconciler, otherRR)
+
+			setRevisionReconciliationInterval(promise.GetName(), "v1.0.0", 3*time.Minute)
+
+			requeueAfterSettling := func(rec *controller.DynamicResourceRequestController, target types.NamespacedName) ctrl.Result {
+				GinkgoHelper()
+				for i := 0; i < 3; i++ {
+					result, err := rec.Reconcile(ctx, ctrl.Request{NamespacedName: target})
+					Expect(err).NotTo(HaveOccurred())
+					if result.RequeueAfter > 0 {
+						return result
+					}
+				}
+				Fail(fmt.Sprintf("resource %s never requeued after settling", target))
+				return ctrl.Result{}
+			}
+
+			resultDeclaring := requeueAfterSettling(reconciler, nn)
+			Expect(resultDeclaring).To(Equal(ctrl.Result{RequeueAfter: 3 * time.Minute}))
+
+			resultOther := requeueAfterSettling(otherReconciler, otherNN)
+			Expect(resultOther).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
 		})
 
 		Describe("force-run gate", func() {
@@ -1547,7 +1609,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	Describe("PromiseRevision and ResourceBinding behaviour", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
-			resReq = createResourceRequest(resourceRequestPath)
+			resReq = createResourceRequest()
 			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 		})
 
@@ -2379,6 +2441,18 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 	})
+
+	Describe("latestRevision", func() {
+		It("returns an error wrapping errNoLatestPromiseRevisionYet when no PromiseRevision is marked latest", func() {
+			promiseWithoutRevision := &v1alpha1.Promise{
+				ObjectMeta: metav1.ObjectMeta{Name: "no-latest-revision-yet"},
+			}
+
+			_, err := controller.LatestRevision(context.Background(), fakeK8sClient, promiseWithoutRevision)
+			Expect(err).To(HaveOccurred())
+			Expect(errors.Is(err, controller.ErrNoLatestPromiseRevisionYet)).To(BeTrue())
+		})
+	})
 })
 
 func createPromiseRevision(fakeK8sClient client.Client, promise *v1alpha1.Promise, version string, names ...string) {
@@ -2584,12 +2658,15 @@ func setWorkflowsCounterStatus(resReq *unstructured.Unstructured) {
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 }
 
-func createResourceRequest(resourceRequestPath string) *unstructured.Unstructured {
+func createResourceRequest(names ...string) *unstructured.Unstructured {
 	yamlFile, err := os.ReadFile(resourceRequestPath)
 	Expect(err).ToNot(HaveOccurred())
 
 	resReq := &unstructured.Unstructured{}
 	Expect(yaml.Unmarshal(yamlFile, resReq)).To(Succeed())
+	if len(names) > 0 {
+		resReq.SetName(names[0])
+	}
 
 	Expect(fakeK8sClient.Create(ctx, resReq)).To(Succeed())
 	resReqNameNamespace := client.ObjectKeyFromObject(resReq)

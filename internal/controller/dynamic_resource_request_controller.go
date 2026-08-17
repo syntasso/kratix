@@ -1468,6 +1468,10 @@ func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger
 	source := "revision"
 	if promiseRevisionUsed.Spec.PromiseSpec.Workflows.Config.ReconciliationInterval == nil {
 		source = "globalDefault"
+	} else if promiseRevisionUsed.ReconciliationIntervalBelowMinimum() {
+		source = "globalDefault"
+		logging.Warn(logger, "PromiseRevision reconciliation interval below minimum; using fallback",
+			"promiseRevision", promiseRevisionUsed.GetName(), "minimum", v1alpha1.MinReconciliationInterval)
 	}
 	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", interval, "source", source)
 	return ctrl.Result{RequeueAfter: interval}

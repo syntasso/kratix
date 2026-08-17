@@ -116,5 +116,41 @@ var _ = Describe("PromiseRevision", func() {
 
 			Expect(revision.ReconciliationInterval(fallback)).To(Equal(3 * time.Minute))
 		})
+
+		revisionWithInterval := func(d time.Duration) *platformv1alpha1.PromiseRevision {
+			return &platformv1alpha1.PromiseRevision{
+				Spec: platformv1alpha1.PromiseRevisionSpec{
+					PromiseSpec: platformv1alpha1.PromiseSpec{
+						Workflows: platformv1alpha1.Workflows{
+							Config: platformv1alpha1.WorkflowConfig{
+								ReconciliationInterval: &metav1.Duration{Duration: d},
+							},
+						},
+					},
+				},
+			}
+		}
+
+		DescribeTable("clamps a snapshot interval below MinReconciliationInterval to fallback",
+			func(d time.Duration) {
+				revision := revisionWithInterval(d)
+				Expect(revision.ReconciliationInterval(fallback)).To(Equal(fallback))
+				Expect(revision.ReconciliationIntervalBelowMinimum()).To(BeTrue())
+			},
+			Entry("just below the minimum", platformv1alpha1.MinReconciliationInterval-time.Second),
+			Entry("zero", time.Duration(0)),
+			Entry("negative", -time.Minute),
+		)
+
+		It("does not clamp exactly the minimum", func() {
+			revision := revisionWithInterval(platformv1alpha1.MinReconciliationInterval)
+			Expect(revision.ReconciliationInterval(fallback)).To(Equal(platformv1alpha1.MinReconciliationInterval))
+			Expect(revision.ReconciliationIntervalBelowMinimum()).To(BeFalse())
+		})
+
+		It("does not report unset as below minimum", func() {
+			revision := &platformv1alpha1.PromiseRevision{}
+			Expect(revision.ReconciliationIntervalBelowMinimum()).To(BeFalse())
+		})
 	})
 })
