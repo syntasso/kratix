@@ -1707,8 +1707,8 @@ func latestRevision(ctx context.Context, c client.Client, promise *v1alpha1.Prom
 		}
 	}
 
-	return nil, fmt.Errorf("cannot find any PromiseRevision for Promise %s with status.latest set to true",
-		promise.GetName())
+	return nil, fmt.Errorf("cannot find any PromiseRevision for Promise %s with status.latest set to true: %w",
+		promise.GetName(), errNoLatestPromiseRevisionYet)
 }
 
 func promiseRevisionByExactVersion(ctx context.Context, c client.Client, promise *v1alpha1.Promise, version string) (*v1alpha1.PromiseRevision, error) {
@@ -1849,3 +1849,7 @@ var errResourceBindingNotFound = fmt.Errorf("cannot find any ResourceBinding for
 // errPromiseRevisionNotFound is wrapped by promiseRevisionByExactVersion when no revision
 // matches the requested version; use errors.Is to detect it.
 var errPromiseRevisionNotFound = errors.New("promise revision not found")
+
+// errNoLatestPromiseRevisionYet is wrapped by latestRevision when no PromiseRevision is
+// marked latest yet; use errors.Is to detect it.
+var errNoLatestPromiseRevisionYet = errors.New("no latest promise revision yet")

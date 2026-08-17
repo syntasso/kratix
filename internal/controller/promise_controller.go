@@ -269,7 +269,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		// schedule the periodic reconcile here to retry the run on the interval.
 		if r.ReconcileAfterFailure && workflowCompletedWithFailure(
 			resourceutil.GetCondition(usPromise, resourceutil.ConfigureWorkflowCompletedCondition)) {
-			return r.nextReconciliation(logger), nil
+			return r.nextReconciliation(ctx, promise, logger), nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -333,7 +333,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		if completedCond != nil {
 			r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, "ConfigureWorkflowCompleted", "ConfigureWorkflowCompleted", "All workflows completed")
 		}
-		return r.nextReconciliation(logger), nil
+		return r.nextReconciliation(ctx, promise, logger), nil
 	}
 
 	return ctrl.Result{}, nil
@@ -676,9 +676,30 @@ func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.
 	return r.updatePromiseStatus(ctx, promise)
 }
 
-func (r *PromiseReconciler) nextReconciliation(logger logr.Logger) ctrl.Result {
-	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", r.ReconciliationInterval)
-	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
+func (r *PromiseReconciler) nextReconciliation(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) ctrl.Result {
+	interval, source := r.resolveReconciliationInterval(ctx, promise, logger)
+	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", interval, "source", source)
+	return ctrl.Result{RequeueAfter: interval}
+}
+
+// resolveReconciliationInterval resolves the reconciliation interval for promise, preferring
+// the snapshot on its latest PromiseRevision (so annotation overrides on that revision apply
+// here too) and falling back to the live Promise spec, then r.ReconciliationInterval, when no
+// revision can be resolved yet (e.g. the first reconcile, before its first revision exists).
+func (r *PromiseReconciler) resolveReconciliationInterval(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (time.Duration, string) {
+	revision, err := latestRevision(ctx, r.Client, promise)
+	if err == nil {
+		return revision.ReconciliationInterval(r.ReconciliationInterval), "revision"
+	}
+	if stderrors.Is(err, errNoLatestPromiseRevisionYet) {
+		logging.Debug(logger, "no PromiseRevision marked latest yet; falling back to the Promise's declared interval or the global default", "promise", promise.GetName())
+	} else {
+		logging.Error(logger, err, "failed to look up the latest PromiseRevision; falling back to the Promise's declared interval or the global default", "promise", promise.GetName())
+	}
+	if interval := promise.Spec.Workflows.Config.ReconciliationInterval; interval != nil {
+		return interval.Duration, "promiseSpec"
+	}
+	return r.ReconciliationInterval, "globalDefault"
 }
 
 func promiseAvailableStatusCondition(lastTransitionTime metav1.Time) metav1.Condition {
@@ -972,7 +993,8 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
 
-	forcePipelineRun := passedReconciliationInterval(completedCond, r.ReconciliationInterval, r.ReconcileAfterFailure) &&
+	reconciliationInterval, _ := r.resolveReconciliationInterval(o.ctx, promise, o.logger)
+	forcePipelineRun := passedReconciliationInterval(completedCond, reconciliationInterval, r.ReconcileAfterFailure) &&
 		promise.Labels[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
