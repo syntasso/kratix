@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"time"
+
 	"github.com/syntasso/kratix/lib/objectutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -143,6 +145,16 @@ func (pr *PromiseRevision) ClearLatestRevisionLabel() {
 		return
 	}
 	delete(l, LatestRevisionLabel)
+}
+
+// ReconciliationInterval returns this revision's snapshot reconciliation interval, or fallback
+// if the snapshot does not set one.
+func (pr *PromiseRevision) ReconciliationInterval(fallback time.Duration) time.Duration {
+	interval := pr.Spec.PromiseSpec.Workflows.Config.ReconciliationInterval
+	if interval == nil {
+		return fallback
+	}
+	return interval.Duration
 }
 
 func NewPromiseRevision(promise *Promise, version string) *PromiseRevision {

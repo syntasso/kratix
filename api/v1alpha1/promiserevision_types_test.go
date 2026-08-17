@@ -1,6 +1,8 @@
 package v1alpha1_test
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -71,6 +73,48 @@ var _ = Describe("PromiseRevision", func() {
 			revision.SetLatestRevisionLabel()
 			Expect(revision.Labels[platformv1alpha1.PromiseNameLabel]).To(Equal("redis"))
 			Expect(revision.HasLatestRevisionLabel()).To(BeTrue())
+		})
+	})
+
+	Describe("ReconciliationInterval", func() {
+		fallback := 10 * time.Hour
+
+		It("returns the fallback when the snapshot does not set an interval", func() {
+			revision := &platformv1alpha1.PromiseRevision{}
+			Expect(revision.ReconciliationInterval(fallback)).To(Equal(fallback))
+		})
+
+		It("returns the snapshot's interval when set", func() {
+			revision := &platformv1alpha1.PromiseRevision{
+				Spec: platformv1alpha1.PromiseRevisionSpec{
+					PromiseSpec: platformv1alpha1.PromiseSpec{
+						Workflows: platformv1alpha1.Workflows{
+							Config: platformv1alpha1.WorkflowConfig{
+								ReconciliationInterval: &metav1.Duration{Duration: 3 * time.Minute},
+							},
+						},
+					},
+				},
+			}
+			Expect(revision.ReconciliationInterval(fallback)).To(Equal(3 * time.Minute))
+		})
+
+		It("resolves to the revision's snapshot, not the promise's current spec", func() {
+			promise := &platformv1alpha1.Promise{
+				ObjectMeta: metav1.ObjectMeta{Name: "mypromise"},
+				Spec: platformv1alpha1.PromiseSpec{
+					Workflows: platformv1alpha1.Workflows{
+						Config: platformv1alpha1.WorkflowConfig{
+							ReconciliationInterval: &metav1.Duration{Duration: 3 * time.Minute},
+						},
+					},
+				},
+			}
+			revision := platformv1alpha1.NewPromiseRevision(promise, "v1.0.0")
+
+			promise.Spec.Workflows.Config.ReconciliationInterval = &metav1.Duration{Duration: 99 * time.Minute}
+
+			Expect(revision.ReconciliationInterval(fallback)).To(Equal(3 * time.Minute))
 		})
 	})
 })
