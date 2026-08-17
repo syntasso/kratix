@@ -2595,6 +2595,20 @@ var _ = Describe("PromiseController", func() {
 					Expect(revision.GetAnnotations()).To(HaveKeyWithValue("example.com/unrelated", "keep-me"))
 				})
 
+				It("declines to mirror an out-of-policy value onto the revision, and still reconciles", func() {
+					promise.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "30s"})
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+					Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+					Expect(revision.GetAnnotations()).NotTo(HaveKey(v1alpha1.ReconciliationIntervalAnnotation))
+				})
+
 				It("does not modify the revision for an older Promise version", func() {
 					oldRevisionRef := revisionRef
 

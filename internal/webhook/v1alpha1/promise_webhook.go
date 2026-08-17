@@ -73,12 +73,29 @@ var _ admission.Validator[*v1alpha1.Promise] = &PromiseCustomValidator{}
 
 func (v PromiseCustomValidator) ValidateCreate(ctx context.Context, promise *v1alpha1.Promise) (warnings admission.Warnings, err error) {
 	promiselog.Info("validating promise create", "name", promise.Name)
+
+	if err := validateReconciliationIntervalAnnotation(promise.GetAnnotations()); err != nil {
+		return nil, err
+	}
+
 	return validatePromise(promise)
 }
 
+// ValidateUpdate validates the reconciliation-interval annotation only when its value changes,
+// grandfathering an existing out-of-policy value instead of rejecting every future update to a
+// Promise that carried one before this check existed - including the Kratix controllers' own
+// status writes, which would otherwise wedge the Promise's reconciliation permanently.
 func (v PromiseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj *v1alpha1.Promise) (warnings admission.Warnings, err error) {
 	promise := newObj
 	oldPromise := oldObj
+
+	oldValue := oldPromise.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]
+	newValue := promise.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]
+	if oldValue != newValue {
+		if err := validateReconciliationIntervalAnnotation(promise.GetAnnotations()); err != nil {
+			return nil, err
+		}
+	}
 
 	warnings, err = validatePromise(promise)
 	if err != nil {
@@ -96,6 +113,10 @@ func (v PromiseCustomValidator) ValidateDelete(ctx context.Context, obj *v1alpha
 	return nil, nil
 }
 
+// validatePromise runs the checks shared by ValidateCreate and ValidateUpdate. The
+// reconciliation-interval annotation is not among them: it is validated unconditionally by
+// ValidateCreate and conditionally by ValidateUpdate, since only the latter needs to grandfather
+// an existing out-of-policy value.
 func validatePromise(p *v1alpha1.Promise) ([]string, error) {
 	if err := validateCRD(p); err != nil {
 		return nil, err
@@ -106,10 +127,6 @@ func validatePromise(p *v1alpha1.Promise) ([]string, error) {
 	}
 
 	if err := validateReconciliationInterval(p); err != nil {
-		return nil, err
-	}
-
-	if err := validateReconciliationIntervalAnnotation(p.GetAnnotations()); err != nil {
 		return nil, err
 	}
 

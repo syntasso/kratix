@@ -189,7 +189,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return ctrl.Result{}, r.Client.Update(opts.ctx, promise)
 	}
 
-	result, err := r.handlePromiseVersion(ctx, promise)
+	result, err := r.handlePromiseVersion(ctx, promise, logger)
 	if err != nil || !result.IsZero() {
 		return result, err
 	}
@@ -371,7 +371,7 @@ func shouldRemoveDeleteWorkflowsFinalizer(promise *v1alpha1.Promise) bool {
 		controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer)
 }
 
-func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
+func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
 	var promiseVersion string
 	var found bool
 	if promiseVersion, found = promise.Labels[v1alpha1.PromiseVersionLabel]; found {
@@ -406,6 +406,15 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 			}
 			annotations[v1alpha1.ReconciliationIntervalAnnotation] = interval
 			revision.SetAnnotations(annotations)
+
+			// A Promise can carry an out-of-policy value from before the admission check
+			// existed; mirroring it here would fail the write on the revision's own
+			// webhook and abort this reconcile before the Promise's status is written.
+			if revision.ReconciliationIntervalAnnotationDeclined() {
+				delete(revision.GetAnnotations(), v1alpha1.ReconciliationIntervalAnnotation)
+				logging.Warn(logger, "Promise reconciliation-interval annotation declined; not mirrored onto revision",
+					"promise", promise.GetName(), "annotation", v1alpha1.ReconciliationIntervalAnnotation)
+			}
 		} else {
 			delete(revision.GetAnnotations(), v1alpha1.ReconciliationIntervalAnnotation)
 		}

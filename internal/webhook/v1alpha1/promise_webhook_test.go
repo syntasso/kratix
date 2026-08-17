@@ -358,6 +358,43 @@ var _ = Describe("PromiseWebhook", func() {
 			_, err := validator.ValidateCreate(ctx, promise)
 			Expect(err).NotTo(HaveOccurred())
 		})
+
+		When("updating a Promise", func() {
+			It("accepts an update that leaves an existing out-of-policy value untouched", func() {
+				oldPromise := newPromise()
+				oldPromise.Annotations = map[string]string{
+					v1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				promise := newPromise()
+				promise.Annotations = map[string]string{
+					v1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				_, err := validator.ValidateUpdate(ctx, oldPromise, promise)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("rejects an update that changes an out-of-policy value to a different out-of-policy value", func() {
+				oldPromise := newPromise()
+				oldPromise.Annotations = map[string]string{
+					v1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				promise := newPromise()
+				promise.Annotations = map[string]string{
+					v1alpha1.ReconciliationIntervalAnnotation: "10s",
+				}
+				_, err := validator.ValidateUpdate(ctx, oldPromise, promise)
+				Expect(err).To(MatchError(ContainSubstring("must be at least 1m0s")))
+			})
+
+			It("still rejects a create with an out-of-policy value", func() {
+				promise := newPromise()
+				promise.Annotations = map[string]string{
+					v1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				_, err := validator.ValidateCreate(ctx, promise)
+				Expect(err).To(MatchError(ContainSubstring("must be at least 1m0s")))
+			})
+		})
 	})
 
 	When("Required Promises", func() {
