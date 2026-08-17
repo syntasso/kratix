@@ -399,6 +399,17 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 		revision.SetLabels(labels.Merge(l, promise.GenerateSharedLabels()))
 		revision.SetLatestRevisionLabel()
 
+		if interval, ok := promise.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]; ok {
+			annotations := revision.GetAnnotations()
+			if annotations == nil {
+				annotations = map[string]string{}
+			}
+			annotations[v1alpha1.ReconciliationIntervalAnnotation] = interval
+			revision.SetAnnotations(annotations)
+		} else {
+			delete(revision.GetAnnotations(), v1alpha1.ReconciliationIntervalAnnotation)
+		}
+
 		return controllerutil.SetControllerReference(promise, revision, scheme.Scheme)
 	})
 	if err != nil {
