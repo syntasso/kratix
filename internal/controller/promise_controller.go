@@ -684,14 +684,21 @@ func (r *PromiseReconciler) nextReconciliation(ctx context.Context, promise *v1a
 }
 
 // resolveReconciliationInterval resolves the reconciliation interval for promise and reports
-// which tier supplied it: the interval declared on promise's latest PromiseRevision ("revision");
-// falling back to the interval declared on the live Promise spec when no revision is marked
-// latest yet ("promiseSpec"); falling back to r.ReconciliationInterval when neither declares one
-// ("globalDefault").
+// which tier supplied it: kratix.io/reconciliation-interval on promise's latest PromiseRevision,
+// when it parses and meets the minimum ("annotation"); otherwise the interval declared on that
+// revision's spec snapshot ("revision"); falling back to the interval declared on the live
+// Promise spec when no revision is marked latest yet ("promiseSpec"); falling back to
+// r.ReconciliationInterval when none declares one ("globalDefault").
 func (r *PromiseReconciler) resolveReconciliationInterval(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (time.Duration, string) {
 	revision, err := latestRevision(ctx, r.Client, promise)
 	if err == nil {
 		interval, fromRevision := revision.ReconciliationInterval(r.ReconciliationInterval)
+		if revision.ReconciliationIntervalAnnotationDeclined() {
+			logging.Warn(logger, "PromiseRevision reconciliation-interval annotation declined; falling back to spec snapshot",
+				"promiseRevision", revision.GetName(), "annotation", v1alpha1.ReconciliationIntervalAnnotation)
+		} else if _, ok := revision.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]; ok {
+			return interval, "annotation"
+		}
 		if fromRevision {
 			return interval, "revision"
 		}
@@ -1875,9 +1882,10 @@ func (r *PromiseReconciler) PromisesRequiringRevision(ctx context.Context, obj c
 }
 
 // promiseForRevision maps a PromiseRevision to its own Promise, read from spec.promiseRef.name.
-// That field is required and set once, from the Promise's own name, when the revision is
-// created; the shared labels mirror it but are ordinary metadata a client could edit, so the
-// spec field is the route that cannot point at the wrong Promise.
+// That field is `+required` on PromiseRevisionSpec, so the API server guarantees every revision
+// has one; PromiseNameLabel carries the same value but, as ordinary metadata, has no such
+// guarantee. That makes the spec field the more dependable route, even though nothing - no CEL
+// rule, no update check - stops either one from being repointed after creation.
 func promiseForRevision(_ context.Context, obj client.Object) []reconcile.Request {
 	revision, ok := obj.(*v1alpha1.PromiseRevision)
 	if !ok {
@@ -1893,9 +1901,10 @@ func promiseForRevision(_ context.Context, obj client.Object) []reconcile.Reques
 }
 
 // promiseRevisionAnnotationChangedPredicate reports an Update event only when a PromiseRevision's
-// ReconciliationIntervalAnnotation value changes. The promise controller create-or-updates the
-// latest revision on every Promise reconcile, so a predicate that also fired on that steady-state
-// rewrite would enqueue the owning Promise on every tick.
+// ReconciliationIntervalAnnotation value changes. Without it, any unrelated change to the
+// Promise's spec - which handlePromiseVersion writes onto the latest revision's snapshot on
+// every reconcile - would also produce an Update event here, redundantly re-enqueuing a Promise
+// that is already being reconciled.
 func promiseRevisionAnnotationChangedPredicate() predicate.Funcs {
 	return predicate.Funcs{
 		CreateFunc: func(event.CreateEvent) bool {
@@ -1904,7 +1913,12 @@ func promiseRevisionAnnotationChangedPredicate() predicate.Funcs {
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldValue := e.ObjectOld.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]
 			newValue := e.ObjectNew.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]
-			return oldValue != newValue
+			oldDuration, oldErr := time.ParseDuration(oldValue)
+			newDuration, newErr := time.ParseDuration(newValue)
+			if oldErr != nil && newErr != nil {
+				return false
+			}
+			return oldErr != nil || newErr != nil || oldDuration != newDuration
 		},
 		DeleteFunc: func(event.DeleteEvent) bool {
 			return false

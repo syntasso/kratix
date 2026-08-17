@@ -2716,6 +2716,36 @@ var _ = Describe("PromiseController", func() {
 			predicate := controller.PromiseRevisionAnnotationChangedPredicate()
 			Expect(predicate.Update(event.UpdateEvent{ObjectOld: oldRevision, ObjectNew: newRevision})).To(BeTrue())
 		})
+
+		It("does not fire when a rewrite only reformats the same duration", func() {
+			oldRevision := revision.DeepCopy()
+			oldRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "1m"})
+			newRevision := revision.DeepCopy()
+			newRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "60s"})
+
+			predicate := controller.PromiseRevisionAnnotationChangedPredicate()
+			Expect(predicate.Update(event.UpdateEvent{ObjectOld: oldRevision, ObjectNew: newRevision})).To(BeFalse())
+		})
+
+		It("fires when the duration actually changes", func() {
+			oldRevision := revision.DeepCopy()
+			oldRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "1m"})
+			newRevision := revision.DeepCopy()
+			newRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "5m"})
+
+			predicate := controller.PromiseRevisionAnnotationChangedPredicate()
+			Expect(predicate.Update(event.UpdateEvent{ObjectOld: oldRevision, ObjectNew: newRevision})).To(BeTrue())
+		})
+
+		It("does not fire when both values fail to parse", func() {
+			oldRevision := revision.DeepCopy()
+			oldRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "soon"})
+			newRevision := revision.DeepCopy()
+			newRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "later"})
+
+			predicate := controller.PromiseRevisionAnnotationChangedPredicate()
+			Expect(predicate.Update(event.UpdateEvent{ObjectOld: oldRevision, ObjectNew: newRevision})).To(BeFalse())
+		})
 	})
 })
 

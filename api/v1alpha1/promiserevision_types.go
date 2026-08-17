@@ -147,9 +147,10 @@ func (pr *PromiseRevision) ClearLatestRevisionLabel() {
 	delete(l, LatestRevisionLabel)
 }
 
-// MinReconciliationInterval is the floor enforced by the Promise validating webhook for
-// spec.workflows.config.reconciliationInterval, by the PromiseRevision validating webhook for
-// ReconciliationIntervalAnnotation, and by ReconciliationInterval when it reads that annotation.
+// MinReconciliationInterval is the floor enforced in three places: the Promise validating webhook,
+// for spec.workflows.config.reconciliationInterval; PromiseRevisionCustomValidator, at admission,
+// for ReconciliationIntervalAnnotation; and ReconciliationInterval, the read path, when it reads
+// that annotation.
 const MinReconciliationInterval = time.Minute
 
 // ReconciliationIntervalAnnotation overrides a revision's reconciliation interval ahead of its

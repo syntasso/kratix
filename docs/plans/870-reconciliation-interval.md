@@ -161,20 +161,22 @@ Where this section and a task step above disagree, **this section wins**.
    resource-request side, where no middle tier can occur. The plan asked only for "the resolved value and
    its source" at the Promise requeue site.
 
-4. **Accepted gap — the "read from the revision, not the Promise" requirement is not covered by any test,
-   and will not be until slice 2.** `dynamic_resource_request_controller.go` assigns
+4. **Closed in slice 2 — the "read from the revision, not the Promise" requirement was not covered by any
+   test in this slice.** `dynamic_resource_request_controller.go` assigns
    `promise.Spec = promiseRevisionUsed.Spec.PromiseSpec` before every call site this slice touches, so the
-   two sources hold the same value by construction and no test can distinguish them. A test that tried
-   would have to fabricate a state the code cannot reach.
+   two sources held the same value by construction and no test could distinguish them. A test that tried
+   would have had to fabricate a state the code could not reach.
 
-   This is *not* guarded by the type system, contrary to an earlier assumption recorded during delivery:
+   This was *not* guarded by the type system, contrary to an earlier assumption recorded during delivery:
    the method's receiver prevents passing a `*Promise` to it, but
    `promise.Spec.Workflows.Config.ReconciliationInterval` is a different expression that compiles equally
-   well. The current code is correct; the protection against regressing it is code review, not CI.
+   well. The code was correct; the protection against regressing it was code review, not CI.
 
-   **Slice 2 must close this.** There, the override is an annotation on the revision's *metadata*, which
-   the `.Spec` assignment never copies — so a Promise-sourced read becomes observably wrong and the
-   discriminating test becomes both possible and meaningful. Do not let slice 2 land without it.
+   Slice 2 closed this: `kratix.io/reconciliation-interval` lives on the revision's *metadata*, which the
+   `.Spec` assignment never copies, so a Promise-sourced read becomes observably wrong and the
+   discriminating test became both possible and meaningful. It is
+   `internal/controller/dynamic_resource_request_controller_test.go`, "requeues after the interval its
+   revision's annotation declares, though the live Promise agrees with neither" (slice 2, task 4).
 
 5. **Task 4's spec count is 4, not 3**, and one of them ("does not force a re-run") passes against the
    pre-change code by construction. Disclosed rather than dressed up. Task 3 likewise has three specs that
@@ -220,7 +222,6 @@ ship without filing issues. Recorded here because slice 2 adds a user-editable a
 
 ## Follow-ups this slice deliberately leaves open
 
-- The discriminating test in item 4 — **slice 2, mandatory**.
 - `resolveReconciliationInterval` resolves twice per Promise reconcile (force-run gate, then requeue).
   Both are cached in-memory list scans, so the cost is low, but resolving once and threading the result
   would remove the redundancy and the small risk of the two calls seeing different cache states.

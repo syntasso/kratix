@@ -35,8 +35,16 @@ func (v *PromiseRevisionCustomValidator) ValidateCreate(_ context.Context, obj *
 	return nil, validateReconciliationIntervalAnnotation(obj)
 }
 
-// ValidateUpdate implements admission.Validator so a webhook will be registered for the type PromiseRevision.
+// ValidateUpdate implements admission.Validator so a webhook will be registered for the type
+// PromiseRevision. It validates only when the annotation's value changes, so an existing
+// out-of-policy value is grandfathered rather than locking the revision against every future
+// update once the floor is raised past it.
 func (v *PromiseRevisionCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj *platformv1alpha1.PromiseRevision) (admission.Warnings, error) {
+	oldValue := oldObj.GetAnnotations()[platformv1alpha1.ReconciliationIntervalAnnotation]
+	newValue := newObj.GetAnnotations()[platformv1alpha1.ReconciliationIntervalAnnotation]
+	if oldValue == newValue {
+		return nil, nil
+	}
 	return nil, validateReconciliationIntervalAnnotation(newObj)
 }
 

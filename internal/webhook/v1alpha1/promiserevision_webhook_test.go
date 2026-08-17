@@ -107,6 +107,30 @@ var _ = Describe("PromiseRevision Webhook", func() {
 				_, err := validator.ValidateUpdate(context.Background(), &platformv1alpha1.PromiseRevision{}, obj)
 				Expect(err).NotTo(HaveOccurred())
 			})
+
+			It("accepts an update that leaves an existing out-of-policy value untouched", func() {
+				oldObj := &platformv1alpha1.PromiseRevision{}
+				oldObj.Annotations = map[string]string{
+					platformv1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				obj.Annotations = map[string]string{
+					platformv1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				_, err := validator.ValidateUpdate(context.Background(), oldObj, obj)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("rejects an update that changes an out-of-policy value to a different out-of-policy value", func() {
+				oldObj := &platformv1alpha1.PromiseRevision{}
+				oldObj.Annotations = map[string]string{
+					platformv1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				obj.Annotations = map[string]string{
+					platformv1alpha1.ReconciliationIntervalAnnotation: "10s",
+				}
+				_, err := validator.ValidateUpdate(context.Background(), oldObj, obj)
+				Expect(err).To(MatchError(ContainSubstring("must be at least 1m0s")))
+			})
 		})
 	})
 
