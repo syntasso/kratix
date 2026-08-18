@@ -32,7 +32,7 @@ var _ admission.Validator[*platformv1alpha1.PromiseRevision] = &PromiseRevisionC
 
 // ValidateCreate implements admission.Validator so a webhook will be registered for the type PromiseRevision.
 func (v *PromiseRevisionCustomValidator) ValidateCreate(_ context.Context, obj *platformv1alpha1.PromiseRevision) (admission.Warnings, error) {
-	return nil, validateReconciliationIntervalAnnotation(obj)
+	return nil, validateReconciliationIntervalAnnotation(obj.GetAnnotations())
 }
 
 // ValidateUpdate validates a changed reconciliation interval annotation.
@@ -42,12 +42,12 @@ func (v *PromiseRevisionCustomValidator) ValidateUpdate(_ context.Context, oldOb
 	if oldValue == newValue {
 		return nil, nil
 	}
-	return nil, validateReconciliationIntervalAnnotation(newObj)
+	return nil, validateReconciliationIntervalAnnotation(newObj.GetAnnotations())
 }
 
 // validateReconciliationIntervalAnnotation validates the reconciliation interval annotation.
-func validateReconciliationIntervalAnnotation(revision *platformv1alpha1.PromiseRevision) error {
-	raw, ok := revision.GetAnnotations()[platformv1alpha1.ReconciliationIntervalAnnotation]
+func validateReconciliationIntervalAnnotation(annotations map[string]string) error {
+	raw, ok := annotations[platformv1alpha1.ReconciliationIntervalAnnotation]
 	if !ok {
 		return nil
 	}

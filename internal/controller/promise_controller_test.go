@@ -2525,6 +2525,151 @@ var _ = Describe("PromiseController", func() {
 				})
 			})
 
+			When("the Promise carries the reconciliation-interval annotation", func() {
+				It("mirrors the annotation onto the revision for the current version", func() {
+					promise.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "5m"})
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+					Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+					Expect(revision.GetAnnotations()).To(HaveKeyWithValue(v1alpha1.ReconciliationIntervalAnnotation, "5m"))
+				})
+
+				It("removes the annotation from the revision once removed from the Promise", func() {
+					promise.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "5m"})
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+					Expect(revision.GetAnnotations()).To(HaveKeyWithValue(v1alpha1.ReconciliationIntervalAnnotation, "5m"))
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					delete(promise.Annotations, v1alpha1.ReconciliationIntervalAnnotation)
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					_, err = t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+					Expect(revision.GetAnnotations()).NotTo(HaveKey(v1alpha1.ReconciliationIntervalAnnotation))
+				})
+
+				It("leaves an unrelated annotation on the revision untouched by either arm", func() {
+					Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+					revision.SetAnnotations(map[string]string{"example.com/unrelated": "keep-me"})
+					Expect(fakeK8sClient.Update(ctx, revision)).To(Succeed())
+
+					promise.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "5m"})
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+					Expect(revision.GetAnnotations()).To(HaveKeyWithValue("example.com/unrelated", "keep-me"))
+					Expect(revision.GetAnnotations()).To(HaveKeyWithValue(v1alpha1.ReconciliationIntervalAnnotation, "5m"))
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					delete(promise.Annotations, v1alpha1.ReconciliationIntervalAnnotation)
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					_, err = t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+					Expect(revision.GetAnnotations()).NotTo(HaveKey(v1alpha1.ReconciliationIntervalAnnotation))
+					Expect(revision.GetAnnotations()).To(HaveKeyWithValue("example.com/unrelated", "keep-me"))
+				})
+
+				It("declines to mirror an out-of-policy value onto the revision, and still reconciles", func() {
+					promise.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "30s"})
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+					Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+					Expect(revision.GetAnnotations()).NotTo(HaveKey(v1alpha1.ReconciliationIntervalAnnotation))
+				})
+
+				It("does not modify the revision for an older Promise version", func() {
+					oldRevisionRef := revisionRef
+
+					promise.Labels[v1alpha1.PromiseVersionLabel] = "v1.0.1"
+					promise.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "5m"})
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+					newRevisionName := objectutil.GenerateDeterministicObjectName(promise.GetName(), "v1.0.1")
+					newRevision := &v1alpha1.PromiseRevision{}
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: newRevisionName}, newRevision)).To(Succeed())
+					Expect(newRevision.GetAnnotations()).To(HaveKeyWithValue(v1alpha1.ReconciliationIntervalAnnotation, "5m"))
+
+					oldRevision := &v1alpha1.PromiseRevision{}
+					Expect(fakeK8sClient.Get(ctx, oldRevisionRef, oldRevision)).To(Succeed())
+					Expect(oldRevision.GetAnnotations()).NotTo(HaveKey(v1alpha1.ReconciliationIntervalAnnotation))
+				})
+			})
+
+			When("the Promise is managed by a PromiseRelease", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					promise.Labels["kratix.io/promise-release-name"] = "redis"
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+				})
+
+				It("does not mirror the Promise's reconciliation-interval annotation onto the revision", func() {
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					promise.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "5m"})
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+					Expect(revision.GetAnnotations()).NotTo(HaveKey(v1alpha1.ReconciliationIntervalAnnotation))
+				})
+
+				It("leaves a hand-set annotation on the latest revision untouched by a reconcile", func() {
+					Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+					revision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "10m"})
+					Expect(fakeK8sClient.Update(ctx, revision)).To(Succeed())
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+					Expect(revision.GetAnnotations()).To(HaveKeyWithValue(v1alpha1.ReconciliationIntervalAnnotation, "10m"))
+				})
+			})
+
 			When("the Promise Version is not a valid Object Name", func() {
 				BeforeEach(func() {
 					promise.Labels[v1alpha1.PromiseVersionLabel] = "v1.ALLCAPS"

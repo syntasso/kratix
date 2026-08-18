@@ -325,6 +325,78 @@ var _ = Describe("PromiseWebhook", func() {
 		})
 	})
 
+	Context("metadata.annotations[kratix.io/reconciliation-interval]", func() {
+		It("rejects a value below the floor on create", func() {
+			promise := newPromise()
+			promise.Annotations = map[string]string{
+				v1alpha1.ReconciliationIntervalAnnotation: "30s",
+			}
+			_, err := validator.ValidateCreate(ctx, promise)
+			Expect(err).To(MatchError(ContainSubstring("must be at least 1m0s")))
+		})
+
+		It("rejects an unparseable value with a distinguishable message", func() {
+			promise := newPromise()
+			promise.Annotations = map[string]string{
+				v1alpha1.ReconciliationIntervalAnnotation: "soon",
+			}
+			_, err := validator.ValidateCreate(ctx, promise)
+			Expect(err).To(MatchError(ContainSubstring("must be a valid duration")))
+		})
+
+		It("accepts a value exactly at the floor", func() {
+			promise := newPromise()
+			promise.Annotations = map[string]string{
+				v1alpha1.ReconciliationIntervalAnnotation: "1m",
+			}
+			_, err := validator.ValidateCreate(ctx, promise)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("accepts a promise without the annotation", func() {
+			promise := newPromise()
+			_, err := validator.ValidateCreate(ctx, promise)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		When("updating a Promise", func() {
+			It("accepts an update that leaves an existing out-of-policy value untouched", func() {
+				oldPromise := newPromise()
+				oldPromise.Annotations = map[string]string{
+					v1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				promise := newPromise()
+				promise.Annotations = map[string]string{
+					v1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				_, err := validator.ValidateUpdate(ctx, oldPromise, promise)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("rejects an update that changes an out-of-policy value to a different out-of-policy value", func() {
+				oldPromise := newPromise()
+				oldPromise.Annotations = map[string]string{
+					v1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				promise := newPromise()
+				promise.Annotations = map[string]string{
+					v1alpha1.ReconciliationIntervalAnnotation: "10s",
+				}
+				_, err := validator.ValidateUpdate(ctx, oldPromise, promise)
+				Expect(err).To(MatchError(ContainSubstring("must be at least 1m0s")))
+			})
+
+			It("still rejects a create with an out-of-policy value", func() {
+				promise := newPromise()
+				promise.Annotations = map[string]string{
+					v1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				_, err := validator.ValidateCreate(ctx, promise)
+				Expect(err).To(MatchError(ContainSubstring("must be at least 1m0s")))
+			})
+		})
+	})
+
 	When("Required Promises", func() {
 		When("the required promise revision cannot be found", func() {
 			It("returns warnings", func() {
