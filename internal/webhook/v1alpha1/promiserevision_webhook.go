@@ -35,10 +35,7 @@ func (v *PromiseRevisionCustomValidator) ValidateCreate(_ context.Context, obj *
 	return nil, validateReconciliationIntervalAnnotation(obj)
 }
 
-// ValidateUpdate implements admission.Validator so a webhook will be registered for the type
-// PromiseRevision. It validates only when the annotation's value changes, so an existing
-// out-of-policy value is grandfathered rather than locking the revision against every future
-// update once the floor is raised past it.
+// ValidateUpdate validates a changed reconciliation interval annotation.
 func (v *PromiseRevisionCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj *platformv1alpha1.PromiseRevision) (admission.Warnings, error) {
 	oldValue := oldObj.GetAnnotations()[platformv1alpha1.ReconciliationIntervalAnnotation]
 	newValue := newObj.GetAnnotations()[platformv1alpha1.ReconciliationIntervalAnnotation]
@@ -48,10 +45,7 @@ func (v *PromiseRevisionCustomValidator) ValidateUpdate(_ context.Context, oldOb
 	return nil, validateReconciliationIntervalAnnotation(newObj)
 }
 
-// validateReconciliationIntervalAnnotation rejects platformv1alpha1.ReconciliationIntervalAnnotation
-// values that ReconciliationInterval would otherwise decline silently: unparseable syntax and
-// values below platformv1alpha1.MinReconciliationInterval get distinct messages so the caller
-// knows which one to fix.
+// validateReconciliationIntervalAnnotation validates the reconciliation interval annotation.
 func validateReconciliationIntervalAnnotation(revision *platformv1alpha1.PromiseRevision) error {
 	raw, ok := revision.GetAnnotations()[platformv1alpha1.ReconciliationIntervalAnnotation]
 	if !ok {

@@ -79,14 +79,14 @@ var _ = Describe("PromiseRevision", func() {
 	Describe("ReconciliationInterval", func() {
 		fallback := 10 * time.Hour
 
-		It("returns the fallback and false when the snapshot does not declare an interval", func() {
+		It("returns the fallback when the snapshot does not declare an interval", func() {
 			revision := &platformv1alpha1.PromiseRevision{}
-			interval, fromRevision := revision.ReconciliationInterval(fallback)
+			interval, source := revision.ReconciliationInterval(fallback)
 			Expect(interval).To(Equal(fallback))
-			Expect(fromRevision).To(BeFalse())
+			Expect(source).To(Equal(platformv1alpha1.ReconciliationIntervalFromGlobalDefault))
 		})
 
-		It("returns the snapshot's interval and true when declared", func() {
+		It("returns the snapshot's interval when declared", func() {
 			revision := &platformv1alpha1.PromiseRevision{
 				Spec: platformv1alpha1.PromiseRevisionSpec{
 					PromiseSpec: platformv1alpha1.PromiseSpec{
@@ -98,9 +98,9 @@ var _ = Describe("PromiseRevision", func() {
 					},
 				},
 			}
-			interval, fromRevision := revision.ReconciliationInterval(fallback)
+			interval, source := revision.ReconciliationInterval(fallback)
 			Expect(interval).To(Equal(3 * time.Minute))
-			Expect(fromRevision).To(BeTrue())
+			Expect(source).To(Equal(platformv1alpha1.ReconciliationIntervalFromRevision))
 		})
 
 		const specSnapshot = 3 * time.Minute
@@ -125,48 +125,29 @@ var _ = Describe("PromiseRevision", func() {
 
 		It("resolves to the annotation's value when it differs from the spec snapshot", func() {
 			revision := revisionWithAnnotation("5m")
-			interval, _ := revision.ReconciliationInterval(fallback)
+			interval, source := revision.ReconciliationInterval(fallback)
 			Expect(interval).To(Equal(5 * time.Minute))
+			Expect(source).To(Equal(platformv1alpha1.ReconciliationIntervalFromAnnotation))
 		})
 
 		It("resolves to the spec snapshot when the annotation is absent", func() {
 			revision := revisionWithAnnotation("")
-			interval, _ := revision.ReconciliationInterval(fallback)
+			interval, source := revision.ReconciliationInterval(fallback)
 			Expect(interval).To(Equal(3 * time.Minute))
+			Expect(source).To(Equal(platformv1alpha1.ReconciliationIntervalFromRevision))
 		})
 
 		It("resolves to the spec snapshot when the annotation is unparseable", func() {
 			revision := revisionWithAnnotation("not-a-duration")
-			interval, _ := revision.ReconciliationInterval(fallback)
+			interval, source := revision.ReconciliationInterval(fallback)
 			Expect(interval).To(Equal(3 * time.Minute))
-
-			applied, declined := revision.ReconciliationIntervalAnnotation()
-			Expect(applied).To(BeFalse())
-			Expect(declined).To(BeTrue())
+			Expect(source).To(Equal(platformv1alpha1.ReconciliationIntervalFromRevision))
 		})
 
 		It("resolves to the spec snapshot, not the global default, when the annotation is below the floor", func() {
 			revision := revisionWithAnnotation("30s")
 			interval, _ := revision.ReconciliationInterval(fallback)
 			Expect(interval).To(Equal(3 * time.Minute))
-
-			applied, declined := revision.ReconciliationIntervalAnnotation()
-			Expect(applied).To(BeFalse())
-			Expect(declined).To(BeTrue())
-		})
-
-		It("reports neither applied nor declined when the annotation is absent", func() {
-			revision := revisionWithAnnotation("")
-			applied, declined := revision.ReconciliationIntervalAnnotation()
-			Expect(applied).To(BeFalse())
-			Expect(declined).To(BeFalse())
-		})
-
-		It("reports applied and not declined when the annotation is valid", func() {
-			revision := revisionWithAnnotation("5m")
-			applied, declined := revision.ReconciliationIntervalAnnotation()
-			Expect(applied).To(BeTrue())
-			Expect(declined).To(BeFalse())
 		})
 	})
 })

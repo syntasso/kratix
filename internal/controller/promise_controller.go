@@ -683,28 +683,12 @@ func (r *PromiseReconciler) nextReconciliation(ctx context.Context, promise *v1a
 	return ctrl.Result{RequeueAfter: interval}
 }
 
-// resolveReconciliationInterval resolves the reconciliation interval for promise and reports
-// which tier supplied it: kratix.io/reconciliation-interval on promise's latest PromiseRevision,
-// when it parses and meets the minimum ("annotation"); otherwise the interval declared on that
-// revision's spec snapshot ("revision"); falling back to the interval declared on the live
-// Promise spec when no revision is marked latest yet ("promiseSpec"); falling back to
-// r.ReconciliationInterval when none declares one ("globalDefault").
+// resolveReconciliationInterval returns a Promise's next reconciliation interval and its source.
 func (r *PromiseReconciler) resolveReconciliationInterval(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (time.Duration, string) {
 	revision, err := latestRevision(ctx, r.Client, promise)
 	if err == nil {
-		interval, fromRevision := revision.ReconciliationInterval(r.ReconciliationInterval)
-		annotationApplied, annotationDeclined := revision.ReconciliationIntervalAnnotation()
-		if annotationApplied {
-			return interval, "annotation"
-		}
-		if annotationDeclined {
-			logging.Warn(logger, "PromiseRevision reconciliation-interval annotation declined; falling back to spec snapshot",
-				"promiseRevision", revision.GetName(), "annotation", v1alpha1.ReconciliationIntervalAnnotation)
-		}
-		if fromRevision {
-			return interval, "revision"
-		}
-		return interval, "globalDefault"
+		interval, source := revision.ReconciliationInterval(r.ReconciliationInterval)
+		return interval, string(source)
 	}
 	if stderrors.Is(err, errNoLatestPromiseRevisionYet) {
 		logging.Debug(logger, "no PromiseRevision marked latest yet; falling back to the Promise's declared interval or the global default", "promise", promise.GetName())
@@ -1902,11 +1886,7 @@ func promiseForRevision(_ context.Context, obj client.Object) []reconcile.Reques
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: promiseName}}}
 }
 
-// promiseRevisionAnnotationChangedPredicate reports an Update event only when a PromiseRevision's
-// ReconciliationIntervalAnnotation value changes. Without it, any unrelated change to the
-// Promise's spec - which handlePromiseVersion writes onto the latest revision's snapshot on
-// every reconcile - would also produce an Update event here, redundantly re-enqueuing a Promise
-// that is already being reconciled.
+// promiseRevisionAnnotationChangedPredicate reports changed reconciliation interval annotations.
 func promiseRevisionAnnotationChangedPredicate() predicate.Funcs {
 	return predicate.Funcs{
 		CreateFunc: func(event.CreateEvent) bool {

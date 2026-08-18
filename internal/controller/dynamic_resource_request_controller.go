@@ -1464,18 +1464,7 @@ func workflowInProgress(workflowCompletedCondition *clusterv1.Condition) bool {
 }
 
 func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger, promiseRevisionUsed *v1alpha1.PromiseRevision) ctrl.Result {
-	interval, fromRevision := promiseRevisionUsed.ReconciliationInterval(r.ReconciliationInterval)
-	source := "globalDefault"
-	if fromRevision {
-		source = "revision"
-	}
-	annotationApplied, annotationDeclined := promiseRevisionUsed.ReconciliationIntervalAnnotation()
-	if annotationApplied {
-		source = "annotation"
-	} else if annotationDeclined {
-		logging.Warn(logger, "PromiseRevision reconciliation-interval annotation declined; falling back to spec snapshot",
-			"promiseRevision", promiseRevisionUsed.GetName(), "annotation", v1alpha1.ReconciliationIntervalAnnotation)
-	}
+	interval, source := promiseRevisionUsed.ReconciliationInterval(r.ReconciliationInterval)
 	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", interval, "source", source)
 	return ctrl.Result{RequeueAfter: interval}
 }

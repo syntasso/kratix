@@ -626,9 +626,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(fakeK8sClient.Update(ctx, rev)).To(Succeed())
 		}
 
-		// setRevisionReconciliationIntervalAnnotation sets ReconciliationIntervalAnnotation on the
-		// revision's metadata only, never on the live Promise's spec or metadata, so a read from the
-		// Promise instead of the revision could not observe it.
+		// setRevisionReconciliationIntervalAnnotation updates only the revision's metadata.
 		setRevisionReconciliationIntervalAnnotation := func(version, raw string) {
 			GinkgoHelper()
 			rev := &v1alpha1.PromiseRevision{}
@@ -648,8 +646,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			nn := reachSteadyState(resReq)
 			setRevisionReconciliationInterval("v1.0.0", 3*time.Minute)
 
-			// Reconcile directly rather than via t.reconcileUntilCompletion, which loops
-			// past any RequeueAfter other than the global default.
+			// Reconcile directly to observe the returned RequeueAfter.
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 3 * time.Minute}))
