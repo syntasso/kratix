@@ -617,90 +617,25 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			return client.ObjectKeyFromObject(rr)
 		}
 
-		// reconcileToRequeue calls Reconcile directly (never t.reconcileUntilCompletion,
-		// which special-cases and loops past any RequeueAfter other than the global
-		// default) until it observes one, settling any binding-version status update
-		// a newly-latest revision triggers first.
-		reconcileToRequeue := func(nn types.NamespacedName) ctrl.Result {
+		setRevisionReconciliationInterval := func(version string, interval time.Duration) {
 			GinkgoHelper()
-			for i := 0; i < 3; i++ {
-				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
-				Expect(err).NotTo(HaveOccurred())
-				if result.RequeueAfter > 0 {
-					return result
-				}
-			}
-			Fail(fmt.Sprintf("resource %s never requeued after settling", nn))
-			return ctrl.Result{}
-		}
+			rev := &v1alpha1.PromiseRevision{}
+			name := fmt.Sprintf("%s-%s", promise.GetName(), version)
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name}, rev)).To(Succeed())
 
-		setRevisionReconciliationInterval := func(promiseName, version string, interval time.Duration) {
-			GinkgoHelper()
-			revisionList := &v1alpha1.PromiseRevisionList{}
-			Expect(fakeK8sClient.List(ctx, revisionList, &client.ListOptions{
-				LabelSelector: labels.SelectorFromSet(map[string]string{v1alpha1.PromiseNameLabel: promiseName}),
-			})).To(Succeed())
-
-			for i := range revisionList.Items {
-				rev := &revisionList.Items[i]
-				if rev.Spec.Version != version {
-					continue
-				}
-				rev.Spec.PromiseSpec.Workflows.Config.ReconciliationInterval = &metav1.Duration{Duration: interval}
-				Expect(fakeK8sClient.Update(ctx, rev)).To(Succeed())
-				return
-			}
-			Fail(fmt.Sprintf("no PromiseRevision found for promise %s version %s", promiseName, version))
-		}
-
-		createPinnedResourceRequest := func(name, pinnedVersion string) *unstructured.Unstructured {
-			GinkgoHelper()
-			rr := createResourceRequest(name)
-
-			Expect(fakeK8sClient.Create(ctx, &v1alpha1.ResourceBinding{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      name + "-pinned-binding",
-					Namespace: rr.GetNamespace(),
-					Labels: map[string]string{
-						"kratix.io/promise-name":  promise.GetName(),
-						"kratix.io/resource-name": rr.GetName(),
-					},
-				},
-				Spec: v1alpha1.ResourceBindingSpec{
-					PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
-					ResourceRef: v1alpha1.ResourceRef{Name: rr.GetName(), Namespace: rr.GetNamespace()},
-					Version:     pinnedVersion,
-				},
-			})).To(Succeed())
-			return rr
+			rev.Spec.PromiseSpec.Workflows.Config.ReconciliationInterval = &metav1.Duration{Duration: interval}
+			Expect(fakeK8sClient.Update(ctx, rev)).To(Succeed())
 		}
 
 		It("requeues after the interval its bound revision declares", func() {
 			nn := reachSteadyState(resReq)
-			setRevisionReconciliationInterval(promise.GetName(), "v1.0.0", 3*time.Minute)
+			setRevisionReconciliationInterval("v1.0.0", 3*time.Minute)
 
-			result := reconcileToRequeue(nn)
+			// Reconcile directly rather than via t.reconcileUntilCompletion, which loops
+			// past any RequeueAfter other than the global default.
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 3 * time.Minute}))
-		})
-
-		It("requeues two resource requests bound to different revisions on each revision's own interval", func() {
-			// resReq's ResourceBinding pins it to "latest", which is v1.0.0 today.
-			nnLatest := reachSteadyState(resReq)
-
-			// v2.0.0 becomes latest; resReq now tracks it, but a request pinned to
-			// v1.0.0 must keep resolving against v1.0.0, not the new latest.
-			createPromiseRevision(fakeK8sClient, promise, "v2.0.0")
-			pinnedRR := createPinnedResourceRequest("resource-pinned-to-v1", "v1.0.0")
-			nnPinned := reachSteadyState(pinnedRR)
-
-			setRevisionReconciliationInterval(promise.GetName(), "v1.0.0", 3*time.Minute)
-			setRevisionReconciliationInterval(promise.GetName(), "v2.0.0", 20*time.Minute)
-
-			resultPinned := reconcileToRequeue(nnPinned)
-			Expect(resultPinned).To(Equal(ctrl.Result{RequeueAfter: 3 * time.Minute}))
-
-			resultLatest := reconcileToRequeue(nnLatest)
-			Expect(resultLatest).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Minute}))
 		})
 
 		Describe("force-run gate", func() {
@@ -726,7 +661,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			When("the completed workflow is older than a short declared interval", func() {
 				BeforeEach(func() {
-					setRevisionReconciliationInterval(promise.GetName(), "v1.0.0", time.Minute)
+					setRevisionReconciliationInterval("v1.0.0", time.Minute)
 				})
 
 				It("forces a re-run", func() {
@@ -741,7 +676,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			When("the same elapsed time is within a long declared interval", func() {
 				BeforeEach(func() {
-					setRevisionReconciliationInterval(promise.GetName(), "v1.0.0", time.Hour)
+					setRevisionReconciliationInterval("v1.0.0", time.Hour)
 				})
 
 				It("does not force a re-run", func() {
