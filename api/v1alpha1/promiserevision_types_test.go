@@ -1,6 +1,8 @@
 package v1alpha1_test
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -71,6 +73,34 @@ var _ = Describe("PromiseRevision", func() {
 			revision.SetLatestRevisionLabel()
 			Expect(revision.Labels[platformv1alpha1.PromiseNameLabel]).To(Equal("redis"))
 			Expect(revision.HasLatestRevisionLabel()).To(BeTrue())
+		})
+	})
+
+	Describe("ReconciliationInterval", func() {
+		fallback := 10 * time.Hour
+
+		It("returns the fallback and false when the snapshot does not declare an interval", func() {
+			revision := &platformv1alpha1.PromiseRevision{}
+			interval, fromRevision := revision.ReconciliationInterval(fallback)
+			Expect(interval).To(Equal(fallback))
+			Expect(fromRevision).To(BeFalse())
+		})
+
+		It("returns the snapshot's interval and true when declared", func() {
+			revision := &platformv1alpha1.PromiseRevision{
+				Spec: platformv1alpha1.PromiseRevisionSpec{
+					PromiseSpec: platformv1alpha1.PromiseSpec{
+						Workflows: platformv1alpha1.Workflows{
+							Config: platformv1alpha1.WorkflowConfig{
+								ReconciliationInterval: &metav1.Duration{Duration: 3 * time.Minute},
+							},
+						},
+					},
+				},
+			}
+			interval, fromRevision := revision.ReconciliationInterval(fallback)
+			Expect(interval).To(Equal(3 * time.Minute))
+			Expect(fromRevision).To(BeTrue())
 		})
 	})
 })

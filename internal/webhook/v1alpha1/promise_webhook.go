@@ -104,7 +104,24 @@ func validatePromise(p *v1alpha1.Promise) ([]string, error) {
 	if err := validatePipelines(p); err != nil {
 		return nil, err
 	}
+
+	if err := validateReconciliationInterval(p); err != nil {
+		return nil, err
+	}
+
 	return validateRequiredPromisesAreAvailable(p), nil
+}
+
+func validateReconciliationInterval(p *v1alpha1.Promise) error {
+	interval := p.Spec.Workflows.Config.ReconciliationInterval
+	if interval == nil {
+		return nil
+	}
+	if interval.Duration < v1alpha1.MinReconciliationInterval {
+		return fmt.Errorf("spec.workflows.config.reconciliationInterval: Invalid value: %q: must be at least %s",
+			interval.Duration, v1alpha1.MinReconciliationInterval)
+	}
+	return nil
 }
 
 func validatePipelines(p *v1alpha1.Promise) error {

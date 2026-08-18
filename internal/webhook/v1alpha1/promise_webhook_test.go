@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -281,6 +282,47 @@ var _ = Describe("PromiseWebhook", func() {
 			})
 		})
 
+	})
+
+	Context("spec.workflows.config.reconciliationInterval", func() {
+		DescribeTable("validates the interval on create",
+			func(interval *metav1.Duration, expectErr bool) {
+				promise := newPromise()
+				promise.Spec.Workflows.Config.ReconciliationInterval = interval
+				warnings, err := validator.ValidateCreate(ctx, promise)
+				Expect(warnings).To(BeEmpty())
+				if expectErr {
+					Expect(err).To(MatchError(ContainSubstring("spec.workflows.config.reconciliationInterval")))
+				} else {
+					Expect(err).NotTo(HaveOccurred())
+				}
+			},
+			Entry("accepts an unset interval", nil, false),
+			Entry("accepts exactly one minute", &metav1.Duration{Duration: time.Minute}, false),
+			Entry("rejects just under one minute", &metav1.Duration{Duration: time.Minute - time.Second}, true),
+			Entry("rejects zero", &metav1.Duration{Duration: 0}, true),
+			Entry("rejects negative", &metav1.Duration{Duration: -time.Minute}, true),
+		)
+
+		It("enforces the same rule on update", func() {
+			promise := newPromise()
+			promise.Spec.Workflows.Config.ReconciliationInterval = &metav1.Duration{Duration: 30 * time.Second}
+			_, err := validator.ValidateUpdate(ctx, oldPromise, promise)
+			Expect(err).To(MatchError(ContainSubstring("spec.workflows.config.reconciliationInterval")))
+		})
+
+		It("names the field and the one-minute floor in the rejection message", func() {
+			promise := newPromise()
+			promise.Spec.Workflows.Config.ReconciliationInterval = &metav1.Duration{Duration: 0}
+			_, err := validator.ValidateCreate(ctx, promise)
+			Expect(err).To(MatchError(`spec.workflows.config.reconciliationInterval: Invalid value: "0s": must be at least 1m0s`))
+		})
+
+		It("rejects unparseable duration strings at decode time, before any webhook runs", func() {
+			var d metav1.Duration
+			err := json.Unmarshal([]byte(`"not-a-duration"`), &d)
+			Expect(err).To(HaveOccurred())
+		})
 	})
 
 	When("Required Promises", func() {

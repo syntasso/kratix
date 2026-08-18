@@ -220,7 +220,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	forcePipelineRun := shouldForcePipelineRun(completedCond, r.ReconciliationInterval, r.ReconcileAfterFailure) &&
+	reconciliationInterval, _ := promiseRevisionUsed.ReconciliationInterval(r.ReconciliationInterval)
+	forcePipelineRun := shouldForcePipelineRun(completedCond, reconciliationInterval, r.ReconcileAfterFailure) &&
 		rr.GetLabels()[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	if restarted, err := r.restartOnReconciliationInterval(opts.ctx, logger, rr,
@@ -283,7 +284,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		// requeue) and never reaches reconcileAfterConfigure, so schedule the periodic
 		// reconcile here to retry the run on the interval.
 		if r.ReconcileAfterFailure && workflowCompletedWithFailure(resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)) {
-			return r.nextReconciliation(logger), nil
+			return r.nextReconciliation(logger, promiseRevisionUsed), nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -336,7 +337,7 @@ func (r *DynamicResourceRequestController) reconcileAfterConfigure(
 		if versionUpdated {
 			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 		}
-		return r.nextReconciliation(logger), r.cleanupWorkflowCountersAndExecution(ctx, logger, rr)
+		return r.nextReconciliation(logger, promiseRevisionUsed), r.cleanupWorkflowCountersAndExecution(ctx, logger, rr)
 	}
 
 	statusUpdated, err := r.ensureResourceStatus(ctx, logger, rr, promise, pipelineResources, bindingVersion, promiseRevisionUsed)
@@ -360,7 +361,7 @@ func (r *DynamicResourceRequestController) reconcileAfterConfigure(
 			}
 			return ctrl.Result{}, nil
 		}
-		return r.nextReconciliation(logger), nil
+		return r.nextReconciliation(logger, promiseRevisionUsed), nil
 	}
 
 	if r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevisionUsed) {
@@ -1462,9 +1463,14 @@ func workflowInProgress(workflowCompletedCondition *clusterv1.Condition) bool {
 		workflowCompletedCondition.Reason == resourceutil.PipelinesInProgressReason
 }
 
-func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) ctrl.Result {
-	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", r.ReconciliationInterval)
-	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
+func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger, promiseRevisionUsed *v1alpha1.PromiseRevision) ctrl.Result {
+	interval, fromRevision := promiseRevisionUsed.ReconciliationInterval(r.ReconciliationInterval)
+	source := "globalDefault"
+	if fromRevision {
+		source = "revision"
+	}
+	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", interval, "source", source)
+	return ctrl.Result{RequeueAfter: interval}
 }
 
 func (r *DynamicResourceRequestController) restartOnReconciliationInterval(
@@ -1707,8 +1713,8 @@ func latestRevision(ctx context.Context, c client.Client, promise *v1alpha1.Prom
 		}
 	}
 
-	return nil, fmt.Errorf("cannot find any PromiseRevision for Promise %s with status.latest set to true",
-		promise.GetName())
+	return nil, fmt.Errorf("cannot find any PromiseRevision for Promise %s with status.latest set to true: %w",
+		promise.GetName(), errNoLatestPromiseRevisionYet)
 }
 
 func promiseRevisionByExactVersion(ctx context.Context, c client.Client, promise *v1alpha1.Promise, version string) (*v1alpha1.PromiseRevision, error) {
@@ -1849,3 +1855,7 @@ var errResourceBindingNotFound = fmt.Errorf("cannot find any ResourceBinding for
 // errPromiseRevisionNotFound is wrapped by promiseRevisionByExactVersion when no revision
 // matches the requested version; use errors.Is to detect it.
 var errPromiseRevisionNotFound = errors.New("promise revision not found")
+
+// errNoLatestPromiseRevisionYet is wrapped by latestRevision when no PromiseRevision is
+// marked latest yet; use errors.Is to detect it.
+var errNoLatestPromiseRevisionYet = errors.New("no latest promise revision yet")
