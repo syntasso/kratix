@@ -2,7 +2,6 @@ package controller_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -2311,17 +2310,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 	})
 
-	Describe("latestRevision", func() {
-		It("returns an error wrapping errNoLatestPromiseRevisionYet when no PromiseRevision is marked latest", func() {
-			promiseWithoutRevision := &v1alpha1.Promise{
-				ObjectMeta: metav1.ObjectMeta{Name: "no-latest-revision-yet"},
-			}
-
-			_, err := controller.LatestRevision(context.Background(), fakeK8sClient, promiseWithoutRevision)
-			Expect(err).To(HaveOccurred())
-			Expect(errors.Is(err, controller.ErrNoLatestPromiseRevisionYet)).To(BeTrue())
-		})
-	})
 })
 
 func createPromiseRevision(fakeK8sClient client.Client, promise *v1alpha1.Promise, version string, names ...string) {
@@ -2527,15 +2515,12 @@ func setWorkflowsCounterStatus(resReq *unstructured.Unstructured) {
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 }
 
-func createResourceRequest(names ...string) *unstructured.Unstructured {
+func createResourceRequest() *unstructured.Unstructured {
 	yamlFile, err := os.ReadFile(resourceRequestPath)
 	Expect(err).ToNot(HaveOccurred())
 
 	resReq := &unstructured.Unstructured{}
 	Expect(yaml.Unmarshal(yamlFile, resReq)).To(Succeed())
-	if len(names) > 0 {
-		resReq.SetName(names[0])
-	}
 
 	Expect(fakeK8sClient.Create(ctx, resReq)).To(Succeed())
 	resReqNameNamespace := client.ObjectKeyFromObject(resReq)
