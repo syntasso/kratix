@@ -33,23 +33,14 @@ make build-and-load-kratix
 # them with hack/platform/helm-values-bucket.yaml, so that case stays green even if the chart
 # itself still points at the old state store.
 #
-# Two deliberate details, both easy to "simplify" into a bug:
-#
-#   - `if`, and not `[ "$STATE_STORE" == "bucket-defaults" ] && helm_values_args=()`.
-#     set -e exempts a command inside an && list unless it is the last one, so the && form
-#     does not exit here - but it does evaluate to 1 whenever the condition is false, which
-#     is the common case (bucket and git both take that path). That status is harmless only
-#     because more commands follow. Move the line to the end of a function or block and the
-#     script dies there with no error message at all. `if` returns 0 when no branch runs, so
-#     it is safe wherever it sits.
-#
-#   - ${arr[@]+"${arr[@]}"} and not "${arr[@]}". Under set -u, bash 3.2 - still the system
-#     bash on macOS - treats "${arr[@]}" on an empty array as an unbound variable and aborts.
-#     The ${x+...} form expands to nothing when x is unset instead of erroring.
+# `if` and not `[ ... ] && helm_values_args=()`: the && form evaluates to 1 whenever the
+# condition is false, which under set -e kills the script silently if the line ever ends up
+# last in a block. `if` returns 0 when no branch runs.
 helm_values_args=(-f "$platform_helm_values_path")
 if [ "$STATE_STORE" == "bucket-defaults" ]; then
     helm_values_args=()
 fi
+# ${arr[@]+...} and not "${arr[@]}": bash 3.2 aborts on an empty array under set -u
 helm install kratix charts/kratix/ ${helm_values_args[@]+"${helm_values_args[@]}"} --wait
 
 if [ "$STATE_STORE" == "git" ]; then
