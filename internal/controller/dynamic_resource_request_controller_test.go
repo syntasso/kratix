@@ -70,7 +70,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			EventRecorder:               eventRecorder,
 		}
 
-		resReq = createResourceRequest(resourceRequestPath)
+		resReq = createResourceRequest()
 		resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 		createPromiseRevision(fakeK8sClient, promise, "v1.0.0")
 	})
@@ -595,6 +595,123 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 				Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).NotTo(Equal("true"))
+			})
+		})
+	})
+
+	Describe("Reconciliation interval resolution", func() {
+		// reachSteadyState drives rr through configure to where the workflow has
+		// completed successfully and the controller has nothing left to do but
+		// schedule the next reconciliation, still at the undeclared global default.
+		reachSteadyState := func(rr *unstructured.Unstructured) types.NamespacedName {
+			GinkgoHelper()
+			_, err := t.reconcileUntilCompletion(reconciler, rr)
+			Expect(err).NotTo(HaveOccurred())
+
+			setReconcileConfigureWorkflowToReturnFinished()
+			setConfigureWorkflowStatus(rr, v1.ConditionTrue)
+			result, err := t.reconcileUntilCompletion(reconciler, rr)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+			return client.ObjectKeyFromObject(rr)
+		}
+
+		setRevisionReconciliationInterval := func(version string, interval time.Duration) {
+			GinkgoHelper()
+			rev := &v1alpha1.PromiseRevision{}
+			name := fmt.Sprintf("%s-%s", promise.GetName(), version)
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name}, rev)).To(Succeed())
+
+			rev.Spec.PromiseSpec.Workflows.Config.ReconciliationInterval = &metav1.Duration{Duration: interval}
+			Expect(fakeK8sClient.Update(ctx, rev)).To(Succeed())
+		}
+
+		// setRevisionReconciliationIntervalAnnotation updates only the revision's metadata.
+		setRevisionReconciliationIntervalAnnotation := func(version, raw string) {
+			GinkgoHelper()
+			rev := &v1alpha1.PromiseRevision{}
+			name := fmt.Sprintf("%s-%s", promise.GetName(), version)
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name}, rev)).To(Succeed())
+
+			annotations := rev.GetAnnotations()
+			if annotations == nil {
+				annotations = map[string]string{}
+			}
+			annotations[v1alpha1.ReconciliationIntervalAnnotation] = raw
+			rev.SetAnnotations(annotations)
+			Expect(fakeK8sClient.Update(ctx, rev)).To(Succeed())
+		}
+
+		It("requeues after the interval its bound revision declares", func() {
+			nn := reachSteadyState(resReq)
+			setRevisionReconciliationInterval("v1.0.0", 3*time.Minute)
+
+			// Reconcile directly to observe the returned RequeueAfter.
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 3 * time.Minute}))
+		})
+
+		It("requeues after the interval its revision's annotation declares, though the live Promise agrees with neither", func() {
+			nn := reachSteadyState(resReq)
+			setRevisionReconciliationIntervalAnnotation("v1.0.0", "5m")
+
+			// Reconcile directly rather than via t.reconcileUntilCompletion, which loops
+			// past any RequeueAfter other than the global default.
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 5 * time.Minute}))
+		})
+
+		Describe("force-run gate", func() {
+			var nn types.NamespacedName
+
+			BeforeEach(func() {
+				nn = reachSteadyState(resReq)
+
+				Expect(fakeK8sClient.Get(ctx, nn, resReq)).To(Succeed())
+				// conditionsutil.Set preserves LastTransitionTime for a condition whose
+				// type already exists, so the prior (recent) transition must be cleared
+				// before a custom, older one can be recorded.
+				removeCondition(resReq, resourceutil.ConfigureWorkflowCompletedCondition)
+				resourceutil.SetCondition(resReq, &clusterv1.Condition{
+					Type:               resourceutil.ConfigureWorkflowCompletedCondition,
+					Status:             v1.ConditionTrue,
+					Reason:             resourceutil.PipelinesExecutedSuccessfully,
+					Message:            "Pipelines completed",
+					LastTransitionTime: metav1.NewTime(time.Now().Add(-4 * time.Minute)),
+				})
+				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+			})
+
+			When("the completed workflow is older than a short declared interval", func() {
+				BeforeEach(func() {
+					setRevisionReconciliationInterval("v1.0.0", time.Minute)
+				})
+
+				It("forces a re-run", func() {
+					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeK8sClient.Get(ctx, nn, resReq)).To(Succeed())
+					Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+				})
+			})
+
+			When("the same elapsed time is within a long declared interval", func() {
+				BeforeEach(func() {
+					setRevisionReconciliationInterval("v1.0.0", time.Hour)
+				})
+
+				It("does not force a re-run", func() {
+					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeK8sClient.Get(ctx, nn, resReq)).To(Succeed())
+					Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).NotTo(Equal("true"))
+				})
 			})
 		})
 	})
@@ -1265,7 +1382,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
-		It("removes the suspend label and requests a restart when the reconciliation interval is reached", func() {
+		It("resumes the suspended workflow when the reconciliation interval elapses", func() {
 			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, time.Now().Add(-reconciler.ReconciliationInterval).Add(-time.Minute))
 
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
@@ -1274,8 +1391,25 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 			Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendedLabel]).To(Equal("true"))
 
 			result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendedLabel]).To(BeEmpty())
+			Expect(resReq.GetLabels()[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
+		})
+
+		It("still resumes the suspended workflow when an operator sets the manual-reconciliation label directly", func() {
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			resourceLabels := resReq.GetLabels()
+			resourceLabels[resourceutil.ManualReconciliationLabel] = "true"
+			resReq.SetLabels(resourceLabels)
+			Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
 
@@ -1386,7 +1520,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	Describe("PromiseRevision and ResourceBinding behaviour", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
-			resReq = createResourceRequest(resourceRequestPath)
+			resReq = createResourceRequest()
 			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 		})
 
@@ -2218,6 +2352,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 	})
+
 })
 
 func createPromiseRevision(fakeK8sClient client.Client, promise *v1alpha1.Promise, version string, names ...string) {
@@ -2319,6 +2454,27 @@ func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *
 	ExpectWithOffset(1, client.Create(ctx, resourceBinding)).To(Succeed())
 }
 
+// removeCondition deletes conditionType from rr's status.conditions, so a subsequent
+// SetCondition call records a custom LastTransitionTime instead of preserving the
+// removed condition's.
+func removeCondition(rr *unstructured.Unstructured, conditionType clusterv1.ConditionType) {
+	GinkgoHelper()
+	conditions, found, err := unstructured.NestedSlice(rr.Object, "status", "conditions")
+	Expect(err).NotTo(HaveOccurred())
+	if !found {
+		return
+	}
+
+	filtered := make([]interface{}, 0, len(conditions))
+	for _, c := range conditions {
+		if m, ok := c.(map[string]interface{}); ok && m["type"] == string(conditionType) {
+			continue
+		}
+		filtered = append(filtered, c)
+	}
+	Expect(unstructured.SetNestedSlice(rr.Object, filtered, "status", "conditions")).To(Succeed())
+}
+
 func setConfigureWorkflowStatus(resReq *unstructured.Unstructured, status v1.ConditionStatus, lastTransitionTime ...time.Time) {
 	var t time.Time
 	if len(lastTransitionTime) > 0 {
@@ -2402,7 +2558,7 @@ func setWorkflowsCounterStatus(resReq *unstructured.Unstructured) {
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 }
 
-func createResourceRequest(resourceRequestPath string) *unstructured.Unstructured {
+func createResourceRequest() *unstructured.Unstructured {
 	yamlFile, err := os.ReadFile(resourceRequestPath)
 	Expect(err).ToNot(HaveOccurred())
 

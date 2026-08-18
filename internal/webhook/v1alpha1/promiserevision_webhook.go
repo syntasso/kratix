@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -31,12 +32,36 @@ var _ admission.Validator[*platformv1alpha1.PromiseRevision] = &PromiseRevisionC
 
 // ValidateCreate implements admission.Validator so a webhook will be registered for the type PromiseRevision.
 func (v *PromiseRevisionCustomValidator) ValidateCreate(_ context.Context, obj *platformv1alpha1.PromiseRevision) (admission.Warnings, error) {
-	return nil, nil
+	return nil, validateReconciliationIntervalAnnotation(obj.GetAnnotations())
 }
 
-// ValidateUpdate implements admission.Validator so a webhook will be registered for the type PromiseRevision.
+// ValidateUpdate validates a changed reconciliation interval annotation.
 func (v *PromiseRevisionCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj *platformv1alpha1.PromiseRevision) (admission.Warnings, error) {
-	return nil, nil
+	oldValue := oldObj.GetAnnotations()[platformv1alpha1.ReconciliationIntervalAnnotation]
+	newValue := newObj.GetAnnotations()[platformv1alpha1.ReconciliationIntervalAnnotation]
+	if oldValue == newValue {
+		return nil, nil
+	}
+	return nil, validateReconciliationIntervalAnnotation(newObj.GetAnnotations())
+}
+
+// validateReconciliationIntervalAnnotation validates the reconciliation interval annotation.
+func validateReconciliationIntervalAnnotation(annotations map[string]string) error {
+	raw, ok := annotations[platformv1alpha1.ReconciliationIntervalAnnotation]
+	if !ok {
+		return nil
+	}
+
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return fmt.Errorf("metadata.annotations[%s]: Invalid value: %q: must be a valid duration",
+			platformv1alpha1.ReconciliationIntervalAnnotation, raw)
+	}
+	if d < platformv1alpha1.MinReconciliationInterval {
+		return fmt.Errorf("metadata.annotations[%s]: Invalid value: %q: must be at least %s",
+			platformv1alpha1.ReconciliationIntervalAnnotation, raw, platformv1alpha1.MinReconciliationInterval)
+	}
+	return nil
 }
 
 // ValidateDelete implements admission.Validator so a webhook will be registered for the type PromiseRevision.

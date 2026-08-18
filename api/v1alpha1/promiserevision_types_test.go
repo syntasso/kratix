@@ -1,6 +1,8 @@
 package v1alpha1_test
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -71,6 +73,82 @@ var _ = Describe("PromiseRevision", func() {
 			revision.SetLatestRevisionLabel()
 			Expect(revision.Labels[platformv1alpha1.PromiseNameLabel]).To(Equal("redis"))
 			Expect(revision.HasLatestRevisionLabel()).To(BeTrue())
+		})
+	})
+
+	Describe("ReconciliationInterval", func() {
+		fallback := 10 * time.Hour
+
+		It("returns the fallback when the snapshot does not declare an interval", func() {
+			revision := &platformv1alpha1.PromiseRevision{}
+			interval, source := revision.ReconciliationInterval(fallback)
+			Expect(interval).To(Equal(fallback))
+			Expect(source).To(Equal(platformv1alpha1.ReconciliationIntervalFromGlobalDefault))
+		})
+
+		It("returns the snapshot's interval when declared", func() {
+			revision := &platformv1alpha1.PromiseRevision{
+				Spec: platformv1alpha1.PromiseRevisionSpec{
+					PromiseSpec: platformv1alpha1.PromiseSpec{
+						Workflows: platformv1alpha1.Workflows{
+							Config: platformv1alpha1.WorkflowConfig{
+								ReconciliationInterval: &metav1.Duration{Duration: 3 * time.Minute},
+							},
+						},
+					},
+				},
+			}
+			interval, source := revision.ReconciliationInterval(fallback)
+			Expect(interval).To(Equal(3 * time.Minute))
+			Expect(source).To(Equal(platformv1alpha1.ReconciliationIntervalFromRevision))
+		})
+
+		const specSnapshot = 3 * time.Minute
+
+		revisionWithAnnotation := func(annotation string) *platformv1alpha1.PromiseRevision {
+			revision := &platformv1alpha1.PromiseRevision{
+				Spec: platformv1alpha1.PromiseRevisionSpec{
+					PromiseSpec: platformv1alpha1.PromiseSpec{
+						Workflows: platformv1alpha1.Workflows{
+							Config: platformv1alpha1.WorkflowConfig{
+								ReconciliationInterval: &metav1.Duration{Duration: specSnapshot},
+							},
+						},
+					},
+				},
+			}
+			if annotation != "" {
+				revision.SetAnnotations(map[string]string{platformv1alpha1.ReconciliationIntervalAnnotation: annotation})
+			}
+			return revision
+		}
+
+		It("resolves to the annotation's value when it differs from the spec snapshot", func() {
+			revision := revisionWithAnnotation("5m")
+			interval, source := revision.ReconciliationInterval(fallback)
+			Expect(interval).To(Equal(5 * time.Minute))
+			Expect(source).To(Equal(platformv1alpha1.ReconciliationIntervalFromAnnotation))
+		})
+
+		It("resolves to the spec snapshot when the annotation is absent", func() {
+			revision := revisionWithAnnotation("")
+			interval, source := revision.ReconciliationInterval(fallback)
+			Expect(interval).To(Equal(3 * time.Minute))
+			Expect(source).To(Equal(platformv1alpha1.ReconciliationIntervalFromRevision))
+		})
+
+		It("resolves to the spec snapshot when the annotation is unparseable", func() {
+			revision := revisionWithAnnotation("not-a-duration")
+			interval, source := revision.ReconciliationInterval(fallback)
+			Expect(interval).To(Equal(3 * time.Minute))
+			Expect(source).To(Equal(platformv1alpha1.ReconciliationIntervalFromRevision))
+		})
+
+		It("resolves to the spec snapshot, not the global default, when the annotation is below the floor", func() {
+			revision := revisionWithAnnotation("30s")
+			interval, source := revision.ReconciliationInterval(fallback)
+			Expect(interval).To(Equal(3 * time.Minute))
+			Expect(source).To(Equal(platformv1alpha1.ReconciliationIntervalFromRevision))
 		})
 	})
 })

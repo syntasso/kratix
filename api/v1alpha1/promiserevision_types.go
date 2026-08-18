@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"time"
+
 	"github.com/syntasso/kratix/lib/objectutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -143,6 +145,38 @@ func (pr *PromiseRevision) ClearLatestRevisionLabel() {
 		return
 	}
 	delete(l, LatestRevisionLabel)
+}
+
+// MinReconciliationInterval is the smallest allowed reconciliation interval.
+const MinReconciliationInterval = time.Minute
+
+// ReconciliationIntervalAnnotation overrides a revision's reconciliation interval.
+//
+// The revision for the Promise's current version mirrors this annotation from the Promise on
+// every reconcile. PromiseRelease-managed Promises and older revisions keep their annotation
+// unchanged.
+const ReconciliationIntervalAnnotation = KratixPrefix + "reconciliation-interval"
+
+type ReconciliationIntervalSource string
+
+const (
+	ReconciliationIntervalFromAnnotation    ReconciliationIntervalSource = "annotation"
+	ReconciliationIntervalFromRevision      ReconciliationIntervalSource = "revision"
+	ReconciliationIntervalFromGlobalDefault ReconciliationIntervalSource = "globalDefault"
+)
+
+// ReconciliationInterval returns the interval and its source.
+func (pr *PromiseRevision) ReconciliationInterval(fallback time.Duration) (time.Duration, ReconciliationIntervalSource) {
+	if raw, ok := pr.GetAnnotations()[ReconciliationIntervalAnnotation]; ok {
+		if d, err := time.ParseDuration(raw); err == nil && d >= MinReconciliationInterval {
+			return d, ReconciliationIntervalFromAnnotation
+		}
+	}
+	interval := pr.Spec.PromiseSpec.Workflows.Config.ReconciliationInterval
+	if interval == nil {
+		return fallback, ReconciliationIntervalFromGlobalDefault
+	}
+	return interval.Duration, ReconciliationIntervalFromRevision
 }
 
 func NewPromiseRevision(promise *Promise, version string) *PromiseRevision {
