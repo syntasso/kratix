@@ -2033,7 +2033,7 @@ var _ = Describe("PromiseController", func() {
 				Expect(reconcileCond.Message).To(Equal("Suspended"))
 			})
 
-			It("does not force a restart or touch the suspend label when the reconciliation interval elapses", func() {
+			It("resumes the suspended workflow when the reconciliation interval elapses", func() {
 				uPromise, err := promise.ToUnstructured()
 				Expect(err).NotTo(HaveOccurred())
 
@@ -2051,8 +2051,16 @@ var _ = Describe("PromiseController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-				Expect(promise.GetLabels()[resourceutil.ManualReconciliationLabel]).NotTo(Equal("true"))
+				Expect(promise.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
 				Expect(promise.Labels[v1alpha1.WorkflowSuspendedLabel]).To(Equal("true"))
+
+				result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				Expect(promise.Labels[v1alpha1.WorkflowSuspendedLabel]).To(BeEmpty())
+				Expect(promise.Labels[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
 			})
 
 			It("still resumes the suspended workflow when an operator sets the manual-reconciliation label directly", func() {

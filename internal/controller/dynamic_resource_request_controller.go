@@ -1476,7 +1476,7 @@ func (r *DynamicResourceRequestController) restartOnReconciliationInterval(
 	completedCond *clusterv1.Condition,
 	forcePipelineRun bool,
 ) (bool, error) {
-	if forcePipelineRun && notManualReconcile(rr) && notWorkflowSuspended(rr) {
+	if forcePipelineRun && notManualReconcile(rr) {
 		logging.Debug(
 			logger,
 			"resource configure pipeline completed too long ago; forcing reconciliation",

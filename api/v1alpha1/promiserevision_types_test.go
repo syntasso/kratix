@@ -146,8 +146,9 @@ var _ = Describe("PromiseRevision", func() {
 
 		It("resolves to the spec snapshot, not the global default, when the annotation is below the floor", func() {
 			revision := revisionWithAnnotation("30s")
-			interval, _ := revision.ReconciliationInterval(fallback)
+			interval, source := revision.ReconciliationInterval(fallback)
 			Expect(interval).To(Equal(3 * time.Minute))
+			Expect(source).To(Equal(platformv1alpha1.ReconciliationIntervalFromRevision))
 		})
 	})
 })

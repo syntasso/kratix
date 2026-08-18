@@ -1382,7 +1382,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
-		It("does not force a restart or touch the suspend label when the reconciliation interval elapses", func() {
+		It("resumes the suspended workflow when the reconciliation interval elapses", func() {
 			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, time.Now().Add(-reconciler.ReconciliationInterval).Add(-time.Minute))
 
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
@@ -1390,8 +1390,16 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(result).To(Equal(ctrl.Result{}))
 
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-			Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).NotTo(Equal("true"))
+			Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
 			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendedLabel]).To(Equal("true"))
+
+			result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendedLabel]).To(BeEmpty())
+			Expect(resReq.GetLabels()[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
 		})
 
 		It("still resumes the suspended workflow when an operator sets the manual-reconciliation label directly", func() {
