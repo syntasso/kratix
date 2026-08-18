@@ -174,16 +174,20 @@ func (pr *PromiseRevision) ReconciliationInterval(fallback time.Duration) (time.
 	return interval.Duration, true
 }
 
-// ReconciliationIntervalAnnotationDeclined reports whether ReconciliationIntervalAnnotation is
-// set but was declined - unparseable, or below MinReconciliationInterval - so
-// ReconciliationInterval falls through to the spec snapshot instead.
-func (pr *PromiseRevision) ReconciliationIntervalAnnotationDeclined() bool {
+// ReconciliationIntervalAnnotation reports how ReconciliationInterval treated this revision's
+// ReconciliationIntervalAnnotation: applied is true when the annotation supplied the interval;
+// declined is true when it is set but was rejected - unparseable, or below MinReconciliationInterval -
+// so the interval fell through to the spec snapshot. Both are false when the annotation is absent.
+func (pr *PromiseRevision) ReconciliationIntervalAnnotation() (applied, declined bool) {
 	raw, ok := pr.GetAnnotations()[ReconciliationIntervalAnnotation]
 	if !ok {
-		return false
+		return false, false
 	}
 	d, err := time.ParseDuration(raw)
-	return err != nil || d < MinReconciliationInterval
+	if err != nil || d < MinReconciliationInterval {
+		return false, true
+	}
+	return true, false
 }
 
 func NewPromiseRevision(promise *Promise, version string) *PromiseRevision {

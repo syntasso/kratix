@@ -1469,11 +1469,12 @@ func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger
 	if fromRevision {
 		source = "revision"
 	}
-	if promiseRevisionUsed.ReconciliationIntervalAnnotationDeclined() {
+	annotationApplied, annotationDeclined := promiseRevisionUsed.ReconciliationIntervalAnnotation()
+	if annotationApplied {
+		source = "annotation"
+	} else if annotationDeclined {
 		logging.Warn(logger, "PromiseRevision reconciliation-interval annotation declined; falling back to spec snapshot",
 			"promiseRevision", promiseRevisionUsed.GetName(), "annotation", v1alpha1.ReconciliationIntervalAnnotation)
-	} else if _, ok := promiseRevisionUsed.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]; ok {
-		source = "annotation"
 	}
 	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", interval, "source", source)
 	return ctrl.Result{RequeueAfter: interval}

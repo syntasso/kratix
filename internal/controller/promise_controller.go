@@ -693,11 +693,13 @@ func (r *PromiseReconciler) resolveReconciliationInterval(ctx context.Context, p
 	revision, err := latestRevision(ctx, r.Client, promise)
 	if err == nil {
 		interval, fromRevision := revision.ReconciliationInterval(r.ReconciliationInterval)
-		if revision.ReconciliationIntervalAnnotationDeclined() {
+		annotationApplied, annotationDeclined := revision.ReconciliationIntervalAnnotation()
+		if annotationApplied {
+			return interval, "annotation"
+		}
+		if annotationDeclined {
 			logging.Warn(logger, "PromiseRevision reconciliation-interval annotation declined; falling back to spec snapshot",
 				"promiseRevision", revision.GetName(), "annotation", v1alpha1.ReconciliationIntervalAnnotation)
-		} else if _, ok := revision.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]; ok {
-			return interval, "annotation"
 		}
 		if fromRevision {
 			return interval, "revision"

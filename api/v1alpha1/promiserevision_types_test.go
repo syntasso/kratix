@@ -139,24 +139,34 @@ var _ = Describe("PromiseRevision", func() {
 			revision := revisionWithAnnotation("not-a-duration")
 			interval, _ := revision.ReconciliationInterval(fallback)
 			Expect(interval).To(Equal(3 * time.Minute))
-			Expect(revision.ReconciliationIntervalAnnotationDeclined()).To(BeTrue())
+
+			applied, declined := revision.ReconciliationIntervalAnnotation()
+			Expect(applied).To(BeFalse())
+			Expect(declined).To(BeTrue())
 		})
 
 		It("resolves to the spec snapshot, not the global default, when the annotation is below the floor", func() {
 			revision := revisionWithAnnotation("30s")
 			interval, _ := revision.ReconciliationInterval(fallback)
 			Expect(interval).To(Equal(3 * time.Minute))
-			Expect(revision.ReconciliationIntervalAnnotationDeclined()).To(BeTrue())
+
+			applied, declined := revision.ReconciliationIntervalAnnotation()
+			Expect(applied).To(BeFalse())
+			Expect(declined).To(BeTrue())
 		})
 
-		It("does not report the annotation as declined when it is absent", func() {
+		It("reports neither applied nor declined when the annotation is absent", func() {
 			revision := revisionWithAnnotation("")
-			Expect(revision.ReconciliationIntervalAnnotationDeclined()).To(BeFalse())
+			applied, declined := revision.ReconciliationIntervalAnnotation()
+			Expect(applied).To(BeFalse())
+			Expect(declined).To(BeFalse())
 		})
 
-		It("does not report the annotation as declined when it is valid", func() {
+		It("reports applied and not declined when the annotation is valid", func() {
 			revision := revisionWithAnnotation("5m")
-			Expect(revision.ReconciliationIntervalAnnotationDeclined()).To(BeFalse())
+			applied, declined := revision.ReconciliationIntervalAnnotation()
+			Expect(applied).To(BeTrue())
+			Expect(declined).To(BeFalse())
 		})
 	})
 })
