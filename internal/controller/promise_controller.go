@@ -685,17 +685,16 @@ func (r *PromiseReconciler) nextReconciliation(ctx context.Context, promise *v1a
 // resolveReconciliationInterval resolves the reconciliation interval for promise and reports
 // which tier supplied it: the interval declared on promise's latest PromiseRevision ("revision");
 // falling back to the interval declared on the live Promise spec when no revision is marked
-// latest yet ("promiseSpec"); falling back to r.ReconciliationInterval when neither declares one,
-// or when the resolved revision's interval is below the minimum ("globalDefault").
+// latest yet ("promiseSpec"); falling back to r.ReconciliationInterval when neither declares one
+// ("globalDefault").
 func (r *PromiseReconciler) resolveReconciliationInterval(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (time.Duration, string) {
 	revision, err := latestRevision(ctx, r.Client, promise)
 	if err == nil {
-		if revision.ReconciliationIntervalBelowMinimum() {
-			logging.Warn(logger, "PromiseRevision reconciliation interval below minimum; using fallback",
-				"promiseRevision", revision.GetName(), "minimum", v1alpha1.MinReconciliationInterval)
-			return r.ReconciliationInterval, "globalDefault"
+		interval, fromRevision := revision.ReconciliationInterval(r.ReconciliationInterval)
+		if fromRevision {
+			return interval, "revision"
 		}
-		return revision.ReconciliationInterval(r.ReconciliationInterval), "revision"
+		return interval, "globalDefault"
 	}
 	if stderrors.Is(err, errNoLatestPromiseRevisionYet) {
 		logging.Debug(logger, "no PromiseRevision marked latest yet; falling back to the Promise's declared interval or the global default", "promise", promise.GetName())

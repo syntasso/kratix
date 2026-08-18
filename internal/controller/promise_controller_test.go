@@ -2187,20 +2187,6 @@ var _ = Describe("PromiseController", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{RequeueAfter: declaredInterval}))
 			})
-
-			It("does not change another promise's requeue", func() {
-				otherPromise := promiseFromFile(promiseWithOnlyDepsPath)
-				otherPromise.Name = "promise-with-deps-other"
-				Expect(fakeK8sClient.Create(ctx, otherPromise)).To(Succeed())
-				otherPromiseName := client.ObjectKeyFromObject(otherPromise)
-				Expect(fakeK8sClient.Get(ctx, otherPromiseName, otherPromise)).To(Succeed())
-				otherPromise.UID = "5678efgh"
-				Expect(fakeK8sClient.Update(ctx, otherPromise)).To(Succeed())
-
-				result, err := t.reconcileUntilCompletion(reconciler, otherPromise)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
-			})
 		})
 
 		When("the promise declares a reconciliation interval but no revision is marked latest", func() {

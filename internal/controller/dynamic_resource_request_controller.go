@@ -220,7 +220,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	reconciliationInterval := promiseRevisionUsed.ReconciliationInterval(r.ReconciliationInterval)
+	reconciliationInterval, _ := promiseRevisionUsed.ReconciliationInterval(r.ReconciliationInterval)
 	forcePipelineRun := shouldForcePipelineRun(completedCond, reconciliationInterval, r.ReconcileAfterFailure) &&
 		rr.GetLabels()[resourceutil.WorkflowRunFromStartLabel] != "true"
 
@@ -1464,14 +1464,10 @@ func workflowInProgress(workflowCompletedCondition *clusterv1.Condition) bool {
 }
 
 func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger, promiseRevisionUsed *v1alpha1.PromiseRevision) ctrl.Result {
-	interval := promiseRevisionUsed.ReconciliationInterval(r.ReconciliationInterval)
-	source := "revision"
-	if promiseRevisionUsed.Spec.PromiseSpec.Workflows.Config.ReconciliationInterval == nil {
-		source = "globalDefault"
-	} else if promiseRevisionUsed.ReconciliationIntervalBelowMinimum() {
-		source = "globalDefault"
-		logging.Warn(logger, "PromiseRevision reconciliation interval below minimum; using fallback",
-			"promiseRevision", promiseRevisionUsed.GetName(), "minimum", v1alpha1.MinReconciliationInterval)
+	interval, fromRevision := promiseRevisionUsed.ReconciliationInterval(r.ReconciliationInterval)
+	source := "globalDefault"
+	if fromRevision {
+		source = "revision"
 	}
 	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", interval, "source", source)
 	return ctrl.Result{RequeueAfter: interval}
