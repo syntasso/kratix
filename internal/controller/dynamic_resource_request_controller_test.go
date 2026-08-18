@@ -626,15 +626,41 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(fakeK8sClient.Update(ctx, rev)).To(Succeed())
 		}
 
+		// setRevisionReconciliationIntervalAnnotation updates only the revision's metadata.
+		setRevisionReconciliationIntervalAnnotation := func(version, raw string) {
+			GinkgoHelper()
+			rev := &v1alpha1.PromiseRevision{}
+			name := fmt.Sprintf("%s-%s", promise.GetName(), version)
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name}, rev)).To(Succeed())
+
+			annotations := rev.GetAnnotations()
+			if annotations == nil {
+				annotations = map[string]string{}
+			}
+			annotations[v1alpha1.ReconciliationIntervalAnnotation] = raw
+			rev.SetAnnotations(annotations)
+			Expect(fakeK8sClient.Update(ctx, rev)).To(Succeed())
+		}
+
 		It("requeues after the interval its bound revision declares", func() {
 			nn := reachSteadyState(resReq)
 			setRevisionReconciliationInterval("v1.0.0", 3*time.Minute)
+
+			// Reconcile directly to observe the returned RequeueAfter.
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 3 * time.Minute}))
+		})
+
+		It("requeues after the interval its revision's annotation declares, though the live Promise agrees with neither", func() {
+			nn := reachSteadyState(resReq)
+			setRevisionReconciliationIntervalAnnotation("v1.0.0", "5m")
 
 			// Reconcile directly rather than via t.reconcileUntilCompletion, which loops
 			// past any RequeueAfter other than the global default.
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 3 * time.Minute}))
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 5 * time.Minute}))
 		})
 
 		Describe("force-run gate", func() {
@@ -1356,7 +1382,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
-		It("removes the suspend label and requests a restart when the reconciliation interval is reached", func() {
+		It("resumes the suspended workflow when the reconciliation interval elapses", func() {
 			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, time.Now().Add(-reconciler.ReconciliationInterval).Add(-time.Minute))
 
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
@@ -1365,8 +1391,25 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 			Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendedLabel]).To(Equal("true"))
 
 			result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendedLabel]).To(BeEmpty())
+			Expect(resReq.GetLabels()[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
+		})
+
+		It("still resumes the suspended workflow when an operator sets the manual-reconciliation label directly", func() {
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			resourceLabels := resReq.GetLabels()
+			resourceLabels[resourceutil.ManualReconciliationLabel] = "true"
+			resReq.SetLabels(resourceLabels)
+			Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
 

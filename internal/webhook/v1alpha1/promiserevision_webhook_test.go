@@ -51,6 +51,89 @@ var _ = Describe("PromiseRevision Webhook", func() {
 		})
 	})
 
+	Context("validating the reconciliation-interval annotation", func() {
+		When("creating a PromiseRevision", func() {
+			It("rejects a value below the floor", func() {
+				obj.Annotations = map[string]string{
+					platformv1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				_, err := validator.ValidateCreate(context.Background(), obj)
+				Expect(err).To(MatchError(ContainSubstring("must be at least 1m0s")))
+			})
+
+			It("accepts a value exactly at the floor", func() {
+				obj.Annotations = map[string]string{
+					platformv1alpha1.ReconciliationIntervalAnnotation: "1m",
+				}
+				_, err := validator.ValidateCreate(context.Background(), obj)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("rejects a value that does not parse as a duration", func() {
+				obj.Annotations = map[string]string{
+					platformv1alpha1.ReconciliationIntervalAnnotation: "soon",
+				}
+				_, err := validator.ValidateCreate(context.Background(), obj)
+				Expect(err).To(MatchError(ContainSubstring("must be a valid duration")))
+			})
+
+			It("allows a PromiseRevision without the annotation", func() {
+				_, err := validator.ValidateCreate(context.Background(), obj)
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+		When("updating a PromiseRevision", func() {
+			It("rejects a value below the floor", func() {
+				obj.Annotations = map[string]string{
+					platformv1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				_, err := validator.ValidateUpdate(context.Background(), &platformv1alpha1.PromiseRevision{}, obj)
+				Expect(err).To(MatchError(ContainSubstring("must be at least 1m0s")))
+			})
+
+			It("rejects a value that does not parse as a duration", func() {
+				obj.Annotations = map[string]string{
+					platformv1alpha1.ReconciliationIntervalAnnotation: "soon",
+				}
+				_, err := validator.ValidateUpdate(context.Background(), &platformv1alpha1.PromiseRevision{}, obj)
+				Expect(err).To(MatchError(ContainSubstring("must be a valid duration")))
+			})
+
+			It("accepts a value exactly at the floor", func() {
+				obj.Annotations = map[string]string{
+					platformv1alpha1.ReconciliationIntervalAnnotation: "1m",
+				}
+				_, err := validator.ValidateUpdate(context.Background(), &platformv1alpha1.PromiseRevision{}, obj)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("accepts an update that leaves an existing out-of-policy value untouched", func() {
+				oldObj := &platformv1alpha1.PromiseRevision{}
+				oldObj.Annotations = map[string]string{
+					platformv1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				obj.Annotations = map[string]string{
+					platformv1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				_, err := validator.ValidateUpdate(context.Background(), oldObj, obj)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("rejects an update that changes an out-of-policy value to a different out-of-policy value", func() {
+				oldObj := &platformv1alpha1.PromiseRevision{}
+				oldObj.Annotations = map[string]string{
+					platformv1alpha1.ReconciliationIntervalAnnotation: "30s",
+				}
+				obj.Annotations = map[string]string{
+					platformv1alpha1.ReconciliationIntervalAnnotation: "10s",
+				}
+				_, err := validator.ValidateUpdate(context.Background(), oldObj, obj)
+				Expect(err).To(MatchError(ContainSubstring("must be at least 1m0s")))
+			})
+		})
+	})
+
 })
 
 func newCtxWithUserInfo(username string) context.Context {

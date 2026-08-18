@@ -36,6 +36,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache/informertest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -2032,7 +2033,7 @@ var _ = Describe("PromiseController", func() {
 				Expect(reconcileCond.Message).To(Equal("Suspended"))
 			})
 
-			It("removes the suspend label and requests a restart when the reconciliation interval is reached", func() {
+			It("resumes the suspended workflow when the reconciliation interval elapses", func() {
 				uPromise, err := promise.ToUnstructured()
 				Expect(err).NotTo(HaveOccurred())
 
@@ -2051,8 +2052,23 @@ var _ = Describe("PromiseController", func() {
 
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 				Expect(promise.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+				Expect(promise.Labels[v1alpha1.WorkflowSuspendedLabel]).To(Equal("true"))
 
 				result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				Expect(promise.Labels[v1alpha1.WorkflowSuspendedLabel]).To(BeEmpty())
+				Expect(promise.Labels[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
+			})
+
+			It("still resumes the suspended workflow when an operator sets the manual-reconciliation label directly", func() {
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
@@ -2674,6 +2690,76 @@ var _ = Describe("PromiseController", func() {
 		It("enqueues nothing when the revision's Promise is gone", func() {
 			revision.SetLabels(map[string]string{v1alpha1.PromiseNameLabel: "does-not-exist"})
 			Expect(reconciler.PromisesRequiringRevision(ctx, revision)).To(BeEmpty())
+		})
+	})
+
+	Describe("Reconciling a Promise when its own PromiseRevision's reconciliation-interval annotation changes", func() {
+		var revision *v1alpha1.PromiseRevision
+
+		BeforeEach(func() {
+			promise = &v1alpha1.Promise{ObjectMeta: metav1.ObjectMeta{Name: "redis"}}
+			revision = v1alpha1.NewPromiseRevision(promise, "v1.0.0")
+		})
+
+		It("maps a PromiseRevision to its own Promise", func() {
+			Expect(controller.PromiseForRevision(ctx, revision)).To(ConsistOf(
+				reconcile.Request{NamespacedName: types.NamespacedName{Name: "redis"}},
+			))
+		})
+
+		It("enqueues nothing when the revision has no promise name", func() {
+			revision.Spec.PromiseRef.Name = ""
+			Expect(controller.PromiseForRevision(ctx, revision)).To(BeEmpty())
+		})
+
+		It("does not fire when the annotation is unchanged", func() {
+			oldRevision := revision.DeepCopy()
+			oldRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "5m"})
+			newRevision := revision.DeepCopy()
+			newRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "5m"})
+
+			predicate := controller.PromiseRevisionAnnotationChangedPredicate()
+			Expect(predicate.Update(event.UpdateEvent{ObjectOld: oldRevision, ObjectNew: newRevision})).To(BeFalse())
+		})
+
+		It("fires when the annotation value changes", func() {
+			oldRevision := revision.DeepCopy()
+			oldRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "5m"})
+			newRevision := revision.DeepCopy()
+			newRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "10m"})
+
+			predicate := controller.PromiseRevisionAnnotationChangedPredicate()
+			Expect(predicate.Update(event.UpdateEvent{ObjectOld: oldRevision, ObjectNew: newRevision})).To(BeTrue())
+		})
+
+		It("does not fire when a rewrite only reformats the same duration", func() {
+			oldRevision := revision.DeepCopy()
+			oldRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "1m"})
+			newRevision := revision.DeepCopy()
+			newRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "60s"})
+
+			predicate := controller.PromiseRevisionAnnotationChangedPredicate()
+			Expect(predicate.Update(event.UpdateEvent{ObjectOld: oldRevision, ObjectNew: newRevision})).To(BeFalse())
+		})
+
+		It("fires when the duration actually changes", func() {
+			oldRevision := revision.DeepCopy()
+			oldRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "1m"})
+			newRevision := revision.DeepCopy()
+			newRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "5m"})
+
+			predicate := controller.PromiseRevisionAnnotationChangedPredicate()
+			Expect(predicate.Update(event.UpdateEvent{ObjectOld: oldRevision, ObjectNew: newRevision})).To(BeTrue())
+		})
+
+		It("does not fire when both values fail to parse", func() {
+			oldRevision := revision.DeepCopy()
+			oldRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "soon"})
+			newRevision := revision.DeepCopy()
+			newRevision.SetAnnotations(map[string]string{v1alpha1.ReconciliationIntervalAnnotation: "later"})
+
+			predicate := controller.PromiseRevisionAnnotationChangedPredicate()
+			Expect(predicate.Update(event.UpdateEvent{ObjectOld: oldRevision, ObjectNew: newRevision})).To(BeFalse())
 		})
 	})
 })

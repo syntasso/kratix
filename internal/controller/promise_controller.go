@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -682,19 +683,12 @@ func (r *PromiseReconciler) nextReconciliation(ctx context.Context, promise *v1a
 	return ctrl.Result{RequeueAfter: interval}
 }
 
-// resolveReconciliationInterval resolves the reconciliation interval for promise and reports
-// which tier supplied it: the interval declared on promise's latest PromiseRevision ("revision");
-// falling back to the interval declared on the live Promise spec when no revision is marked
-// latest yet ("promiseSpec"); falling back to r.ReconciliationInterval when neither declares one
-// ("globalDefault").
+// resolveReconciliationInterval returns a Promise's next reconciliation interval and its source.
 func (r *PromiseReconciler) resolveReconciliationInterval(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (time.Duration, string) {
 	revision, err := latestRevision(ctx, r.Client, promise)
 	if err == nil {
-		interval, fromRevision := revision.ReconciliationInterval(r.ReconciliationInterval)
-		if fromRevision {
-			return interval, "revision"
-		}
-		return interval, "globalDefault"
+		interval, source := revision.ReconciliationInterval(r.ReconciliationInterval)
+		return interval, string(source)
 	}
 	if stderrors.Is(err, errNoLatestPromiseRevisionYet) {
 		logging.Debug(logger, "no PromiseRevision marked latest yet; falling back to the Promise's declared interval or the global default", "promise", promise.GetName())
@@ -1873,6 +1867,50 @@ func (r *PromiseReconciler) PromisesRequiringRevision(ctx context.Context, obj c
 	return requests
 }
 
+// promiseForRevision maps a PromiseRevision to its own Promise, read from spec.promiseRef.name.
+// That field is `+required` on PromiseRevisionSpec, so the API server guarantees every revision
+// has one; PromiseNameLabel carries the same value but, as ordinary metadata, has no such
+// guarantee. That makes the spec field the more dependable route, even though nothing - no CEL
+// rule, no update check - stops either one from being repointed after creation.
+func promiseForRevision(_ context.Context, obj client.Object) []reconcile.Request {
+	revision, ok := obj.(*v1alpha1.PromiseRevision)
+	if !ok {
+		return nil
+	}
+
+	promiseName := revision.GetPromiseName()
+	if promiseName == "" {
+		return nil
+	}
+
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: promiseName}}}
+}
+
+// promiseRevisionAnnotationChangedPredicate reports changed reconciliation interval annotations.
+func promiseRevisionAnnotationChangedPredicate() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool {
+			return false
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldValue := e.ObjectOld.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]
+			newValue := e.ObjectNew.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]
+			oldDuration, oldErr := time.ParseDuration(oldValue)
+			newDuration, newErr := time.ParseDuration(newValue)
+			if oldErr != nil && newErr != nil {
+				return false
+			}
+			return oldErr != nil || newErr != nil || oldDuration != newDuration
+		},
+		DeleteFunc: func(event.DeleteEvent) bool {
+			return false
+		},
+		GenericFunc: func(event.GenericEvent) bool {
+			return false
+		},
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -1892,6 +1930,11 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&v1alpha1.PromiseRevision{},
 			handler.EnqueueRequestsFromMapFunc(r.PromisesRequiringRevision),
+		).
+		Watches(
+			&v1alpha1.PromiseRevision{},
+			handler.EnqueueRequestsFromMapFunc(promiseForRevision),
+			builder.WithPredicates(promiseRevisionAnnotationChangedPredicate()),
 		).
 		// Reconcile a Promise when one of its Work resources changes.
 		// This triggers the Promise reconciliation when a Work resource changes to update the "Reconciled" and

@@ -147,18 +147,32 @@ func (pr *PromiseRevision) ClearLatestRevisionLabel() {
 	delete(l, LatestRevisionLabel)
 }
 
-// MinReconciliationInterval is the floor the Promise validating webhook enforces for
-// spec.workflows.config.reconciliationInterval.
+// MinReconciliationInterval is the smallest allowed reconciliation interval.
 const MinReconciliationInterval = time.Minute
 
-// ReconciliationInterval returns this revision's snapshot reconciliation interval and true, or
-// fallback and false when the snapshot does not declare one.
-func (pr *PromiseRevision) ReconciliationInterval(fallback time.Duration) (time.Duration, bool) {
+// ReconciliationIntervalAnnotation overrides a revision's reconciliation interval.
+const ReconciliationIntervalAnnotation = KratixPrefix + "reconciliation-interval"
+
+type ReconciliationIntervalSource string
+
+const (
+	ReconciliationIntervalFromAnnotation    ReconciliationIntervalSource = "annotation"
+	ReconciliationIntervalFromRevision      ReconciliationIntervalSource = "revision"
+	ReconciliationIntervalFromGlobalDefault ReconciliationIntervalSource = "globalDefault"
+)
+
+// ReconciliationInterval returns the interval and its source.
+func (pr *PromiseRevision) ReconciliationInterval(fallback time.Duration) (time.Duration, ReconciliationIntervalSource) {
+	if raw, ok := pr.GetAnnotations()[ReconciliationIntervalAnnotation]; ok {
+		if d, err := time.ParseDuration(raw); err == nil && d >= MinReconciliationInterval {
+			return d, ReconciliationIntervalFromAnnotation
+		}
+	}
 	interval := pr.Spec.PromiseSpec.Workflows.Config.ReconciliationInterval
 	if interval == nil {
-		return fallback, false
+		return fallback, ReconciliationIntervalFromGlobalDefault
 	}
-	return interval.Duration, true
+	return interval.Duration, ReconciliationIntervalFromRevision
 }
 
 func NewPromiseRevision(promise *Promise, version string) *PromiseRevision {

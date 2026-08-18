@@ -1464,11 +1464,7 @@ func workflowInProgress(workflowCompletedCondition *clusterv1.Condition) bool {
 }
 
 func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger, promiseRevisionUsed *v1alpha1.PromiseRevision) ctrl.Result {
-	interval, fromRevision := promiseRevisionUsed.ReconciliationInterval(r.ReconciliationInterval)
-	source := "globalDefault"
-	if fromRevision {
-		source = "revision"
-	}
+	interval, source := promiseRevisionUsed.ReconciliationInterval(r.ReconciliationInterval)
 	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", interval, "source", source)
 	return ctrl.Result{RequeueAfter: interval}
 }
