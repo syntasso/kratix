@@ -85,10 +85,7 @@ spec:
           ports:
             - containerPort: 8333
           # Readiness deliberately checks that the bucket exists, not just that the
-          # port is open. `quick-start.sh` and `scripts/helm-e2e-test.sh` both gate on
-          # `kubectl wait --for=condition=ready`, and they mean "the state store is
-          # usable" - a TCP probe would report ready before ensure-bucket had created
-          # the bucket, which is the race that wedged CI.
+          # port is open.
           readinessProbe:
             exec:
               command:
@@ -105,29 +102,7 @@ spec:
         # Bucket creation runs on EVERY pod start rather than once at install time.
         # The data volume is an emptyDir, so a pod replacement loses the bucket; this
         # loop puts it back. It also re-checks on an interval, so the bucket's
-        # existence is a continuously enforced invariant rather than a one-shot side
-        # effect. Kratix rewrites the objects on its own reconcile, so an empty-but-
-        # present bucket recovers by itself - but nothing in Kratix recreates the
-        # bucket (lib/writers/s3.go only warns when it is missing), which is why this
-        # container exists.
-        #
-        # Deliberately an ORDINARY container, not an initContainer with
-        # restartPolicy: Always. A native sidecar would do the same job but is GA only
-        # in Kubernetes 1.33 and beta-on-by-default from 1.29; below that the API
-        # server rejects restartPolicy on an init container and the WHOLE manifest
-        # fails to apply. A plain container has no version floor. The only things a
-        # native sidecar adds - start-before-main and terminate-after-main ordering -
-        # are not needed here: the loop below waits for the master itself, and there is
-        # nothing to flush at shutdown.
-        #
-        # It must NOT have a readinessProbe. Pod-Ready requires every container ready,
-        # and a probe-less helper reports Ready as soon as it starts, which says nothing
-        # about the bucket. The bucket-existence signal belongs on the main container's
-        # readinessProbe above.
-        #
-        # Everything is reachable on localhost because containers in a pod share a
-        # network namespace - no Service is involved. `weed shell` takes the master
-        # address and adds 10000 to reach master gRPC, so :9333 is correct as written.
+        # existence is a continuously enforced.
         - name: ensure-bucket
           image: chrislusf/seaweedfs:4.41
           command:

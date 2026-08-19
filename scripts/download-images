@@ -20,9 +20,6 @@ kratix_version=$(cat $PWD/distribution/kratix.yaml| grep "image: docker.io/synta
 
 images=(
   # Kind image
-  # Must stay >= the Kubernetes version the install manifests require. The SeaweedFS
-  # manifest uses a native sidecar (restartPolicy on an init container), which needs
-  # 1.29+ and is only GA in 1.33; older nodes reject the whole manifest.
   # Keep in step with KIND_IMAGE in scripts/quick-start.sh.
   "docker.io/kindest/node:v1.33.1"
 
