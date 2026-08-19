@@ -9,7 +9,7 @@ import (
 	"github.com/syntasso/kratix/test/kubeutils"
 )
 
-var _ = Describe("ResourceBinding Default Version", Serial, func() {
+var _ = Describe("ResourceBinding Default Version", Label("config-mutating"), Serial, func() {
 	const (
 		assetsPath     = "assets/resource-binding-default-version"
 		promiseName    = "rbversion"

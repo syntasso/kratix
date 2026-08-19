@@ -9,7 +9,7 @@ import (
 	"github.com/syntasso/kratix/test/kubeutils"
 )
 
-var _ = Describe("Reconcile after failure", Serial, func() {
+var _ = Describe("Reconcile after failure", Label("config-mutating"), Serial, func() {
 	const (
 		assetsPath    = "assets/reconcile-after-failure"
 		promiseName   = "reconcilable"
@@ -149,7 +149,7 @@ var _ = Describe("Reconcile after failure", Serial, func() {
 	})
 })
 
-var _ = Describe("Reconcile promise workflow after failure", Serial, func() {
+var _ = Describe("Reconcile promise workflow after failure", Label("config-mutating"), Serial, func() {
 	const (
 		assetsPath         = "assets/reconcile-after-failure"
 		promiseName        = "reconcilable-promise-wf"
