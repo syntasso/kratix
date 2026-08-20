@@ -13,7 +13,7 @@ CI=${CI:-false}
 
 INSTALL_AND_CREATE_MINIO_BUCKET=true
 INSTALL_AND_CREATE_GITEA_REPO=false
-WORKER_STATESTORE_TYPE=BucketStateStore
+WORKER_STATESTORE_TYPE="${WORKER_STATESTORE_TYPE:-BucketStateStore}"
 
 LOCAL_IMAGES_DIR=""
 VERSION=${VERSION:-"$(cd $ROOT; git branch --show-current)"}
@@ -44,7 +44,7 @@ usage() {
     echo -e "\t--git, -g                Use Gitea as local repository in place of default local MinIO"
     echo -e "\t--single-cluster, -s     Deploy Kratix on a Single cluster setup"
     echo -e "\t--third-cluster, -t      Deploy Kratix with a three cluster setup"
-    echo -e "\t--git-and-minio, -d      Install Gitea alongside the minio installation. Destinations still uses minio as statestore. Can't be used alongside --git"
+    echo -e "\t--git-and-minio, -d      Install Gitea alongside the minio installation. Destinations use minio as statestore unless WORKER_STATESTORE_TYPE=GitStateStore is set. Can't be used alongside --git"
     echo -e "\t--no-cert-manager        Don't install cert-manager"
     echo -e "\t--no-labels, -n          Don't apply any labels to the KinD clusters"
     exit "${1:-0}"
@@ -79,7 +79,7 @@ load_options() {
         'l') BUILD_KRATIX_IMAGES=true ;;
         'n') LABELS=false ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
-        'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true WORKER_STATESTORE_TYPE=BucketStateStore ;;
+        'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true ;;
         'g') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=false WORKER_STATESTORE_TYPE=GitStateStore ;;
         *) usage 1 ;;
       esac
