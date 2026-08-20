@@ -75,10 +75,10 @@ func NewS3Writer(
 		return nil, fmt.Errorf("unknown authMethod: %s", stateStoreSpec.AuthMethod)
 	}
 
-	minioClient, err := minio.New(endpoint, opts)
+	s3Client, err := minio.New(endpoint, opts)
 
 	if err != nil {
-		logging.Error(logger, err, "error initialising Minio client")
+		logging.Error(logger, err, "error initialising S3 client")
 		err = fmt.Errorf("error initialising S3 client: %w", err)
 		return nil, err
 	}
@@ -86,11 +86,11 @@ func NewS3Writer(
 	// minio-go rewrites Amazon S3 endpoints to their dual-stack variant by default,
 	// which is unreachable from IPv4-only VPCs. Honour the configured endpoint unless
 	// dual-stack is explicitly requested. No-op for non-Amazon endpoints.
-	minioClient.SetS3EnableDualstack(stateStoreSpec.UseDualStack)
+	s3Client.SetS3EnableDualstack(stateStoreSpec.UseDualStack)
 
 	return &S3Writer{
 		Log:        logger,
-		RepoClient: minioClient,
+		RepoClient: s3Client,
 		BucketName: stateStoreSpec.BucketName,
 		Path:       filepath.Join(stateStoreSpec.Path, destinationPath),
 	}, nil

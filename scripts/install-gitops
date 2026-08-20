@@ -18,7 +18,7 @@ usage() {
     echo -e "\t--help, -h,\t Prints this message"
     echo -e "\t--context='', -c,\t Required. The Kubernetes context where to install FluxCD onto."
     echo -e "\t--path='', -b,\t The Repository name, must match the name used when registering the destination. Defaults to context."
-    echo -e "\t--git, -g,\t Reads from local Gitea installation (default: Read from local MinIO installation)"
+    echo -e "\t--git, -g,\t Reads from local Gitea installation (default: Read from local SeaweedFS installation)"
     echo -e "\t--kustomization-name, -k,\t Name of the Flux Kustomizations"
     echo -e "\t--gitops-provider, -p,\t Gitops provider, either flux or argo. Defaults to flux"
     echo -e "\t--platform-cluster-name='', -t,\t The name of the Platform cluster"

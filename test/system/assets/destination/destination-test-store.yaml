@@ -5,8 +5,8 @@ metadata:
 spec:
   authMethod: accessKey
   bucketName: kratix
-  endpoint: minio.kratix-platform-system.svc.cluster.local
+  endpoint: bucket.seaweedfs.svc.cluster.local
   insecure: true
   secretRef:
-    name: minio-credentials
+    name: bucket-credentials
     namespace: default
