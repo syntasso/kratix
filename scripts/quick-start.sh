@@ -80,11 +80,16 @@ load_options() {
         'n') LABELS=false ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
         'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true ;;
-        'g') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=false WORKER_STATESTORE_TYPE=GitStateStore ;;
+        'g') INSTALL_AND_CREATE_MINIO_BUCKET=false WORKER_STATESTORE_TYPE=GitStateStore ;;
         *) usage 1 ;;
       esac
     done
     shift $(expr $OPTIND - 1)
+
+    # a Git worker state store needs Gitea
+    if [ "${WORKER_STATESTORE_TYPE}" = "GitStateStore" ]; then
+        INSTALL_AND_CREATE_GITEA_REPO=true
+    fi
 
     # we don't want to use the scarf images
     if [ ${KRATIX_DEVELOPER:-false} = true ]; then
