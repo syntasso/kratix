@@ -1,6 +1,6 @@
 module github.com/syntasso/kratix/hack/quick-start-installer
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/mittwald/go-helm-client v0.12.18
