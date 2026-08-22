@@ -147,10 +147,15 @@ func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) (pa
 }
 
 // workflowState holds the resolved state for a configure reconciliation.
+//
+// The pipeline to act on comes from the phases recorded in
+// status.kratix.workflows.pipelines, not from the Jobs earlier reconciliations
+// created: deleting a Job must not rewind the workflow.
 type workflowState struct {
 	mostRecentJob        *batchv1.Job
-	pipelineIndex        int   // index of the pipeline to act on (capped to len-1)
-	completedCount       int64 // number of pipelines completed, for status sync
+	completedJob         *batchv1.Job // the Job whose completion advanced completedCount
+	pipelineIndex        int          // index of the pipeline to act on (capped to len-1)
+	completedCount       int64        // number of pipelines completed, for status sync
 	manualReconcile      bool
 	restartFromStart     bool
 	resumeFromSuspended  bool
@@ -158,6 +163,10 @@ type workflowState struct {
 	desiredFailedCount   *int64
 	desiredPipelinePhase string
 	desiredPipelineJob   *batchv1.Job
+	newRun               bool // the recorded run is for a different spec
+	workflowComplete     bool // every pipeline recorded Succeeded, no Job outstanding
+	awaitingFailureRetry bool // a pipeline is recorded Failed and its Job is gone
+	desiredWorkflowHash  string
 }
 
 // ReconcileConfigure reconciles configure workflows.
@@ -185,7 +194,7 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 	if !opts.SkipConditions {
 		if requeue, err := reconcileWorkflowStatus(opts, state); err != nil {
 			return requeue, err
-		} else if requeue && !state.restartFromStart && !state.manualReconcile {
+		} else if requeue && !state.restartFromStart && !state.manualReconcile && !state.newRun {
 			return requeue, err
 		}
 	}
@@ -212,6 +221,7 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 	state := &workflowState{
 		manualReconcile:      isManualReconciliation(opts.parentObject.GetLabels()),
 		suspendedPipelineIdx: -1,
+		desiredWorkflowHash:  opts.Resources[0].Job.GetLabels()[v1alpha1.KratixResourceHashLabel],
 	}
 	state.restartFromStart = isWorkflowRestart(opts.parentObject.GetLabels())
 
@@ -222,34 +232,23 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 	isWorkflowSuspended := opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true"
 	state.resumeFromSuspended = !isWorkflowSuspended && !state.restartFromStart && state.suspendedPipelineIdx >= 0
 
-	if len(allJobs) == 0 {
-		if state.resumeFromSuspended {
-			state.pipelineIndex = state.suspendedPipelineIdx
-			state.completedCount = int64(state.suspendedPipelineIdx)
-		} else {
-			state.pipelineIndex = 0
-			state.completedCount = 0
-		}
-		return state, nil
+	if len(allJobs) > 0 {
+		resourceutil.SortJobsByCreationDateTime(allJobs, false)
+		state.mostRecentJob = &allJobs[0]
+		logging.Debug(opts.logger, "found existing jobs; most recent job is",
+			"name", state.mostRecentJob.GetName(),
+			"labels", state.mostRecentJob.Labels,
+			"createdTimestamp", state.mostRecentJob.GetCreationTimestamp().Time,
+			"status", overAllJobStatus(state.mostRecentJob))
 	}
 
-	resourceutil.SortJobsByCreationDateTime(allJobs, false)
-	state.mostRecentJob = &allJobs[0]
-	logging.Debug(opts.logger, "found existing jobs; most recent job is",
-		"name", state.mostRecentJob.GetName(),
-		"labels", state.mostRecentJob.Labels,
-		"createdTimestamp", state.mostRecentJob.GetCreationTimestamp().Time,
-		"status", overAllJobStatus(state.mostRecentJob))
+	state.newRun = isNewRun(opts, state)
 
-	if state.restartFromStart {
+	if state.restartFromStart || state.newRun {
 		state.pipelineIndex = 0
 		state.completedCount = 0
 		return state, nil
 	}
-
-	pipelineIndex, jobIsForPipeline := jobToPipelineIndex(opts, state.mostRecentJob)
-
-	state.completedCount = int64(pipelineIndex)
 
 	if state.resumeFromSuspended {
 		state.pipelineIndex = state.suspendedPipelineIdx
@@ -257,7 +256,117 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 		return state, nil
 	}
 
+	if state.manualReconcile {
+		state.pipelineIndex = 0
+		state.completedCount = 0
+		return state, nil
+	}
+
+	phases := recordedPipelinePhases(opts)
+	if phases == nil {
+		applyJobDerivedProgress(opts, state)
+		return state, nil
+	}
+
+	applyRecordedProgress(opts, state, phases)
+	return state, nil
+}
+
+// isNewRun reports whether the recorded progress belongs to a different spec
+// than the one being reconciled, so the workflow must start again from its first
+// pipeline.
+//
+// The recorded hash is the durable signal. A Job at a different hash is the
+// signal that predates it, kept as a second trigger so a spec changed against an
+// object written before observedWorkflowHash existed is still picked up.
+func isNewRun(opts Opts, state *workflowState) bool {
+	if state.desiredWorkflowHash == "" {
+		return false
+	}
+
+	if recorded := resourceutil.GetKratixWorkflowsStatus(opts.parentObject, v1alpha1.ObservedWorkflowHashStatusKey); recorded != "" {
+		return recorded != state.desiredWorkflowHash
+	}
+
+	return state.mostRecentJob != nil &&
+		state.mostRecentJob.GetLabels()[v1alpha1.KratixResourceHashLabel] != state.desiredWorkflowHash
+}
+
+// recordedPipelinePhases returns the phase recorded for each pipeline in
+// opts.Resources, in order, or nil when the status does not describe exactly
+// this set of pipelines in this order.
+//
+// A caller that skips conditions never writes phases, so any phases on its
+// parent object were written by someone else and this engine cannot advance
+// them; it reads Job history instead, as it always did.
+func recordedPipelinePhases(opts Opts) []string {
+	if opts.SkipConditions {
+		return nil
+	}
+
+	recorded, found, err := unstructured.NestedSlice(opts.parentObject.Object,
+		"status", "kratix", "workflows", "pipelines")
+	if err != nil || !found || len(recorded) != len(opts.Resources) {
+		return nil
+	}
+
+	phases := make([]string, len(opts.Resources))
+	for i, pipeline := range opts.Resources {
+		entry, ok := recorded[i].(map[string]any)
+		if !ok || entry["name"] != pipeline.Name {
+			return nil
+		}
+		phases[i], _ = entry["phase"].(string)
+	}
+	return phases
+}
+
+// applyRecordedProgress resolves the pipeline to act on from the recorded
+// phases. A Job may move the record forward — a Job that completed before its
+// Succeeded phase could be written still counts — but never backwards, so
+// deleting Jobs cannot rewind the workflow.
+func applyRecordedProgress(opts Opts, state *workflowState, phases []string) {
+	pipelineCount := len(opts.Resources)
+	lastIndex := pipelineCount - 1
+
+	completed := int64(pipelineCount)
+	for i, phase := range phases {
+		if phase != v1alpha1.WorkflowPhaseSucceeded {
+			completed = int64(i)
+			break
+		}
+	}
+
+	if jobIndex, isWorkflowJob := jobToPipelineIndex(opts, state.mostRecentJob); isWorkflowJob &&
+		isCompleted(state.mostRecentJob) && int64(jobIndex+1) > completed {
+		state.completedJob = state.mostRecentJob
+		completed = int64(jobIndex + 1)
+	}
+
+	state.completedCount = completed
+	state.pipelineIndex = min(int(completed), lastIndex)
+
+	if completed == int64(pipelineCount) {
+		state.workflowComplete = !jobIsForPipeline(opts.Resources[lastIndex], state.mostRecentJob)
+		return
+	}
+
+	// Restarting a pipeline recorded as Failed because its Job was pruned is the
+	// retry-on-cleanup this story removes; a new run has to be asked for.
+	state.awaitingFailureRetry = phases[state.pipelineIndex] == v1alpha1.WorkflowPhaseFailed &&
+		!jobIsForPipeline(opts.Resources[state.pipelineIndex], state.mostRecentJob)
+}
+
+// applyJobDerivedProgress resolves the pipeline to act on from Job history. It
+// is the behaviour that predates recorded phases, kept for parent objects whose
+// status does not describe this workflow.
+func applyJobDerivedProgress(opts Opts, state *workflowState) {
+	pipelineIndex, jobIsForPipeline := jobToPipelineIndex(opts, state.mostRecentJob)
+
+	state.completedCount = int64(pipelineIndex)
+
 	if jobIsForPipeline && isCompleted(state.mostRecentJob) {
+		state.completedJob = state.mostRecentJob
 		state.completedCount++
 		if pipelineIndex < len(opts.Resources)-1 {
 			pipelineIndex++
@@ -265,8 +374,6 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 	}
 
 	state.pipelineIndex = pipelineIndex
-	return state, nil
-
 }
 
 func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bool, err error) {
@@ -286,23 +393,36 @@ func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bo
 	failedCountDrifted := state.desiredFailedCount != nil && currentFailedCount != *state.desiredFailedCount
 	pipelinePhaseDrifted := state.desiredPipelineJob != nil && state.desiredPipelinePhase != ""
 
-	if !succeededCountDrifted && !shouldResetForManualRetry && !failedCountDrifted && !pipelinePhaseDrifted {
+	if !succeededCountDrifted && !shouldResetForManualRetry && !failedCountDrifted && !pipelinePhaseDrifted && !state.newRun {
 		return false, nil
 	}
 
 	if succeededCountDrifted {
 		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsSucceeded", state.completedCount)
-		if state.completedCount > 0 {
-			if err = resourceutil.MarkCurrentPipelineAsSucceeded(opts.parentObject, opts.logger, state.mostRecentJob); err != nil {
+		// Only the Job whose completion advanced the count may move a phase.
+		// Any other Job either names a pipeline the recorded phases already
+		// account for, or one that is no longer in the workflow at all, and
+		// MarkCurrentPipelineAs errors on a pipeline it cannot find.
+		if state.completedJob != nil {
+			if err = resourceutil.MarkCurrentPipelineAsSucceeded(opts.parentObject, opts.logger, state.completedJob); err != nil {
 				logging.Error(opts.logger, err, "failed to mark current pipeline as succeeded")
 				return false, err
 			}
 		}
 	}
 
-	if shouldResetForManualRetry || (succeededCountDrifted && state.completedCount == 0) {
+	if shouldResetForManualRetry || state.newRun || (succeededCountDrifted && state.completedCount == 0) {
 		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(0))
 		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.Resources); err != nil {
+			return false, err
+		}
+	}
+
+	if state.newRun {
+		// Recorded in the same write as the reset. Phases that say Pending while
+		// the hash still names the previous spec read as changed again on the
+		// next reconcile, and reset themselves for as long as the workflow takes.
+		if err = resourceutil.SetKratixWorkflowsStatus(opts.parentObject, v1alpha1.ObservedWorkflowHashStatusKey, state.desiredWorkflowHash); err != nil {
 			return false, err
 		}
 	}
@@ -339,6 +459,17 @@ func executeReconcileAction(opts Opts, state *workflowState, pipeline v1alpha1.P
 			return true, err
 		}
 		logging.Info(opts.logger, "job already inflight for another workflow; waiting for completion", "job", state.mostRecentJob.Name)
+		return true, nil
+	}
+
+	if state.workflowComplete {
+		logging.Debug(opts.logger, "every pipeline is recorded as succeeded; nothing to run", "pipeline", pipeline.Name)
+		return false, cleanup(opts, opts.namespace)
+	}
+
+	if state.awaitingFailureRetry {
+		logging.Debug(opts.logger, "pipeline is recorded as failed and its job is gone; "+
+			"waiting for a manual reconciliation, a restart or a spec change", "pipeline", pipeline.Name)
 		return true, nil
 	}
 
@@ -497,7 +628,10 @@ func jobIsForPipeline(pipeline v1alpha1.PipelineJobResources, job *batchv1.Job) 
 	return jobLabels[v1alpha1.PipelineNameLabel] == pipelineLabels[v1alpha1.PipelineNameLabel]
 }
 
-// Bool indicates wether the job belongs to the pipeline, or is unrelated
+// jobToPipelineIndex maps a Job back to the pipeline that created it. The bool
+// indicates whether the job belongs to a pipeline of this workflow, or is
+// unrelated. Only applyJobDerivedProgress uses it, for parent objects whose
+// status does not record the workflow's phases.
 func jobToPipelineIndex(opts Opts, mostRecentJob *batchv1.Job) (int, bool) {
 	if mostRecentJob == nil || isManualReconciliation(opts.parentObject.GetLabels()) {
 		return 0, false
@@ -591,7 +725,10 @@ func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
 	// Sort jobs by creation time
 	pipelineJobsAtCurrentSpec = resourceutil.SortJobsByCreationDateTime(pipelineJobsAtCurrentSpec, true)
 
-	// Delete all but the last n jobs; n defaults to 5 and can be configured by env var for the operator
+	// Delete all but the last n jobs; n defaults to 5 and is set by
+	// numberOfJobsToKeep in the kratix ConfigMap. It bounds retained history
+	// only: progression is read from the parent's status, so pruning every Job
+	// of a workflow does not restart it.
 	for i := 0; i < len(pipelineJobsAtCurrentSpec)-opts.numberOfJobsToKeep; i++ {
 		job := pipelineJobsAtCurrentSpec[i]
 		logging.Debug(opts.logger,
@@ -686,6 +823,15 @@ func setPipelineStartingStatus(opts Opts, pipelineIndex int, obj *unstructured.U
 	if shouldMarkConfigureWorkflowAsRunning(obj) {
 		logging.Debug(opts.logger, "marking ConfigureWorkflowCompleted as running")
 		resourceutil.MarkConfigureWorkflowAsRunning(opts.logger, obj)
+		updated = true
+	}
+
+	if hash := job.GetLabels()[v1alpha1.KratixResourceHashLabel]; hash != "" &&
+		resourceutil.GetKratixWorkflowsStatus(obj, v1alpha1.ObservedWorkflowHashStatusKey) != hash {
+		logging.Debug(opts.logger, "recording the workflow hash this run belongs to", "hash", hash)
+		if err := resourceutil.SetKratixWorkflowsStatus(obj, v1alpha1.ObservedWorkflowHashStatusKey, hash); err != nil {
+			return err
+		}
 		updated = true
 	}
 

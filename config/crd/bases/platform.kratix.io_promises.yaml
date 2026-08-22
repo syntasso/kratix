@@ -254,8 +254,17 @@ spec:
                   workflows:
                     description: Status of the Workflow execution
                     properties:
+                      observedWorkflowHash:
+                        description: |-
+                          Hash of the spec the recorded Pipeline phases belong to. Kratix starts the
+                          workflow again from its first Pipeline when the current spec hashes to
+                          something else. Set by Kratix; editing it re-runs the workflow.
+                        type: string
                       pipelines:
-                        description: Status of the Pipeline execution
+                        description: |-
+                          Status of each configure Pipeline, in the order they run. Kratix reads
+                          these phases to decide which Pipeline to run next, so editing them changes
+                          what the configure workflow does.
                         items:
                           properties:
                             attempts:
@@ -274,7 +283,10 @@ spec:
                             nextRetryAt:
                               type: string
                             phase:
-                              description: Phase of the workflow
+                              description: |-
+                                Phase of this Pipeline: Pending, Running, Succeeded, Failed or Suspended.
+                                Kratix runs the first Pipeline that is not Succeeded, so this field drives
+                                the workflow rather than only reporting on it.
                               type: string
                           type: object
                         type: array

@@ -1956,6 +1956,14 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 									Type:   "integer",
 									Format: "int64",
 								},
+								// XPreserveUnknownFields on the status node above does not
+								// reach this object: it specifies its own properties, so
+								// the API server prunes anything not named here. A field
+								// left out is dropped on write and reads back absent, and
+								// no fake-client test can see it.
+								v1alpha1.ObservedWorkflowHashStatusKey: {
+									Type: "string",
+								},
 							},
 						},
 					},

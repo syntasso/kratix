@@ -37,11 +37,16 @@ import (
 )
 
 const (
-	PromiseStatusAvailable               = "Available"
-	PromiseStatusUnavailable             = "Unavailable"
-	PromisePlural                        = "promises"
-	KratixResourceHashLabel              = "kratix.io/hash"
-	KratixPipelineHashLabel              = "kratix.io/pipeline-hash"
+	PromiseStatusAvailable   = "Available"
+	PromiseStatusUnavailable = "Unavailable"
+	PromisePlural            = "promises"
+	KratixResourceHashLabel  = "kratix.io/hash"
+	KratixPipelineHashLabel  = "kratix.io/pipeline-hash"
+	// ObservedWorkflowHashStatusKey is the key, under status.kratix.workflows,
+	// of WorkflowStatus.ObservedWorkflowHash. The workflow engine and the status
+	// schema injected into every resource request CRD both use it: a resource
+	// request CRD that does not name this key has the field pruned on write.
+	ObservedWorkflowHashStatusKey        = "observedWorkflowHash"
 	PromiseAvailableConditionType        = "Available"
 	PromiseAvailableConditionTrueReason  = "PromiseAvailable"
 	PromiseAvailableConditionFalseReason = "PromiseUnavailable"
@@ -189,18 +194,27 @@ type KratixPromiseStatus struct {
 }
 
 type WorkflowStatus struct {
-	// Status of the Pipeline execution
+	// Status of each configure Pipeline, in the order they run. Kratix reads
+	// these phases to decide which Pipeline to run next, so editing them changes
+	// what the configure workflow does.
 	Pipelines []WorkflowPipelineStatus `json:"pipelines,omitempty"`
 
 	// Generation at which the workflow was suspended
 	SuspendedGeneration int64 `json:"suspendedGeneration,omitempty"`
+
+	// Hash of the spec the recorded Pipeline phases belong to. Kratix starts the
+	// workflow again from its first Pipeline when the current spec hashes to
+	// something else. Set by Kratix; editing it re-runs the workflow.
+	ObservedWorkflowHash string `json:"observedWorkflowHash,omitempty"`
 }
 
 type WorkflowPipelineStatus struct {
 	// Name of the workflow
 	Name string `json:"name,omitempty"`
 
-	// Phase of the workflow
+	// Phase of this Pipeline: Pending, Running, Succeeded, Failed or Suspended.
+	// Kratix runs the first Pipeline that is not Succeeded, so this field drives
+	// the workflow rather than only reporting on it.
 	Phase string `json:"phase,omitempty"`
 
 	// Message from the suspended pipeline
