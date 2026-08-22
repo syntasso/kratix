@@ -165,6 +165,10 @@ var _ = Describe("PromiseController", func() {
 						Expect(suspendedGeneration.Type).To(Equal("integer"))
 						Expect(suspendedGeneration.Format).To(Equal("int64"))
 
+						observedWorkflowHash, ok := kratixWorkflows.Properties["observedWorkflowHash"]
+						Expect(ok).To(BeTrue(), ".status.kratix.workflows.observedWorkflowHash did not exist. Spec %v", kratixWorkflows)
+						Expect(observedWorkflowHash.Type).To(Equal("string"))
+
 						observedGeneration, ok := status.Properties["observedGeneration"]
 						Expect(ok).To(BeTrue(), ".status.observedGeneration did not exist. Spec %v", status)
 						Expect(observedGeneration.Type).To(Equal("integer"))

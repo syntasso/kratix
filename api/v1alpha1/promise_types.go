@@ -160,7 +160,9 @@ type PromiseStatus struct {
 	Kratix KratixPromiseStatus `json:"kratix,omitempty"`
 	// Total number of Promise-level workflow pipelines
 	Workflows int64 `json:"workflows"`
-	// Number of Promise-level workflow pipelines that have completed successfully
+	// Number of Promise-level workflow pipelines completed so far in this run:
+	// the leading run of Succeeded phases, so a later Pipeline that succeeded
+	// ahead of an earlier one is not counted
 	WorkflowsSucceeded int64 `json:"workflowsSucceeded"`
 	// Number of Promise-level workflow pipelines that have failed
 	WorkflowsFailed int64 `json:"workflowsFailed"`
@@ -204,12 +206,17 @@ type WorkflowStatus struct {
 
 	// Hash of the spec the recorded Pipeline phases belong to. Kratix starts the
 	// workflow again from its first Pipeline when the current spec hashes to
-	// something else. Set by Kratix; editing it re-runs the workflow.
+	// something else. For a resource request the hash covers the Promise's spec
+	// combined with the request's, so editing the Promise starts a new run for
+	// every one of its resources. Set by Kratix; editing it re-runs the workflow.
 	ObservedWorkflowHash string `json:"observedWorkflowHash,omitempty"`
 }
 
 type WorkflowPipelineStatus struct {
-	// Name of the workflow
+	// Name of the Pipeline this phase belongs to. Kratix matches it against the
+	// configure Pipelines the Promise declares, and reads the phases only when
+	// every name matches in order; otherwise it falls back to inspecting the
+	// workflow's Jobs.
 	Name string `json:"name,omitempty"`
 
 	// Phase of this Pipeline: Pending, Running, Succeeded, Failed or Suspended.

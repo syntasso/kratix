@@ -258,7 +258,9 @@ spec:
                         description: |-
                           Hash of the spec the recorded Pipeline phases belong to. Kratix starts the
                           workflow again from its first Pipeline when the current spec hashes to
-                          something else. Set by Kratix; editing it re-runs the workflow.
+                          something else. For a resource request the hash covers the Promise's spec
+                          combined with the request's, so editing the Promise starts a new run for
+                          every one of its resources. Set by Kratix; editing it re-runs the workflow.
                         type: string
                       pipelines:
                         description: |-
@@ -278,7 +280,11 @@ spec:
                               description: Message from the suspended pipeline
                               type: string
                             name:
-                              description: Name of the workflow
+                              description: |-
+                                Name of the Pipeline this phase belongs to. Kratix matches it against the
+                                configure Pipelines the Promise declares, and reads the phases only when
+                                every name matches in order; otherwise it falls back to inspecting the
+                                workflow's Jobs.
                               type: string
                             nextRetryAt:
                               type: string
@@ -365,8 +371,10 @@ spec:
                 format: int64
                 type: integer
               workflowsSucceeded:
-                description: Number of Promise-level workflow pipelines that have
-                  completed successfully
+                description: |-
+                  Number of Promise-level workflow pipelines completed so far in this run:
+                  the leading run of Succeeded phases, so a later Pipeline that succeeded
+                  ahead of an earlier one is not counted
                 format: int64
                 type: integer
             required:

@@ -976,6 +976,9 @@ func (r *DynamicResourceRequestController) cleanupWorkflowCountersAndExecution(c
 
 		resourceutil.SetStatus(rr, logger, "workflows", int64(0), "workflowsSucceeded", int64(0), "workflowsFailed", int64(0))
 		unstructured.RemoveNestedField(rr.Object, "status", "kratix", "workflows", "pipelines")
+		// The hash names the spec the phases belonged to. Leaving it behind once
+		// the phases are gone claims a run that is no longer recorded.
+		unstructured.RemoveNestedField(rr.Object, "status", "kratix", "workflows", v1alpha1.ObservedWorkflowHashStatusKey)
 		return r.Client.Status().Update(ctx, rr)
 	}
 	return nil
