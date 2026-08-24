@@ -29,7 +29,9 @@ const (
 	runDeleteWorkflowsFinalizer    = v1alpha1.KratixPrefix + "delete-workflows"
 	promiseLogKey                  = "promise"
 	resourceRequestLogKey          = "resourceRequest"
-	// DefaultReconciliationInterval is the interval on which the workflows will be re-run.
+	// DefaultReconciliationInterval is the fallback reconciliation interval for re-running
+	// workflows, used when neither the resolved PromiseRevision nor the live Promise spec
+	// declares its own reconciliationInterval.
 	DefaultReconciliationInterval                       = time.Hour * 10
 	secretRefFieldName                                  = "secretRef"
 	StatusNotReady                                      = "NotReady"

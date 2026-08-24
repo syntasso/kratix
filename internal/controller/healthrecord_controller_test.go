@@ -46,7 +46,7 @@ var _ = Describe("HealthRecordController", func() {
 
 	BeforeEach(func() {
 		promise = createPromise(promisePath)
-		resource = createResourceRequest(resourceRequestPath)
+		resource = createResourceRequest()
 
 		details = &runtime.RawExtension{Raw: []byte(`{"info":"message"}`)}
 

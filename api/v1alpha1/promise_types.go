@@ -97,6 +97,8 @@ type Workflows struct {
 type WorkflowConfig struct {
 	// Namespace for all workflow jobs (promise and resource) to run in; needs to be an existing namespace or else workflow won't start
 	PipelineNamespace string `json:"pipelineNamespace,omitempty"`
+	// Interval at which all workflows (promise and resource) defined in this Promise are reconciled; if not set, defaults to the platform-wide reconciliation interval
+	ReconciliationInterval *metav1.Duration `json:"reconciliationInterval,omitempty"`
 }
 
 // WorkflowTriggers defines the pipelines that run during configure and delete lifecycle events

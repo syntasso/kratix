@@ -13,7 +13,7 @@ CI=${CI:-false}
 
 INSTALL_AND_CREATE_BUCKET=true
 INSTALL_AND_CREATE_GITEA_REPO=false
-WORKER_STATESTORE_TYPE=BucketStateStore
+WORKER_STATESTORE_TYPE="${WORKER_STATESTORE_TYPE:-BucketStateStore}"
 
 LOCAL_IMAGES_DIR=""
 VERSION=${VERSION:-"$(cd $ROOT; git branch --show-current)"}
@@ -44,7 +44,7 @@ usage() {
     echo -e "\t--git, -g                Use Gitea as local repository in place of the default local bucket"
     echo -e "\t--single-cluster, -s     Deploy Kratix on a Single cluster setup"
     echo -e "\t--third-cluster, -t      Deploy Kratix with a three cluster setup"
-    echo -e "\t--git-and-bucket, -d     Install Gitea alongside the bucket installation. Destinations still use the bucket as statestore. Can't be used alongside --git"
+    echo -e "\t--git-and-bucket, -d     Install Gitea alongside the bucket installation. Destinations use the bucket as statestore unless WORKER_STATESTORE_TYPE=GitStateStore is set. Can't be used alongside --git"
     echo -e "\t--no-cert-manager        Don't install cert-manager"
     echo -e "\t--no-labels, -n          Don't apply any labels to the KinD clusters"
     exit "${1:-0}"
@@ -79,12 +79,17 @@ load_options() {
         'l') BUILD_KRATIX_IMAGES=true ;;
         'n') LABELS=false ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
-        'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_BUCKET=true WORKER_STATESTORE_TYPE=BucketStateStore ;;
-        'g') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_BUCKET=false WORKER_STATESTORE_TYPE=GitStateStore ;;
+        'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_BUCKET=true ;;
+        'g') INSTALL_AND_CREATE_BUCKET=false WORKER_STATESTORE_TYPE=GitStateStore ;;
         *) usage 1 ;;
       esac
     done
     shift $(expr $OPTIND - 1)
+
+    # a Git worker state store needs Gitea
+    if [ "${WORKER_STATESTORE_TYPE}" = "GitStateStore" ]; then
+        INSTALL_AND_CREATE_GITEA_REPO=true
+    fi
 
     # we don't want to use the scarf images
     if [ ${KRATIX_DEVELOPER:-false} = true ]; then

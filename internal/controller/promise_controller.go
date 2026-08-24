@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -188,7 +189,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return ctrl.Result{}, r.Client.Update(opts.ctx, promise)
 	}
 
-	result, err := r.handlePromiseVersion(ctx, promise)
+	result, err := r.handlePromiseVersion(ctx, promise, logger)
 	if err != nil || !result.IsZero() {
 		return result, err
 	}
@@ -269,7 +270,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		// schedule the periodic reconcile here to retry the run on the interval.
 		if r.ReconcileAfterFailure && workflowCompletedWithFailure(
 			resourceutil.GetCondition(usPromise, resourceutil.ConfigureWorkflowCompletedCondition)) {
-			return r.nextReconciliation(logger), nil
+			return r.nextReconciliation(ctx, promise, logger), nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -333,7 +334,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		if completedCond != nil {
 			r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, "ConfigureWorkflowCompleted", "ConfigureWorkflowCompleted", "All workflows completed")
 		}
-		return r.nextReconciliation(logger), nil
+		return r.nextReconciliation(ctx, promise, logger), nil
 	}
 
 	return ctrl.Result{}, nil
@@ -370,7 +371,7 @@ func shouldRemoveDeleteWorkflowsFinalizer(promise *v1alpha1.Promise) bool {
 		controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer)
 }
 
-func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
+func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
 	var promiseVersion string
 	var found bool
 	if promiseVersion, found = promise.Labels[v1alpha1.PromiseVersionLabel]; found {
@@ -397,6 +398,33 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 		l := revision.GetLabels()
 		revision.SetLabels(labels.Merge(l, promise.GenerateSharedLabels()))
 		revision.SetLatestRevisionLabel()
+
+		// A PromiseRelease-managed Promise gets this annotation from installPromise merging
+		// the artefact's annotations onto the live Promise, not from an operator; mirroring
+		// it here would overwrite the one override path that works for that population, and
+		// the delete arm would erase it the moment the artefact stops carrying a value.
+		if _, managedByPromiseRelease := promise.Labels[promiseReleaseNameLabel]; !managedByPromiseRelease {
+			if interval, ok := promise.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]; ok {
+				annotations := revision.GetAnnotations()
+				if annotations == nil {
+					annotations = map[string]string{}
+				}
+				annotations[v1alpha1.ReconciliationIntervalAnnotation] = interval
+				revision.SetAnnotations(annotations)
+
+				// A Promise can carry an out-of-policy value from before the admission check
+				// existed; mirroring it here would fail the write on the revision's own
+				// webhook and abort this reconcile before the Promise's status is written.
+				_, reconciliationIntervalSource := revision.ReconciliationInterval(r.ReconciliationInterval)
+				if reconciliationIntervalSource != v1alpha1.ReconciliationIntervalFromAnnotation {
+					delete(revision.GetAnnotations(), v1alpha1.ReconciliationIntervalAnnotation)
+					logging.Warn(logger, "Promise reconciliation-interval annotation declined; not mirrored onto revision",
+						"promise", promise.GetName(), "annotation", v1alpha1.ReconciliationIntervalAnnotation)
+				}
+			} else {
+				delete(revision.GetAnnotations(), v1alpha1.ReconciliationIntervalAnnotation)
+			}
+		}
 
 		return controllerutil.SetControllerReference(promise, revision, scheme.Scheme)
 	})
@@ -676,9 +704,28 @@ func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.
 	return r.updatePromiseStatus(ctx, promise)
 }
 
-func (r *PromiseReconciler) nextReconciliation(logger logr.Logger) ctrl.Result {
-	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", r.ReconciliationInterval)
-	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
+func (r *PromiseReconciler) nextReconciliation(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) ctrl.Result {
+	interval, source := r.resolveReconciliationInterval(ctx, promise, logger)
+	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", interval, "source", source)
+	return ctrl.Result{RequeueAfter: interval}
+}
+
+// resolveReconciliationInterval returns a Promise's next reconciliation interval and its source.
+func (r *PromiseReconciler) resolveReconciliationInterval(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (time.Duration, string) {
+	revision, err := latestRevision(ctx, r.Client, promise)
+	if err == nil {
+		interval, source := revision.ReconciliationInterval(r.ReconciliationInterval)
+		return interval, string(source)
+	}
+	if stderrors.Is(err, errNoLatestPromiseRevisionYet) {
+		logging.Debug(logger, "no PromiseRevision marked latest yet; falling back to the Promise's declared interval or the global default", "promise", promise.GetName())
+	} else {
+		logging.Error(logger, err, "failed to look up the latest PromiseRevision; falling back to the Promise's declared interval or the global default", "promise", promise.GetName())
+	}
+	if interval := promise.Spec.Workflows.Config.ReconciliationInterval; interval != nil {
+		return interval.Duration, "promiseSpec"
+	}
+	return r.ReconciliationInterval, "globalDefault"
 }
 
 func promiseAvailableStatusCondition(lastTransitionTime metav1.Time) metav1.Condition {
@@ -972,7 +1019,8 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
 
-	forcePipelineRun := passedReconciliationInterval(completedCond, r.ReconciliationInterval, r.ReconcileAfterFailure) &&
+	reconciliationInterval, _ := r.resolveReconciliationInterval(o.ctx, promise, o.logger)
+	forcePipelineRun := passedReconciliationInterval(completedCond, reconciliationInterval, r.ReconcileAfterFailure) &&
 		promise.Labels[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
@@ -1846,6 +1894,50 @@ func (r *PromiseReconciler) PromisesRequiringRevision(ctx context.Context, obj c
 	return requests
 }
 
+// promiseForRevision maps a PromiseRevision to its own Promise, read from spec.promiseRef.name.
+// That field is `+required` on PromiseRevisionSpec, so the API server guarantees every revision
+// has one; PromiseNameLabel carries the same value but, as ordinary metadata, has no such
+// guarantee. That makes the spec field the more dependable route, even though nothing - no CEL
+// rule, no update check - stops either one from being repointed after creation.
+func promiseForRevision(_ context.Context, obj client.Object) []reconcile.Request {
+	revision, ok := obj.(*v1alpha1.PromiseRevision)
+	if !ok {
+		return nil
+	}
+
+	promiseName := revision.GetPromiseName()
+	if promiseName == "" {
+		return nil
+	}
+
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: promiseName}}}
+}
+
+// promiseRevisionAnnotationChangedPredicate reports changed reconciliation interval annotations.
+func promiseRevisionAnnotationChangedPredicate() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool {
+			return false
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldValue := e.ObjectOld.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]
+			newValue := e.ObjectNew.GetAnnotations()[v1alpha1.ReconciliationIntervalAnnotation]
+			oldDuration, oldErr := time.ParseDuration(oldValue)
+			newDuration, newErr := time.ParseDuration(newValue)
+			if oldErr != nil && newErr != nil {
+				return false
+			}
+			return oldErr != nil || newErr != nil || oldDuration != newDuration
+		},
+		DeleteFunc: func(event.DeleteEvent) bool {
+			return false
+		},
+		GenericFunc: func(event.GenericEvent) bool {
+			return false
+		},
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -1865,6 +1957,11 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&v1alpha1.PromiseRevision{},
 			handler.EnqueueRequestsFromMapFunc(r.PromisesRequiringRevision),
+		).
+		Watches(
+			&v1alpha1.PromiseRevision{},
+			handler.EnqueueRequestsFromMapFunc(promiseForRevision),
+			builder.WithPredicates(promiseRevisionAnnotationChangedPredicate()),
 		).
 		// Reconcile a Promise when one of its Work resources changes.
 		// This triggers the Promise reconciliation when a Work resource changes to update the "Reconciled" and

@@ -1,10 +1,15 @@
 package controller
 
 import (
+	"context"
+
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/workflow"
 	"github.com/syntasso/kratix/lib/writers"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 func SetReconcileConfigureWorkflow(f func(workflow.Opts) (bool, error)) {
@@ -30,4 +35,12 @@ func SetNewGitWriter(f func(logger logr.Logger, stateStoreSpec v1alpha1.GitState
 		creds map[string][]byte, _ ...writers.GitWriterOption) (writers.StateStoreWriter, error) {
 		return f(logger, stateStoreSpec, destinationPath, creds)
 	}
+}
+
+func PromiseForRevision(ctx context.Context, obj client.Object) []reconcile.Request {
+	return promiseForRevision(ctx, obj)
+}
+
+func PromiseRevisionAnnotationChangedPredicate() predicate.Predicate {
+	return promiseRevisionAnnotationChangedPredicate()
 }

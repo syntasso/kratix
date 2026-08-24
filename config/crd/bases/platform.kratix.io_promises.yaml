@@ -117,6 +117,11 @@ spec:
                           resource) to run in; needs to be an existing namespace or
                           else workflow won't start
                         type: string
+                      reconciliationInterval:
+                        description: Interval at which all workflows (promise and
+                          resource) defined in this Promise are reconciled; if not
+                          set, defaults to the platform-wide reconciliation interval
+                        type: string
                     type: object
                   promise:
                     description: Pipelines triggered when the Promise itself is created,
