@@ -616,7 +616,7 @@ func (w *workPlacementReconcileContext) deleteWorkPlacement(repo *Repository) (c
 
 		case v1alpha1.FilepathModeNone:
 			logging.Trace(w.logger, "handling file path mode none")
-			stateFile, err := w.readKratixStateFile(repo, false)
+			stateFile, err := w.readKratixStateFile(repo, true)
 			if err != nil {
 				logging.Debug(w.logger, "failed to read .kratix state file", "error", err)
 				return defaultRequeue, nil
