@@ -1,0 +1,12 @@
+stateStores:
+- kind: BucketStateStore
+  name: default
+  namespace: default
+  secretRef:
+    name: bucket-credentials
+    values:
+      accesskey: a3JhdGl4YWRtaW4=
+      secretkey: a3JhdGl4YWRtaW4=
+  insecure: true
+  endpoint: bucket.seaweedfs.svc.cluster.local
+  bucket: kratix

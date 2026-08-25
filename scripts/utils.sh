@@ -94,13 +94,30 @@ copy_gitea_credentials() {
         kubectl apply --namespace ${targetNamespace} --context ${toCtx} -f -
 }
 
+# run executes a command, showing a spinner while it works and its output if it
+# fails. There is deliberately no way to silence it: a command whose output is
+# hidden is a command you cannot debug from a CI log.
+#
+# In CI the output is streamed live rather than buffered, so a command that hangs
+# still shows progress: buffered output prints nothing until the command exits.
+# There is no spinner in CI anyway, so there is nothing to interleave with.
 run() {
-    SUPRESS_OUTPUT=${SUPRESS_OUTPUT:-false}
+    local stream=false
+    if [ -n "${CI:-}" ] && [ "${CI}" != "false" ]; then
+        stream=true
+    fi
+
     stdout="$(mktemp)"
     stderr="$(mktemp)"
     trap "rm $stdout $stderr" EXIT
 
-    $@ > $stdout 2>$stderr & pid=$! # Process Id of the previous running command
+    if ${stream}; then
+        # tee to the terminal as well as the capture files, so a long-running or
+        # hanging command shows progress as it happens.
+        { $@ 2>&1 | tee "$stdout"; exit "${PIPESTATUS[0]}"; } & pid=$!
+    else
+        $@ > $stdout 2>$stderr & pid=$! # Process Id of the previous running command
+    fi
 
     spin='-\|/'
 
@@ -109,7 +126,7 @@ run() {
     while kill -0 $pid 2>/dev/null
     do
         i=$(( (i+1) %4 ))
-        [[ -z ${CIRCLECI:-""} ]] && echo -ne "\b${spin:$i:1}"
+        [[ -z ${CIRCLECI:-""} ]] && ! ${stream} && echo -ne "\b${spin:$i:1}"
         sleep .1
     done
     echo -ne "\b\b"
@@ -117,16 +134,16 @@ run() {
     wait $pid
     exit_code="$?"
 
-    if [ "$exit_code" -eq "0" ] && ! ${SUPRESS_OUTPUT}; then
+    if [ "$exit_code" -eq "0" ]; then
         success_mark
     else
-        if ! ${SUPRESS_OUTPUT}; then
-            error_mark
-            if [[ -s "$stdout" || -s "$stderr" ]]; then
-                info "Combined output:"
-                cat $stdout $stderr
-                log
-            fi
+        error_mark
+        # When streaming, the output has already been shown; repeating it just
+        # doubles the noise around the actual error.
+        if ! ${stream} && [[ -s "$stdout" || -s "$stderr" ]]; then
+            info "Combined output:"
+            cat $stdout $stderr
+            log
         fi
     fi
 
