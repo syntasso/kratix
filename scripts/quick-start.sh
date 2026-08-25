@@ -11,7 +11,7 @@ THIRD_DESTINATION=false
 
 CI=${CI:-false}
 
-INSTALL_AND_CREATE_MINIO_BUCKET=true
+INSTALL_AND_CREATE_BUCKET=true
 INSTALL_AND_CREATE_GITEA_REPO=false
 WORKER_STATESTORE_TYPE="${WORKER_STATESTORE_TYPE:-BucketStateStore}"
 
@@ -36,15 +36,15 @@ KIND_PLATFORM_CONFIG="${KIND_PLATFORM_CONFIG:-"${ROOT}/hack/platform/kind-platfo
 KIND_WORKER_CONFIG="${KIND_WORKER_CONFIG:-"${ROOT}/hack/destination/kind-worker-config.yaml"}"
 
 usage() {
-    echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--git-and-minio] [--local-images <location>]"
+    echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--git-and-bucket] [--local-images <location>]"
     echo -e "\t--help, -h               Prints this message"
     echo -e "\t--recreate, -r           Deletes pre-existing KinD clusters"
     echo -e "\t--local, -l              Build and load Kratix images to KinD cache"
     echo -e "\t--local-images, -i       Load container images from a local directory into the KinD clusters"
-    echo -e "\t--git, -g                Use Gitea as local repository in place of default local MinIO"
+    echo -e "\t--git, -g                Use Gitea as local repository in place of the default local bucket"
     echo -e "\t--single-cluster, -s     Deploy Kratix on a Single cluster setup"
     echo -e "\t--third-cluster, -t      Deploy Kratix with a three cluster setup"
-    echo -e "\t--git-and-minio, -d      Install Gitea alongside the minio installation. Destinations use minio as statestore unless WORKER_STATESTORE_TYPE=GitStateStore is set. Can't be used alongside --git"
+    echo -e "\t--git-and-bucket, -d     Install Gitea alongside the bucket installation. Destinations use the bucket as statestore unless WORKER_STATESTORE_TYPE=GitStateStore is set. Can't be used alongside --git"
     echo -e "\t--no-cert-manager        Don't install cert-manager"
     echo -e "\t--no-labels, -n          Don't apply any labels to the KinD clusters"
     exit "${1:-0}"
@@ -58,7 +58,7 @@ load_options() {
         '--recreate')          set -- "$@" '-r'   ;;
         '--local')             set -- "$@" '-l'   ;;
         '--git')               set -- "$@" '-g'   ;;
-        '--git-and-minio')     set -- "$@" '-d'   ;;
+        '--git-and-bucket')    set -- "$@" '-d'   ;;
         '--local-images')      set -- "$@" '-i'   ;;
         '--no-labels')         set -- "$@" '-n'   ;;
         '--single-cluster')    set -- "$@" '-s'   ;;
@@ -79,8 +79,8 @@ load_options() {
         'l') BUILD_KRATIX_IMAGES=true ;;
         'n') LABELS=false ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
-        'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true ;;
-        'g') INSTALL_AND_CREATE_MINIO_BUCKET=false WORKER_STATESTORE_TYPE=GitStateStore ;;
+        'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_BUCKET=true ;;
+        'g') INSTALL_AND_CREATE_BUCKET=false WORKER_STATESTORE_TYPE=GitStateStore ;;
         *) usage 1 ;;
       esac
     done
@@ -243,9 +243,9 @@ setup_platform_destination() {
         kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
     fi
 
-    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
-        make minio-cli
-        kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename "${ROOT}/hack/platform/minio-install.yaml"
+    if ${INSTALL_AND_CREATE_BUCKET}; then
+        make s5cmd-cli
+        kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename "${ROOT}/hack/platform/seaweedfs-install.yaml"
     fi
 
     cat "${ROOT}/distribution/kratix.yaml" | patch_image | kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename -
@@ -257,7 +257,7 @@ setup_worker_destination() {
         cat "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml" | sed "s/172.18.0.2/$(platform_destination_ip)/g" | kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply -f -
     fi
 
-    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
+    if ${INSTALL_AND_CREATE_BUCKET}; then
        kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename "${ROOT}/config/samples/platform_v1alpha1_bucketstatestore.yaml"
        kubectl wait bucketstatestore default --for=condition=Ready
     fi
@@ -298,21 +298,17 @@ wait_for_gitea() {
     kubectl wait job --context kind-${PLATFORM_CLUSTER_NAME} -n gitea gitea-create-repository --for condition=Complete ${wait_opts}
 }
 
-wait_for_minio() {
+wait_for_seaweedfs() {
     wait_opts=$1
-    while ! kubectl get pods --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system | grep minio; do
+    # Wait for the pod to exist before waiting on its condition: `kubectl wait` errors
+    # out rather than blocking when nothing matches the selector yet.
+    while ! kubectl get pods --context kind-${PLATFORM_CLUSTER_NAME} -n seaweedfs \
+        --selector run=seaweedfs --no-headers 2>/dev/null | grep -q .; do
         sleep 1
     done
-    kubectl wait pod --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system --selector run=minio --for=condition=ready ${wait_opts}
-
-    while ! kubectl get job --context kind-${PLATFORM_CLUSTER_NAME} -n default | grep minio-create-bucket; do
-        sleep 1
-    done
-    kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait job minio-create-bucket --for condition=Complete ${wait_opts}
-
-    minio_user=$(kubectl --context kind-${PLATFORM_CLUSTER_NAME} get secret minio-credentials -n default -o jsonpath="{.data.accessKeyID}" | base64 --decode)
-    minio_password=$(kubectl --context kind-${PLATFORM_CLUSTER_NAME} get secret minio-credentials -n default -o jsonpath="{.data.secretAccessKey}" | base64 --decode)
-    ${ROOT}/bin/mc alias set kind http://localhost:31337 ${minio_user} ${minio_password}
+    # No separate wait for bucket creation: the pod's readiness probe checks that the
+    # bucket exists, so condition=ready already means the state store is usable.
+    kubectl wait pod --context kind-${PLATFORM_CLUSTER_NAME} -n seaweedfs --selector run=seaweedfs --for=condition=ready ${wait_opts}
 }
 
 wait_for_local_repository() {
@@ -326,26 +322,58 @@ wait_for_local_repository() {
         wait_for_gitea ${wait_opts}
     fi
 
-    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
-        wait_for_minio ${wait_opts}
+    if ${INSTALL_AND_CREATE_BUCKET}; then
+        wait_for_seaweedfs ${wait_opts}
     fi
 }
 
+# Dumps the state of everything the worker namespace depends on. Called when the
+# reconcile wait gives up, because by then the interesting state is on two
+# clusters and the failure is otherwise indistinguishable from "still slow".
+dump_reconcile_diagnostics() {
+    local context="$1"
+    log "\n--- gitops resources on ${context} ---"
+    kubectl --context $context get bucket,gitrepository,kustomization -n flux-system 2>&1 || true
+    log "\n--- state store on kind-${PLATFORM_CLUSTER_NAME} ---"
+    kubectl --context kind-${PLATFORM_CLUSTER_NAME} get bucketstatestore,gitstatestore,destinations 2>&1 || true
+    log "\n--- local repository pods (RESTARTS: the bucket lives on an emptyDir, but the ensure-bucket sidecar recreates it) ---"
+    kubectl --context kind-${PLATFORM_CLUSTER_NAME} get pods -n seaweedfs 2>&1 || true
+    kubectl --context kind-${PLATFORM_CLUSTER_NAME} get pods -n gitea 2>&1 || true
+}
+
+# The first call is given a short budget and its failure is recoverable: the
+# caller re-runs the worker setup and calls again with --no-timeout. That second
+# call is still bounded, so a wedged install fails with diagnostics rather than
+# hanging until the CI job is cancelled hours later.
+#
+# The budget is wall-clock, not a loop count. A loop count does not bound how long this
+# can take: each iteration makes three kubectl calls, and against an unresponsive API
+# server those block on kubectl's own defaults, so N loops can run far longer than
+# N * sleep. --request-timeout caps each call so the deadline below is meaningful.
 wait_for_namespace() {
     local timeout_flag="${1:-""}"
-    loops=0
+    # Enough headroom over a healthy install without being open-ended; 1 hour on
+    # the retry.
+    local max_seconds=120
+    if [ -n "${timeout_flag}" ]; then
+        max_seconds=3600
+    fi
+    local deadline=$(( SECONDS + max_seconds ))
     local context="kind-${WORKER1_CLUSTER_NAME}"
     if ${SINGLE_DESTINATION}; then
         context="kind-${PLATFORM_CLUSTER_NAME}"
     fi
-    while ! kubectl --context $context get namespace kratix-worker-system >/dev/null 2>&1; do
-        if [ -z "${timeout_flag}" ] && (( loops > 20 )); then
+    while ! kubectl --request-timeout=10s --context $context get namespace kratix-worker-system >/dev/null 2>&1; do
+        if (( SECONDS > deadline )); then
+            if [ -n "${timeout_flag}" ]; then
+                log "\nGave up waiting for the kratix-worker-system namespace on ${context} after ${max_seconds}s."
+                dump_reconcile_diagnostics "$context"
+            fi
             return 1
         fi
-        kubectl --context $context annotate --field-manager=flux-client-side-apply --overwrite  -n flux-system bucket/kratix reconcile.fluxcd.io/requestedAt="$(date +%s)" || true
-        kubectl --context $context annotate --field-manager=flux-client-side-apply --overwrite  -n flux-system gitrepository/kratix-source reconcile.fluxcd.io/requestedAt="$(date +%s)" || true
+        kubectl --request-timeout=10s --context $context annotate --field-manager=flux-client-side-apply --overwrite  -n flux-system bucket/kratix reconcile.fluxcd.io/requestedAt="$(date +%s)" || true
+        kubectl --request-timeout=10s --context $context annotate --field-manager=flux-client-side-apply --overwrite  -n flux-system gitrepository/kratix-source reconcile.fluxcd.io/requestedAt="$(date +%s)" || true
         sleep 2
-        loops=$(( loops + 1 ))
     done
     return 0
 }
@@ -437,7 +465,7 @@ step_create_third_worker_cluster() {
             return
         fi
         log "Creating ${WORKER2_CLUSTER_NAME} destination..."
-        if ! SUPPRESS_OUTPUT=true run kind create cluster --name ${WORKER2_CLUSTER_NAME} --image $KIND_IMAGE \
+        if ! run kind create cluster --name ${WORKER2_CLUSTER_NAME} --image $KIND_IMAGE \
             --config ${ROOT}/config/samples/kind-worker-2-config.yaml
         then
             error "Could not create ${WORKER2_CLUSTER_NAME} destination"
@@ -523,7 +551,7 @@ install_kratix() {
 
     step_register_destinations
     log -n "Waiting for kratix deployment to be ready..."
-    if ! SUPPRESS_OUTPUT=true run wait_for_kratix_deployment; then
+    if ! run wait_for_kratix_deployment; then
         run wait_for_kratix_deployment
     else
         success_mark
@@ -532,7 +560,7 @@ install_kratix() {
     step_setup_worker_cluster
 
     log -n "Waiting for local repository to be running..."
-    if ! SUPPRESS_OUTPUT=true run wait_for_local_repository; then
+    if ! run wait_for_local_repository; then
         log "\n\nIt's taking longer than usual for the local repository to start."
         log "You can check the platform pods to ensure there are no errors."
         log "This script will continue to wait for the local repository to come up. You can kill it with $(info "CTRL+C.")"
@@ -543,22 +571,20 @@ install_kratix() {
     fi
 
     log -n "Waiting for system to reconcile... "
-    if ! SUPPRESS_OUTPUT=true run wait_for_namespace; then
+    if ! run wait_for_namespace; then
         log "\n\nIt's taking longer than usual for the system to reconcile, re-running worker destination setup."
         step_setup_worker_cluster
         log "You can check the pods on the platform and worker Destinations for debugging information."
-        log "This script will continue to wait. You can kill it with $(info "CTRL+C.")"
         log -n "\nWaiting for local repository to be running... "
-        run wait_for_namespace --no-timeout
+        if ! run wait_for_namespace --no-timeout; then
+            error " failed"
+            exit 1
+        fi
     else
         success_mark
     fi
 
     kubectl config use-context kind-${PLATFORM_CLUSTER_NAME} >/dev/null
-
-    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
-        kubectl delete job minio-create-bucket -n default --context kind-${PLATFORM_CLUSTER_NAME} >/dev/null
-    fi
 
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
         kubectl delete job gitea-create-repository -n gitea --context kind-${PLATFORM_CLUSTER_NAME} >/dev/null
