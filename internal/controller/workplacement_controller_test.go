@@ -33,6 +33,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
+	"github.com/syntasso/kratix/lib/writers"
 	"github.com/syntasso/kratix/lib/writers/writersfakes"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -214,6 +215,10 @@ var _ = Describe("WorkPlacementReconciler", func() {
 				Expect(workloadsToCreate).To(ConsistOf(expectedWorkloads))
 				Expect(workloadsToDelete).To(BeNil())
 
+				By("writing the state file before the workloads")
+				Expect(workloadsToCreate[0].Filepath).To(
+					Equal(fmt.Sprintf("%s.kratix/%s-%s.yaml", pathPrefix, workPlacement.Namespace, workPlacement.Name)))
+
 				By("fetching the right repository")
 				Expect(repositoryCache.GetRepositoryByTypeAndNameCallCount()).To(BeNumerically(">=", 1))
 				stateStoreType, stateStoreName := repositoryCache.GetRepositoryByTypeAndNameArgsForCall(0)
@@ -252,6 +257,58 @@ var _ = Describe("WorkPlacementReconciler", func() {
 				counts := collectWorkPlacementWriteMetrics(ctx, metricsReader)
 				Expect(counts).To(HaveKeyWithValue(telemetry.WorkPlacementWriteResultFailure, int64(30)))
 				Expect(counts).NotTo(HaveKey(telemetry.WorkPlacementWriteResultSuccess))
+			})
+
+			When("the work placement is deleted before its first successful write", func() {
+				It("cleans up without requiring the .kratix state file", func() {
+					_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
+						Name: workPlacement.GetName(), Namespace: workPlacement.GetNamespace()}})
+					Expect(err).NotTo(HaveOccurred())
+
+					fakeWriter.ReadFileReturns(nil, writers.ErrFileNotFound)
+					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(1))
+					workPlacementName, workloadsToDelete := fakeWriter.DeleteFilesArgsForCall(0)
+					Expect(workPlacementName).To(Equal(workPlacement.Name))
+					Expect(workloadsToDelete).To(ConsistOf(
+						fmt.Sprintf("%s/.kratix/%s-%s.yaml", destination.Spec.Path, workPlacement.Namespace, workPlacement.Name),
+					))
+
+					err = fakeK8sClient.Get(ctx, types.NamespacedName{
+						Name: workPlacement.GetName(), Namespace: workPlacement.GetNamespace()}, &v1alpha1.WorkPlacement{})
+					Expect(errors.IsNotFound(err)).To(BeTrue(), "work placement should be gone")
+				})
+			})
+
+			When("the .kratix state file goes missing after a successful write", func() {
+				It("deletes only the marker, never files it cannot account for", func() {
+					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					fakeWriter.ReadFileReturns(nil, writers.ErrFileNotFound)
+					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+
+					result, err = t.reconcileUntilCompletion(reconciler, &workPlacement)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(1))
+					workPlacementName, workloadsToDelete := fakeWriter.DeleteFilesArgsForCall(0)
+					Expect(workPlacementName).To(Equal(workPlacement.Name))
+					Expect(workloadsToDelete).To(ConsistOf(
+						fmt.Sprintf("%s/.kratix/%s-%s.yaml", destination.Spec.Path, workPlacement.Namespace, workPlacement.Name),
+					))
+
+					err = fakeK8sClient.Get(ctx, types.NamespacedName{
+						Name: workPlacement.GetName(), Namespace: workPlacement.GetNamespace()}, &v1alpha1.WorkPlacement{})
+					Expect(errors.IsNotFound(err)).To(BeTrue(), "work placement should be gone")
+				})
 			})
 
 			When("deleting a work placement", func() {
