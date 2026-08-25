@@ -2,10 +2,10 @@ config:
   path: worker-1
   namespace: kratix-worker-config
   secretRef:
-    name: bucket-credentials
+    name: minio-credentials
     values:
-      accesskey: a3JhdGl4YWRtaW4=
-      secretkey: a3JhdGl4YWRtaW4=
+      accesskey: bWluaW9hZG1pbg==
+      secretkey: bWluaW9hZG1pbg==
   bucket:
     insecure: true
     endpoint: 172.18.0.2:31337

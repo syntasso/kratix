@@ -20,15 +20,14 @@ kratix_version=$(cat $PWD/distribution/kratix.yaml| grep "image: docker.io/synta
 
 images=(
   # Kind image
-  # Keep in step with KIND_IMAGE in scripts/quick-start.sh.
-  "docker.io/kindest/node:v1.33.1"
+  "docker.io/kindest/node:v1.24.7@sha256:577c630ce8e509131eab1aea12c022190978dd2f745aac5eb1fe65c0807eb315"
 
   # Kratix Distribution Images
   "docker.io/syntasso/kratix-platform:${kratix_version}"
   "docker.io/syntassodev/kratix-platform:${kratix_version}"
 
   # Extra
-  "chrislusf/seaweedfs:4.41"
+  "docker.io/minio/minio:RELEASE.2022-06-30T20-58-09Z"
   "ghcr.io/fluxcd/helm-controller:v0.27.0"
   "ghcr.io/fluxcd/kustomize-controller:v0.31.0"
   "ghcr.io/fluxcd/notification-controller:v0.29.0"

@@ -9,11 +9,11 @@ if [ "$STATE_STORE" == "git" ]; then
     state_store_install_path="hack/platform/gitea-install.yaml"
     job_pod_namespace="gitea"
     job_pod_labels="app.kubernetes.io/instance=gitea"
-elif [ "$STATE_STORE" == "bucket" ] || [ "$STATE_STORE" == "bucket-defaults" ]; then
-    platform_helm_values_path="hack/platform/helm-values-bucket.yaml"
-    state_store_install_path="hack/platform/seaweedfs-install.yaml"
-    job_pod_namespace="seaweedfs"
-    job_pod_labels="run=seaweedfs"
+elif [ "$STATE_STORE" == "bucket" ]; then
+    platform_helm_values_path="hack/platform/helm-values-minio.yaml"
+    state_store_install_path="hack/platform/minio-install.yaml"
+    job_pod_namespace="kratix-platform-system"
+    job_pod_labels="run=minio"
 else
     echo "No supported State Store specified"
     exit 1
@@ -28,20 +28,7 @@ echo "setup platform and install StateStore"
 kind create cluster --image kindest/node:v1.33.1 --name platform --config hack/platform/kind-platform-config.yaml
 make install-cert-manager
 make build-and-load-kratix
-# bucket-defaults installs the chart with its DEFAULT values, i.e. no -f. It is the only run
-# that exercises the published chart's own statestore defaults: STATE_STORE=bucket overrides
-# them with hack/platform/helm-values-bucket.yaml, so that case stays green even if the chart
-# itself still points at the old state store.
-#
-# `if` and not `[ ... ] && helm_values_args=()`: the && form evaluates to 1 whenever the
-# condition is false, which under set -e kills the script silently if the line ever ends up
-# last in a block. `if` returns 0 when no branch runs.
-helm_values_args=(-f "$platform_helm_values_path")
-if [ "$STATE_STORE" == "bucket-defaults" ]; then
-    helm_values_args=()
-fi
-# ${arr[@]+...} and not "${arr[@]}": bash 3.2 aborts on an empty array under set -u
-helm install kratix charts/kratix/ ${helm_values_args[@]+"${helm_values_args[@]}"} --wait
+helm install kratix charts/kratix/ -f "$platform_helm_values_path" --wait
 
 if [ "$STATE_STORE" == "git" ]; then
     source ./scripts/utils.sh

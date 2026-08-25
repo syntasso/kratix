@@ -11,7 +11,7 @@ spec:
   endpoint: ENDPOINT
   insecure: true
   secretRef:
-    name: bucket-credentials
+    name: minio-credentials
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: Bucket
@@ -25,17 +25,17 @@ spec:
   endpoint: ENDPOINT
   insecure: true
   secretRef:
-    name: bucket-credentials
+    name: minio-credentials
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: bucket-credentials
+  name: minio-credentials
   namespace: flux-system
 type: Opaque
 data:
-  accesskey: a3JhdGl4YWRtaW4=
-  secretkey: a3JhdGl4YWRtaW4=
+  accesskey: bWluaW9hZG1pbg==
+  secretkey: bWluaW9hZG1pbg==
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization

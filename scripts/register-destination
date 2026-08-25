@@ -17,7 +17,7 @@ GITOPS_PATH=""
 usage() {
     echo -e "Usage: register-destination [--help] [--git] [--with-label foo=bar] [--context k8s-context] [--name some-name] [--platform-context 'kind-platform'] [--path platform-cluster] [--strict-match-labels]"
     echo -e "\t--context='', -c,\t The Kubernetes context where to install FluxCD onto"
-    echo -e "\t--git, -g\t Use Gitea as local repository in place of the default local bucket"
+    echo -e "\t--git, -g\t Use Gitea as local repository in place of default local MinIO"
     echo -e "\t--help, -h\t Prints this message"
     echo -e "\t--name, -n\t Name of the destination to register"
     echo -e "\t--path, -t\t Path within the state store; defaults to platform-cluster"
