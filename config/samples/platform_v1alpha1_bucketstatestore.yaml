@@ -3,10 +3,10 @@ kind: BucketStateStore
 metadata:
   name: default
 spec:
-  endpoint: bucket.seaweedfs.svc.cluster.local
+  endpoint: minio.kratix-platform-system.svc.cluster.local
   insecure: true
   bucketName: kratix
   authMethod: accessKey
   secretRef:
-    name: bucket-credentials
+    name: minio-credentials
     namespace: default

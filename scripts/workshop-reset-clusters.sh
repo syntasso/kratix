@@ -11,8 +11,8 @@ if [ -z "$PLATFORM_CONTEXT" ] || [ -z "$WORKER_CONTEXT" ]; then
     exit 1
 fi
 
-# Delete the SeaweedFS deployment to wipe out the buckets
-kubectl delete --context $PLATFORM_CONTEXT deployment seaweedfs --namespace seaweedfs
+# Delete minio deployment to wipe out the buckets
+kubectl delete --context $PLATFORM_CONTEXT deployment minio --namespace kratix-platform-system
 
 # Delete Kratix deployment to stop dynamic controllers
 kubectl delete --context $PLATFORM_CONTEXT deployment -n kratix-platform-system kratix-platform-controller-manager
@@ -35,7 +35,7 @@ kubectl delete --context $PLATFORM_CONTEXT pod \
 
 # Reinstall Kratix and re-register the worker destination
 kubectl apply --context $PLATFORM_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/distribution/kratix.yaml
-kubectl apply --context $PLATFORM_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/hack/platform/seaweedfs-install.yaml
+kubectl apply --context $PLATFORM_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/hack/platform/minio-install.yaml
 kubectl apply --context $PLATFORM_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/config/samples/platform_v1alpha1_worker.yaml
 kubectl apply --context $WORKER_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/hack/destination/gitops-tk-install.yaml
 kubectl apply --context $WORKER_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/hack/destination/gitops-tk-resources.yaml

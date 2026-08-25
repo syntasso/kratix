@@ -1,26 +1,21 @@
 package system_test
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/test/kubeutils"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/gexec"
 	"sigs.k8s.io/yaml"
 )
-
-// bucketName is the state store bucket created by the quick-start script.
-const bucketName = "kratix"
 
 var _ = Describe("Destinations", Label("destination"), Serial, func() {
 	var (
@@ -132,7 +127,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 				platform.Kubectl("patch", "bucketstatestore", stateStoreName, "--type=merge", "-p", `{"spec":{"secretRef":{"name":"aws-s3-credentials"}}}`)
 			} else {
 				// update the state store secret with the valid credentials when running in KinD
-				platform.Kubectl("patch", "secret", "bucket-credentials", "--type=merge", "-p", `{"stringData":{"accessKeyID":"kratixadmin"}}`)
+				platform.Kubectl("patch", "secret", "minio-credentials", "--type=merge", "-p", `{"stringData":{"accessKeyID":"minioadmin"}}`)
 			}
 			platform.Kubectl("delete", "-f", destinationYAML)
 			platform.Kubectl("delete", "secret", "new-state-store-secret", "--ignore-not-found")
@@ -178,7 +173,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 
 			if os.Getenv("LRE") != "true" {
 				// update the underlying state store secret with invalid credentials (non-LRE only)
-				platform.Kubectl("patch", "secret", "bucket-credentials", "--type=merge", "-p", `{"stringData":{"accessKeyID":"invalid"}}`)
+				platform.Kubectl("patch", "secret", "minio-credentials", "--type=merge", "-p", `{"stringData":{"accessKeyID":"invalid"}}`)
 
 				ExpectNotReady("bucketstatestore", stateStoreName)
 				ExpectEvent("bucketstatestore", stateStoreName, "write permission validation failed", "Error validating state store permissions")
@@ -213,7 +208,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 				It("aggregates workplacements into a single file", func() {
 					By("bundling promise and resources into the same file", func() {
 						Eventually(func() []string {
-							return filenames(bucketLs("aggregated-yaml", true))
+							return filenames(mc("ls", "-r", "kind/kratix/aggregated-yaml"))
 						}).Should(ConsistOf(
 							"catalog.yaml",
 							"kratix-canary-configmap.yaml",
@@ -221,7 +216,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 						))
 
 						Eventually(func() []string {
-							contents := bucketCat("aggregated-yaml/catalog.yaml")
+							contents := mc("cat", "kind/kratix/aggregated-yaml/catalog.yaml")
 							uContents := parseYAML(contents)
 							return kindAndName(uContents)
 						}).Should(
@@ -233,7 +228,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 						platform.EventuallyKubectlDelete("aggregates", "req-1")
 
 						Eventually(func() []string {
-							contents := bucketCat("aggregated-yaml/catalog.yaml")
+							contents := mc("cat", "kind/kratix/aggregated-yaml/catalog.yaml")
 							uContents := parseYAML(contents)
 							return kindAndName(uContents)
 						}).Should(
@@ -248,7 +243,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 						}).ShouldNot(ContainSubstring("aggregates.test.kratix.io"))
 
 						Eventually(func() []string {
-							return filenames(bucketLs("aggregated-yaml", true))
+							return filenames(mc("ls", "-r", "kind/kratix/aggregated-yaml"))
 						}).Should(ConsistOf(
 							"kratix-canary-configmap.yaml",
 							"kratix-canary-namespace.yaml",
@@ -333,7 +328,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 
 					By("allowing works to be scheduled to", func() {
 						Eventually(func() string {
-							return bucketLs("cleanup-all", true)
+							return mc("ls", "-r", "kind/kratix/cleanup-all")
 						}).Should(SatisfyAll(
 							ContainSubstring("ns.yaml"),
 							ContainSubstring("/configmap.yaml"),
@@ -345,7 +340,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 					By("cleaning up all resources on deletion", func() {
 						platform.EventuallyKubectlDelete("destinations", destinationName)
 						Eventually(func() string {
-							return bucketLs("", false)
+							return mc("ls", "kind/kratix/")
 						}).ShouldNot(ContainSubstring(destinationName))
 					})
 				})
@@ -392,52 +387,13 @@ func parseYAML(contents string) []*unstructured.Unstructured {
 	return parsedContent
 }
 
-// bucketClient talks to the state store bucket the same way the controller does,
-// but from the test process: in-cluster the S3 endpoint is a Service, from here it
-// is reached on localhost via the NodePort that KinD maps to the host. These
-// helpers only run outside the LRE, so the KinD credentials are known.
-func bucketClient() *minio.Client {
-	GinkgoHelper()
-	client, err := minio.New("localhost:31337", &minio.Options{
-		Creds: credentials.NewStaticV4("kratixadmin", "kratixadmin", ""),
-	})
-	Expect(err).ToNot(HaveOccurred())
-	return client
-}
+func mc(args ...string) string {
+	command := exec.Command("mc", args...)
+	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
+	ExpectWithOffset(1, err).ToNot(HaveOccurred())
+	EventuallyWithOffset(1, session).Should(gexec.Exit(0))
 
-// bucketLs lists the bucket under dir, returning one path per line relative to
-// dir. A non-recursive listing returns the immediate children, with directories
-// suffixed by "/".
-func bucketLs(dir string, recursive bool) string {
-	GinkgoHelper()
-	prefix := strings.TrimPrefix(dir, "/")
-	if prefix != "" {
-		prefix = strings.TrimSuffix(prefix, "/") + "/"
-	}
-
-	paths := []string{}
-	for object := range bucketClient().ListObjects(context.Background(), bucketName, minio.ListObjectsOptions{
-		Prefix:    prefix,
-		Recursive: recursive,
-	}) {
-		Expect(object.Err).ToNot(HaveOccurred())
-		paths = append(paths, strings.TrimPrefix(object.Key, prefix))
-	}
-
-	return strings.Join(paths, "\n")
-}
-
-// bucketCat returns the contents of the object at path.
-func bucketCat(path string) string {
-	GinkgoHelper()
-	object, err := bucketClient().GetObject(context.Background(), bucketName,
-		strings.TrimPrefix(path, "/"), minio.GetObjectOptions{})
-	Expect(err).ToNot(HaveOccurred())
-	defer object.Close()
-
-	contents, err := io.ReadAll(object)
-	Expect(err).ToNot(HaveOccurred())
-	return string(contents)
+	return string(session.Out.Contents())
 }
 
 func WaitReady(kind, name string) {

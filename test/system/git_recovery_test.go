@@ -81,7 +81,8 @@ var _ = Describe("GitStateStore writer recovery", Label("git-recovery"), Serial,
 	})
 })
 
-// runGit shells out to the git CLI. dir is the working directory (empty for the
+// runGit shells out to the git CLI, mirroring how `mc` shells out to the MinIO
+// client in the destination tests. dir is the working directory (empty for the
 // current directory), and TLS verification is skipped because Gitea uses a
 // self-signed certificate.
 func runGit(dir string, args ...string) {
@@ -97,7 +98,7 @@ func runGit(dir string, args ...string) {
 // giteaRepoURL returns the host-reachable URL of the Gitea repository backing
 // the state store. The controller reaches Gitea via its in-cluster service; from
 // the test process it is reached on localhost via the NodePort that KinD maps to
-// the host, the same way the bucket state store is. TLS verification is skipped
+// the host (the same way `mc` reaches MinIO). TLS verification is skipped
 // elsewhere because Gitea uses a self-signed certificate.
 func giteaRepoURL() string {
 	GinkgoHelper()

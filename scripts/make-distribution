@@ -26,7 +26,7 @@ function generate_all_manifests() {
 
   cat distribution/kratix.yaml <(echo "---") \
       hack/destination/gitops-tk-install.yaml <(echo "---") \
-      hack/platform/seaweedfs-install.yaml > distribution/single-cluster/install-all-in-one.yaml
+      hack/platform/minio-install.yaml > distribution/single-cluster/install-all-in-one.yaml
 
   cat config/samples/platform_v1alpha1_worker.yaml <(echo "---") \
       config/samples/platform_v1alpha1_bucketstatestore.yaml <(echo "---") \
