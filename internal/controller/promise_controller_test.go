@@ -1624,6 +1624,21 @@ var _ = Describe("PromiseController", func() {
 			})
 
 			When("it contains static dependencies", func() {
+				It("does not update the work when the dependencies are unchanged", func() {
+					work := getWork("kratix-platform-system", promise.GetName(), "", "")
+					resourceVersion := work.GetResourceVersion()
+
+					setReconcileConfigureWorkflowToReturnFinished()
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+					updatedWork := getWork("kratix-platform-system", promise.GetName(), "", "")
+					Expect(updatedWork.GetResourceVersion()).To(Equal(resourceVersion))
+				})
+
 				It("re-reconciles until completion", func() {
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 					updatedPromise := promiseFromFile(promiseWithOnlyDepsUpdatedPath)

@@ -1,0 +1,16 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: depstest
+spec:
+  destinationSelectors:
+    - matchLabels:
+        environment: dev
+  dependencies:
+    - apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: depstest-defaults
+        namespace: default
+      data:
+        key1: value2
