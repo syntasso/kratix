@@ -47,6 +47,7 @@ import (
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsv1cs "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -2175,18 +2176,17 @@ func (r *PromiseReconciler) applyWorkForStaticDependencies(o opts, promise *v1al
 	var op string
 	if existingWork == nil {
 		op = "created"
+		setLastUpdatedAt(work)
 		err = r.Client.Create(o.ctx, work)
 	} else {
+		// An unconditional update would bump resourceVersion and retrigger this reconcile.
+		if equality.Semantic.DeepEqual(existingWork.Spec, work.Spec) {
+			return nil
+		}
+
 		op = "updated"
 		existingWork.Spec = work.Spec
-
-		ann := existingWork.GetAnnotations()
-		if ann == nil {
-			ann = map[string]string{}
-		}
-		ann[lastUpdatedAtAnnotation] = time.Now().Local().String()
-		existingWork.SetAnnotations(ann)
-
+		setLastUpdatedAt(existingWork)
 		err = r.Client.Update(o.ctx, existingWork)
 	}
 
@@ -2196,6 +2196,15 @@ func (r *PromiseReconciler) applyWorkForStaticDependencies(o opts, promise *v1al
 
 	logging.Debug(o.logger, "resource reconciled", "operation", op, "namespace", work.GetNamespace(), "name", work.GetName(), "gvk", work.GroupVersionKind().String())
 	return nil
+}
+
+func setLastUpdatedAt(work *v1alpha1.Work) {
+	ann := work.GetAnnotations()
+	if ann == nil {
+		ann = map[string]string{}
+	}
+	ann[lastUpdatedAtAnnotation] = time.Now().Local().String()
+	work.SetAnnotations(ann)
 }
 
 func (r *PromiseReconciler) deleteWorkForStaticDependencies(o opts, promise *v1alpha1.Promise) error {

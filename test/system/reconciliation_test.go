@@ -131,4 +131,41 @@ var _ = Describe("Reconciliation", func() {
 		})
 
 	})
+
+	When("a Promise declares dependencies", func() {
+		var promiseName = "depstest"
+
+		workResourceVersion := func() string {
+			return platform.Kubectl("get", "work",
+				"-n", "kratix-platform-system",
+				"-l", "kratix.io/promise-name="+promiseName+",kratix.io/work-type=static-dependency",
+				"-o=jsonpath={.items[0].metadata.resourceVersion}")
+		}
+
+		BeforeEach(func() {
+			platform.Kubectl("apply", "-f", "assets/reconciliation/deps-promise.yaml")
+			Eventually(func() string {
+				return platform.Kubectl("get", "promise", promiseName)
+			}).Should(ContainSubstring("Available"))
+			Eventually(workResourceVersion).ShouldNot(BeEmpty())
+		})
+
+		AfterEach(func() {
+			platform.EventuallyKubectlDelete("promise", promiseName)
+		})
+
+		It("only updates the dependency Work when the dependencies change", func() {
+			By("not updating the Work while the dependencies are unchanged")
+			resourceVersion := workResourceVersion()
+			Consistently(workResourceVersion, 60*time.Second, 5*time.Second).Should(Equal(resourceVersion))
+
+			By("updating the Work once the dependencies change")
+			platform.Kubectl("apply", "-f", "assets/reconciliation/deps-promise-updated.yaml")
+			Eventually(workResourceVersion).ShouldNot(Equal(resourceVersion))
+
+			By("leaving the Work untouched once the Work is updated")
+			resourceVersion = workResourceVersion()
+			Consistently(workResourceVersion, 60*time.Second, 5*time.Second).Should(Equal(resourceVersion))
+		})
+	})
 })

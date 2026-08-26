@@ -1624,6 +1624,25 @@ var _ = Describe("PromiseController", func() {
 			})
 
 			When("it contains static dependencies", func() {
+				It("does not update the work when the dependencies are unchanged", func() {
+					works := &v1alpha1.WorkList{}
+					Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
+					Expect(works.Items).To(HaveLen(1))
+					resourceVersion := works.Items[0].GetResourceVersion()
+
+					setReconcileConfigureWorkflowToReturnFinished()
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+					updatedWorks := &v1alpha1.WorkList{}
+					Expect(fakeK8sClient.List(ctx, updatedWorks)).To(Succeed())
+					Expect(updatedWorks.Items).To(HaveLen(1))
+					Expect(updatedWorks.Items[0].GetResourceVersion()).To(Equal(resourceVersion))
+				})
+
 				It("re-reconciles until completion", func() {
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 					updatedPromise := promiseFromFile(promiseWithOnlyDepsUpdatedPath)
