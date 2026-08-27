@@ -26,8 +26,6 @@ spec:
         runAsNonRoot: true
       containers:
       - command:
-        - /sbin/tini
-        - --
         - /manager
         args:
           - "--health-probe-bind-address=:8081"
