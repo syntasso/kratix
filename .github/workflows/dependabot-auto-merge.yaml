@@ -18,7 +18,10 @@ permissions:
 
 jobs:
   dependabot-auto-merge:
-    uses: syntasso/ci/.github/workflows/dependabot-auto-merge.yaml@56813ff415b07475b08fdd05d5584be434a22d42 # main
+    uses: syntasso/ci/.github/workflows/dependabot-auto-merge.yaml@54007329cdcb283e1d830d7305e5d34549eecee2 # main
+    with:
+      # Must match the SHA on the uses: line above.
+      scripts_ref: 54007329cdcb283e1d830d7305e5d34549eecee2
     secrets:
       repo_token: ${{ secrets.GITHUB_TOKEN }}
       gh_action_trigger_token: ${{ secrets.GH_ACTION_TRIGGER_TOKEN }}
