@@ -349,24 +349,6 @@ spec:
                 description: Version of the Promise, derived from the PromiseRelease
                   if installed via one
                 type: string
-              workflows:
-                description: Total number of Promise-level workflow pipelines
-                format: int64
-                type: integer
-              workflowsFailed:
-                description: Number of Promise-level workflow pipelines that have
-                  failed
-                format: int64
-                type: integer
-              workflowsSucceeded:
-                description: Number of Promise-level workflow pipelines that have
-                  completed successfully
-                format: int64
-                type: integer
-            required:
-            - workflows
-            - workflowsFailed
-            - workflowsSucceeded
             type: object
         type: object
     served: true
