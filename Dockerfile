@@ -26,6 +26,11 @@ RUN --mount=target=. \
 FROM alpine/git
 WORKDIR /
 
+# tini is PID 1 so orphaned `git remote-https` helpers (left behind by every
+# `git fetch`/`git push`) get reaped instead of piling up as zombies until
+# the container hits its PID limit (kratix issue #892).
+RUN apk add --no-cache tini
+
 COPY --from=builder /out/manager /manager
 COPY --from=builder /out/pipeline-adapter /bin/pipeline-adapter
 
@@ -38,4 +43,4 @@ ENV HOME=/home/appuser
 
 USER 65532:65532
 
-ENTRYPOINT ["/manager"]
+ENTRYPOINT ["/sbin/tini", "--", "/manager"]
