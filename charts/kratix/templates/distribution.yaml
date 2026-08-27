@@ -304,8 +304,6 @@ spec:
             - --health-probe-bind-address=:8081
             - --leader-elect
           command:
-            - /sbin/tini
-            - --
             - /manager
           env:
             - name: PIPELINE_ADAPTER_IMG
