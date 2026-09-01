@@ -552,6 +552,11 @@ func (r *PromiseReconciler) updateReconciledCondition(promise *v1alpha1.Promise)
 	worksSucceeded := promise.GetCondition(string(resourceutil.WorksSucceededCondition))
 	workflowCompleted := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
 	reconciled := promise.GetCondition(string(resourceutil.ReconciledCondition))
+	requirementsFulfilled := promise.GetCondition("RequirementsFulfilled")
+
+	noWorkflowToRun := workflowCompleted == nil &&
+		!promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure)
+	requirementsMet := requirementsFulfilled == nil || requirementsFulfilled.Status == metav1.ConditionTrue
 
 	var updated bool
 	if workflowCompleted != nil &&
@@ -576,8 +581,8 @@ func (r *PromiseReconciler) updateReconciledCondition(promise *v1alpha1.Promise)
 			updateConditionOnPromise(promise, promiseReconciledFailingCondition("WorksFailing"))
 			updated = true
 		}
-	} else if workflowCompleted != nil && worksSucceeded != nil &&
-		workflowCompleted.Status == "True" && worksSucceeded.Status == "True" {
+	} else if requirementsMet && worksSucceeded != nil && worksSucceeded.Status == "True" &&
+		(noWorkflowToRun || (workflowCompleted != nil && workflowCompleted.Status == "True")) {
 
 		if reconciled == nil || reconciled.Status != "True" {
 			updateConditionOnPromise(promise, promiseReconciledCondition())

@@ -359,6 +359,33 @@ var _ = Describe("PromiseController", func() {
 						Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
 						Expect(*reconciler.StartedDynamicControllers[promise.GetDynamicControllerName(logr.Logger{})].CanCreateResources).To(BeFalse())
 					})
+
+					When("the requirements are installed later", func() {
+						BeforeEach(func() {
+							installRequiredPromise("kafka", "v1.2.0", "Available")
+							installRequiredPromise("telemetry", "v1.1.0", "Available")
+
+							_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+								funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+							})
+							Expect(err).NotTo(HaveOccurred())
+							Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						})
+
+						It("marks the promise as reconciled", func() {
+							requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
+							Expect(condErr).NotTo(HaveOccurred())
+							Expect(requirementsCond.Status).To(Equal(metav1.ConditionTrue))
+
+							Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+
+							reconciledCond, condErr := getCondition(promise, "Reconciled")
+							Expect(condErr).NotTo(HaveOccurred())
+							Expect(reconciledCond.Status).To(Equal(metav1.ConditionTrue))
+							Expect(reconciledCond.Reason).To(Equal("Reconciled"))
+							Expect(reconciledCond.Message).To(Equal("Reconciled"))
+						})
+					})
 				})
 
 				When("the a required promise version does not exist", func() {
@@ -589,7 +616,7 @@ var _ = Describe("PromiseController", func() {
 							Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 
 							By("updating the status to indicate the requirements are fulfilled", func() {
-								Expect(promise.Status.Conditions).To(HaveLen(3))
+								Expect(promise.Status.Conditions).To(HaveLen(4))
 
 								requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
 								Expect(condErr).NotTo(HaveOccurred())
@@ -883,6 +910,36 @@ var _ = Describe("PromiseController", func() {
 							Source: "promise",
 						},
 					))
+				})
+
+				When("it also requires a promise that is not installed", func() {
+					BeforeEach(func() {
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						promise.Spec.RequiredPromises = []v1alpha1.RequiredPromise{{Name: "kafka", Version: "v1.2.0"}}
+						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+						_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+							funcs:           []func(client.Object) error{markAllWorksAsReady},
+							requeueExpected: true,
+						})
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					})
+
+					It("does not report the promise as reconciled, even though its Works are ready", func() {
+						worksCond, condErr := getCondition(promise, "WorksSucceeded")
+						Expect(condErr).NotTo(HaveOccurred())
+						Expect(worksCond.Status).To(Equal(metav1.ConditionTrue))
+
+						requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
+						Expect(condErr).NotTo(HaveOccurred())
+						Expect(requirementsCond.Status).To(Equal(metav1.ConditionFalse))
+
+						reconciledCond, condErr := getCondition(promise, "Reconciled")
+						Expect(condErr).NotTo(HaveOccurred())
+						Expect(reconciledCond.Status).NotTo(Equal(metav1.ConditionTrue))
+						Expect(reconciledCond.Reason).To(Equal("RequirementsNotFulfilled"))
+					})
 				})
 
 				It("preserves third-party finalizers and does not prune existing Kratix finalizers", func() {
@@ -3123,6 +3180,29 @@ func installPromiseRevision(promiseName, version string) {
 	revision := v1alpha1.NewPromiseRevision(
 		&v1alpha1.Promise{ObjectMeta: metav1.ObjectMeta{Name: promiseName}}, version)
 	Expect(fakeK8sClient.Create(ctx, revision)).To(Succeed())
+}
+
+// markAllWorksAsReady stands in for the Work reconciler, which does not run in these tests.
+// It ignores the object it is handed; reconcileUntilCompletion calls it once per pass, which
+// is enough to catch Works the Promise controller has only just created.
+func markAllWorksAsReady(client.Object) error {
+	works := &v1alpha1.WorkList{}
+	if err := fakeK8sClient.List(ctx, works); err != nil {
+		return err
+	}
+	for i := range works.Items {
+		work := &works.Items[i]
+		apimeta.SetStatusCondition(&work.Status.Conditions, metav1.Condition{
+			Type:    "Ready",
+			Status:  metav1.ConditionTrue,
+			Reason:  "Ready",
+			Message: "Ready",
+		})
+		if err := fakeK8sClient.Status().Update(ctx, work); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func createAndUpdateWork(work *v1alpha1.Work, status metav1.ConditionStatus, message string) {
