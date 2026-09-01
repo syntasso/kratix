@@ -207,9 +207,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	// Mark the Promise.Status.Conditions to Unavailable
 	updateConditionOnPromise(promise, promiseUnavailableStatusCondition())
 
-	requirementsChanged := r.hasPromiseRequirementsChanged(ctx, promise)
+	requirementsChanged := r.refreshRequirementsStatus(ctx, promise)
 	if requirementsChanged {
-		if meta.IsStatusConditionFalse(promise.Status.Conditions, "RequirementsFulfilled") {
+		if meta.IsStatusConditionFalse(promise.Status.Conditions, v1alpha1.PromiseRequirementsFulfilledCondition) {
 			// Mark the Promise.Status.Conditions to `Message: "Pending"`
 			updateConditionOnPromise(promise, promiseReconciledPendingCondition("RequirementsNotFulfilled"))
 		}
@@ -549,48 +549,56 @@ func (r *PromiseReconciler) generateWorkflowsCounterStatus(promise *v1alpha1.Pro
 }
 
 func (r *PromiseReconciler) updateReconciledCondition(promise *v1alpha1.Promise) bool {
-	worksSucceeded := promise.GetCondition(string(resourceutil.WorksSucceededCondition))
-	workflowCompleted := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
-	reconciled := promise.GetCondition(string(resourceutil.ReconciledCondition))
-	requirementsFulfilled := promise.GetCondition("RequirementsFulfilled")
+	desired, ok := desiredReconciledCondition(promise)
+	if !ok || !updateConditionOnPromise(promise, desired) {
+		return false
+	}
 
-	noWorkflowToRun := workflowCompleted == nil &&
-		!promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure)
+	if desired.Status == metav1.ConditionTrue {
+		r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, "ReconcileSucceeded", "ReconcileSucceeded", "%s", "Successfully reconciled")
+	}
+	return true
+}
+
+// desiredReconciledCondition reports what the Reconciled condition should say, read off the
+// conditions the rest of the reconcile has already written. It returns false when none of the
+// cases apply, meaning the existing condition should be left as it is.
+func desiredReconciledCondition(promise *v1alpha1.Promise) (metav1.Condition, bool) {
+	workflowCompleted := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
+	worksSucceeded := promise.GetCondition(v1alpha1.PromiseWorksSucceededCondition)
+	requirementsFulfilled := promise.GetCondition(v1alpha1.PromiseRequirementsFulfilledCondition)
+
+	workflowRunning := workflowCompleted != nil &&
+		workflowCompleted.Status == metav1.ConditionFalse &&
+		workflowCompleted.Reason == resourceutil.PipelinesInProgressReason
+	workflowFailed := workflowCompleted != nil &&
+		workflowCompleted.Status == metav1.ConditionFalse &&
+		workflowCompleted.Reason != resourceutil.PipelinesInProgressReason
+	// Nothing writes ConfigureWorkflowCompleted for a Promise with no promise-level configure
+	// workflow, so those have no workflow left to wait on.
+	workflowDone := (workflowCompleted != nil && workflowCompleted.Status == metav1.ConditionTrue) ||
+		(workflowCompleted == nil && !promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure))
+
+	worksPending := worksSucceeded != nil && worksSucceeded.Status == metav1.ConditionUnknown
+	worksFailed := worksSucceeded != nil && worksSucceeded.Status == metav1.ConditionFalse
+	worksReady := worksSucceeded != nil && worksSucceeded.Status == metav1.ConditionTrue
+
 	requirementsMet := requirementsFulfilled == nil || requirementsFulfilled.Status == metav1.ConditionTrue
 
-	var updated bool
-	if workflowCompleted != nil &&
-		workflowCompleted.Status == "False" && workflowCompleted.Reason == resourceutil.PipelinesInProgressReason {
-		if reconciled == nil || reconciled.Status != "Unknown" {
-			updateConditionOnPromise(promise, promiseReconciledPendingCondition("WorkflowPending"))
-			updated = true
-		}
-	} else if workflowCompleted != nil && workflowCompleted.Status == metav1.ConditionFalse {
-		if reconciled == nil || reconciled.Status != metav1.ConditionFalse ||
-			reconciled.Reason != resourceutil.ConfigureWorkflowCompletedFailedReason {
-			updateConditionOnPromise(promise, promiseReconciledFailingCondition(resourceutil.ConfigureWorkflowCompletedFailedReason))
-			updated = true
-		}
-	} else if worksSucceeded != nil && worksSucceeded.Status == "Unknown" {
-		if reconciled == nil || reconciled.Status != "Unknown" {
-			updateConditionOnPromise(promise, promiseReconciledPendingCondition("WorksPending"))
-			updated = true
-		}
-	} else if worksSucceeded != nil && worksSucceeded.Status == metav1.ConditionFalse {
-		if reconciled == nil || reconciled.Status != metav1.ConditionFalse {
-			updateConditionOnPromise(promise, promiseReconciledFailingCondition("WorksFailing"))
-			updated = true
-		}
-	} else if requirementsMet && worksSucceeded != nil && worksSucceeded.Status == "True" &&
-		(noWorkflowToRun || (workflowCompleted != nil && workflowCompleted.Status == "True")) {
-
-		if reconciled == nil || reconciled.Status != "True" {
-			updateConditionOnPromise(promise, promiseReconciledCondition())
-			updated = true
-			r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, "ReconcileSucceeded", "ReconcileSucceeded", "%s", "Successfully reconciled")
-		}
+	switch {
+	case workflowRunning:
+		return promiseReconciledPendingCondition("WorkflowPending"), true
+	case workflowFailed:
+		return promiseReconciledFailingCondition(resourceutil.ConfigureWorkflowCompletedFailedReason), true
+	case worksPending:
+		return promiseReconciledPendingCondition("WorksPending"), true
+	case worksFailed:
+		return promiseReconciledFailingCondition("WorksFailing"), true
+	case workflowDone && worksReady && requirementsMet:
+		return promiseReconciledCondition(), true
 	}
-	return updated
+
+	return metav1.Condition{}, false
 }
 
 func (r *PromiseReconciler) getWorksStatus(ctx context.Context,
@@ -653,7 +661,7 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 ) bool {
 	cond := promise.GetCondition(string(resourceutil.WorksSucceededCondition))
 	if len(failed) > 0 {
-		if cond == nil || cond.Status == "True" {
+		if cond == nil || cond.Status == metav1.ConditionTrue {
 			updateConditionOnPromise(promise, promiseWorksSucceededFailedCondition(failed))
 			r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, "WorksFailing", "WorksFailing", "Some works associated with this promise has failed: [%s]", strings.Join(failed, ","))
 			return true
@@ -661,21 +669,21 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 		return false
 	}
 	if len(pending) > 0 {
-		if cond == nil || cond.Status != "Unknown" {
+		if cond == nil || cond.Status != metav1.ConditionUnknown {
 			updateConditionOnPromise(promise, promiseWorksSucceededUnknownCondition(pending))
 			return true
 		}
 		return false
 	}
 	if len(misplaced) > 0 {
-		if cond == nil || cond.Status != "False" || cond.Reason != "WorksMisplaced" {
+		if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != "WorksMisplaced" {
 			updateConditionOnPromise(promise, promiseWorksSucceededMisplacedCondition(misplaced))
 			r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, "WorksMisplaced", "WorksMisplaced", "Some works associated with this promise are misplaced: [%s]", strings.Join(misplaced, ","))
 			return true
 		}
 		return false
 	}
-	if cond == nil || cond.Status != "True" {
+	if cond == nil || cond.Status != metav1.ConditionTrue {
 		updateConditionOnPromise(promise, promiseWorksSucceededStatusCondition())
 		r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, "WorksSucceeded", "WorksSucceeded", "%s", "All works associated with this promise are ready")
 		return true
@@ -864,13 +872,13 @@ func promiseReconciledCondition() metav1.Condition {
 	}
 }
 
-func (r *PromiseReconciler) hasPromiseRequirementsChanged(ctx context.Context, promise *v1alpha1.Promise) bool {
+func (r *PromiseReconciler) refreshRequirementsStatus(ctx context.Context, promise *v1alpha1.Promise) bool {
 	previousRequiredPromises := promise.Status.RequiredPromises
 	if len(promise.Spec.RequiredPromises) == 0 && len(previousRequiredPromises) == 0 {
 		return false
 	}
 
-	latestCondition, latestRequirements := r.generateStatusAndMarkRequirements(ctx, promise)
+	latestCondition, latestRequirements := r.evaluateRequirements(ctx, promise)
 
 	requirementsFieldChanged := updateRequirementsStatusOnPromise(promise, promise.Status.RequiredPromises, latestRequirements)
 	conditionsFieldChanged := updateConditionOnPromise(promise, latestCondition)
@@ -910,9 +918,9 @@ func updateRequirementsStatusOnPromise(promise *v1alpha1.Promise, oldReqs, newRe
 	return true
 }
 
-func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequiredPromiseStatus) {
+func (r *PromiseReconciler) evaluateRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequiredPromiseStatus) {
 	condition := metav1.Condition{
-		Type:               "RequirementsFulfilled",
+		Type:               v1alpha1.PromiseRequirementsFulfilledCondition,
 		Status:             metav1.ConditionTrue,
 		Reason:             "RequirementsInstalled",
 		Message:            "Requirements fulfilled",

@@ -37,17 +37,18 @@ import (
 )
 
 const (
-	PromiseStatusAvailable               = "Available"
-	PromiseStatusUnavailable             = "Unavailable"
-	PromisePlural                        = "promises"
-	KratixResourceHashLabel              = "kratix.io/hash"
-	KratixPipelineHashLabel              = "kratix.io/pipeline-hash"
-	PromiseAvailableConditionType        = "Available"
-	PromiseAvailableConditionTrueReason  = "PromiseAvailable"
-	PromiseAvailableConditionFalseReason = "PromiseUnavailable"
-	PromiseWorksSucceededCondition       = "WorksSucceeded"
-	PromiseReconciledCondition           = "Reconciled"
-	WorkflowSuspendedLabel               = KratixPrefix + "workflow-suspended"
+	PromiseStatusAvailable                = "Available"
+	PromiseStatusUnavailable              = "Unavailable"
+	PromisePlural                         = "promises"
+	KratixResourceHashLabel               = "kratix.io/hash"
+	KratixPipelineHashLabel               = "kratix.io/pipeline-hash"
+	PromiseAvailableConditionType         = "Available"
+	PromiseAvailableConditionTrueReason   = "PromiseAvailable"
+	PromiseAvailableConditionFalseReason  = "PromiseUnavailable"
+	PromiseWorksSucceededCondition        = "WorksSucceeded"
+	PromiseReconciledCondition            = "Reconciled"
+	PromiseRequirementsFulfilledCondition = "RequirementsFulfilled"
+	WorkflowSuspendedLabel                = KratixPrefix + "workflow-suspended"
 	// MaxResourceNameLength is the maximum length of a resource name
 	MaxResourceNameLength int64 = 63
 )
