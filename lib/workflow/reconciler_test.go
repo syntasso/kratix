@@ -1,7 +1,9 @@
 package workflow_test
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +16,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -23,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 var namespace = "kratix-platform-system"
@@ -210,6 +214,60 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(jobs).To(HaveLen(1))
 					Expect(findByName(jobs, workflowPipelines[0].Job.GetName())).To(BeTrue())
 				})
+			})
+		})
+
+		When("the status update that resumes a suspended pipeline hits a conflict", func() {
+			It("does not start the pipeline a second time on the next reconcile", func() {
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+				promise.Labels = map[string]string{}
+				Expect(fakeK8sClient.Update(ctx, &promise)).To(Succeed())
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+				promise.Status.Kratix.Workflows.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSuspended
+				promise.Status.Kratix.Workflows.Pipelines[1].Phase = v1alpha1.WorkflowPhasePending
+				Expect(fakeK8sClient.Status().Update(ctx, &promise)).To(Succeed())
+
+				completedJob := workflowPipelines[0].Job.DeepCopy()
+				completedJob.Status.Conditions = append(completedJob.Status.Conditions, batchv1.JobCondition{
+					Type:   batchv1.JobComplete,
+					Status: v1.ConditionTrue,
+				})
+				Expect(fakeK8sClient.Create(ctx, completedJob)).To(Succeed())
+
+				conflictOnce := true
+				conflictingClient := interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+					SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string,
+						obj client.Object, opts ...client.SubResourceUpdateOption) error {
+						if conflictOnce && obj.GetName() == promise.Name {
+							conflictOnce = false
+							return apierrors.NewConflict(
+								schema.GroupResource{Group: "platform.kratix.io", Resource: "promises"},
+								promise.Name, fmt.Errorf("the object has been modified"))
+						}
+						return c.Status().Update(ctx, obj, opts...)
+					},
+				})
+
+				uPromise, err := promise.ToUnstructured()
+				Expect(err).NotTo(HaveOccurred())
+
+				opts := workflow.NewOpts(ctx, conflictingClient, eventRecorder, logger, uPromise,
+					workflowPipelines, "promise", 5, namespace)
+				_, err = workflow.ReconcileConfigure(opts)
+				Expect(err).To(HaveOccurred())
+
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+				uPromise, err = promise.ToUnstructured()
+				Expect(err).NotTo(HaveOccurred())
+				opts = workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise,
+					workflowPipelines, "promise", 5, namespace)
+				_, err = workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				updatedPromise := &v1alpha1.Promise{}
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, updatedPromise)).To(Succeed())
+				Expect(updatedPromise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhaseRunning))
+				Expect(countEvents(eventRecorder, "PipelineStarted")).To(Equal(1))
 			})
 		})
 
@@ -2555,6 +2613,20 @@ func createStaticDependencyWork(promiseName string) {
 	work.Namespace = namespace
 	work.Labels = resourceutil.GetWorkLabels(promiseName, "", "", "", v1alpha1.WorkTypeStaticDependency)
 	Expect(fakeK8sClient.Create(ctx, &work)).To(Succeed())
+}
+
+func countEvents(recorder *events.FakeRecorder, reason string) int {
+	count := 0
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, reason) {
+				count++
+			}
+		default:
+			return count
+		}
+	}
 }
 
 func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]v1alpha1.PipelineJobResources, *unstructured.Unstructured) {
