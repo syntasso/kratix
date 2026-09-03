@@ -833,36 +833,26 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 }
 
 func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, _, misplaced []string) bool {
-	cond := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
-	if len(failed) > 0 {
-		if cond == nil || cond.Status == v1.ConditionTrue {
-			resourceutil.MarkResourceRequestAsWorksFailed(rr, failed)
-			r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksFailing", "WorksFailing", "%s", fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(failed, ",")))
-			return true
+	switch {
+	case len(failed) > 0:
+		if !resourceutil.MarkResourceRequestAsWorksFailed(rr, failed) {
+			return false
 		}
-		return false
-	}
-	if len(pending) > 0 {
-		if cond == nil || cond.Status != v1.ConditionUnknown {
-			resourceutil.MarkResourceRequestAsWorksPending(rr, pending)
-			return true
+		r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksFailing", "WorksFailing", "%s", fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(failed, ",")))
+	case len(pending) > 0:
+		return resourceutil.MarkResourceRequestAsWorksPending(rr, pending)
+	case len(misplaced) > 0:
+		if !resourceutil.MarkResourceRequestAsWorksMisplaced(rr, misplaced) {
+			return false
 		}
-		return false
-	}
-	if len(misplaced) > 0 {
-		if cond == nil || cond.Status != v1.ConditionFalse || cond.Reason != "WorksMisplaced" {
-			resourceutil.MarkResourceRequestAsWorksMisplaced(rr, misplaced)
-			r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksMisplaced", "WorksMisplaced", "%s", fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(misplaced, ",")))
-			return true
+		r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksMisplaced", "WorksMisplaced", "%s", fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(misplaced, ",")))
+	default:
+		if !resourceutil.MarkResourceRequestAsWorksSucceeded(rr) {
+			return false
 		}
-		return false
-	}
-	if cond == nil || cond.Status != v1.ConditionTrue {
-		resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
 		r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "WorksSucceeded", "WorksSucceeded", "%s", "All works associated with this resource are ready")
-		return true
 	}
-	return false
+	return true
 }
 
 // isDryRun reports whether this resource request is a dry run. Always false
@@ -1023,58 +1013,43 @@ func (r *DynamicResourceRequestController) ensureDryRunSummary(
 func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured) bool {
 	worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	reconciled := resourceutil.GetCondition(rr, resourceutil.ReconciledCondition)
 
-	var updated bool
-	if workflowCompleted != nil &&
-		workflowCompleted.Status == v1.ConditionFalse && workflowCompleted.Reason == resourceutil.PipelinesInProgressReason {
-		if reconciled == nil || reconciled.Status != v1.ConditionUnknown {
-			resourceutil.MarkReconciledPending(rr, "WorkflowPending")
-			updated = true
-		}
-	} else if workflowCompleted != nil && workflowCompleted.Status == v1.ConditionFalse {
-		if reconciled == nil || reconciled.Status != v1.ConditionFalse ||
-			reconciled.Reason != resourceutil.ConfigureWorkflowCompletedFailedReason {
-			resourceutil.MarkReconciledFailing(rr, resourceutil.ConfigureWorkflowCompletedFailedReason)
-			updated = true
-		}
-	} else if worksSucceeded != nil && worksSucceeded.Status == v1.ConditionUnknown {
-		if reconciled == nil || reconciled.Status != v1.ConditionUnknown {
-			resourceutil.MarkReconciledPending(rr, "WorksPending")
-			updated = true
-		}
-	} else if worksSucceeded != nil && worksSucceeded.Status == v1.ConditionFalse {
-		if reconciled == nil || reconciled.Status != v1.ConditionFalse {
-			resourceutil.MarkReconciledFailing(rr, "WorksFailing")
-			updated = true
-		}
-	} else if workflowCompleted != nil && worksSucceeded != nil &&
-		workflowCompleted.Status == v1.ConditionTrue && worksSucceeded.Status == v1.ConditionTrue {
-		updated = r.markReconciledSucceeded(rr, reconciled)
+	workflowRunning := workflowCompleted != nil && workflowCompleted.Status == v1.ConditionFalse &&
+		workflowCompleted.Reason == resourceutil.PipelinesInProgressReason
+	workflowFailed := workflowCompleted != nil && workflowCompleted.Status == v1.ConditionFalse && !workflowRunning
+	workflowDone := workflowCompleted != nil && workflowCompleted.Status == v1.ConditionTrue
+
+	worksPending := worksSucceeded != nil && worksSucceeded.Status == v1.ConditionUnknown
+	worksFailed := worksSucceeded != nil && worksSucceeded.Status == v1.ConditionFalse
+	worksReady := worksSucceeded != nil && worksSucceeded.Status == v1.ConditionTrue
+
+	switch {
+	case workflowRunning:
+		return resourceutil.MarkReconciledPending(rr, "WorkflowPending")
+	case workflowFailed:
+		return resourceutil.MarkReconciledFailing(rr, resourceutil.ConfigureWorkflowCompletedFailedReason)
+	case worksPending:
+		return resourceutil.MarkReconciledPending(rr, "WorksPending")
+	case worksFailed:
+		return resourceutil.MarkReconciledFailing(rr, "WorksFailing")
+	case workflowDone && worksReady:
+		return r.markReconciledSucceeded(rr)
 	}
-	return updated
+	return false
 }
 
 // markReconciledSucceeded sets Reconciled to True, using the dry-run reason when the
 // request is a dry run so a preview is never reported as a real reconciliation. It
 // returns whether the condition changed.
-func (r *DynamicResourceRequestController) markReconciledSucceeded(
-	rr *unstructured.Unstructured, reconciled *clusterv1.Condition,
-) bool {
-	isDryRun := r.isDryRun(rr)
-	expectedReason := "Reconciled"
-	if isDryRun {
-		expectedReason = resourceutil.DryRunWorksSucceededReason
-	}
-
-	if reconciled != nil && reconciled.Status == v1.ConditionTrue && reconciled.Reason == expectedReason {
-		return false
-	}
-
-	if isDryRun {
-		resourceutil.MarkReconciledAsDryRun(rr)
+func (r *DynamicResourceRequestController) markReconciledSucceeded(rr *unstructured.Unstructured) bool {
+	var updated bool
+	if r.isDryRun(rr) {
+		updated = resourceutil.MarkReconciledAsDryRun(rr)
 	} else {
-		resourceutil.MarkReconciledTrue(rr)
+		updated = resourceutil.MarkReconciledTrue(rr)
+	}
+	if !updated {
+		return false
 	}
 	r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "ReconcileSucceeded", "ReconcileSucceeded", "%s", "Successfully reconciled")
 	return true

@@ -22,6 +22,21 @@ func SetCondition(obj *unstructured.Unstructured, condition *clusterv1.Condition
 	conditionsutil.Set(setter, condition)
 }
 
+// SetConditionIfChanged writes condition onto obj when it differs in status, reason or
+// message, and reports whether it wrote. Comparing status alone leaves a condition that
+// stays Unknown reporting whichever reason it was first given.
+func SetConditionIfChanged(obj *unstructured.Unstructured, condition *clusterv1.Condition) bool {
+	existing := GetCondition(obj, condition.Type)
+	if existing != nil &&
+		existing.Status == condition.Status &&
+		existing.Reason == condition.Reason &&
+		existing.Message == condition.Message {
+		return false
+	}
+	SetCondition(obj, condition)
+	return true
+}
+
 func HasReconcilePausedCondition(obj *unstructured.Unstructured) bool {
 	cond := GetCondition(obj, ReconciledCondition)
 	return cond != nil && cond.Status == v1.ConditionUnknown && cond.Reason == pausedReconciliationReason

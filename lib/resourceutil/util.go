@@ -71,8 +71,8 @@ func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstruc
 	logging.Warn(logger, "marking configure workflow as failed", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", ConfigureWorkflowCompletedFailedReason)
 }
 
-func MarkResourceRequestAsWorksFailed(obj *unstructured.Unstructured, works []string) {
-	SetCondition(obj, &clusterv1.Condition{
+func MarkResourceRequestAsWorksFailed(obj *unstructured.Unstructured, works []string) bool {
+	return SetConditionIfChanged(obj, &clusterv1.Condition{
 		Type:               WorksSucceededCondition,
 		Status:             v1.ConditionFalse,
 		Message:            fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(works, ",")),
@@ -81,8 +81,8 @@ func MarkResourceRequestAsWorksFailed(obj *unstructured.Unstructured, works []st
 	})
 }
 
-func MarkResourceRequestAsWorksMisplaced(obj *unstructured.Unstructured, works []string) {
-	SetCondition(obj, &clusterv1.Condition{
+func MarkResourceRequestAsWorksMisplaced(obj *unstructured.Unstructured, works []string) bool {
+	return SetConditionIfChanged(obj, &clusterv1.Condition{
 		Type:               WorksSucceededCondition,
 		Status:             v1.ConditionFalse,
 		Message:            fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(works, ",")),
@@ -91,8 +91,8 @@ func MarkResourceRequestAsWorksMisplaced(obj *unstructured.Unstructured, works [
 	})
 }
 
-func MarkResourceRequestAsWorksPending(obj *unstructured.Unstructured, works []string) {
-	SetCondition(obj, &clusterv1.Condition{
+func MarkResourceRequestAsWorksPending(obj *unstructured.Unstructured, works []string) bool {
+	return SetConditionIfChanged(obj, &clusterv1.Condition{
 		Type:               WorksSucceededCondition,
 		Status:             v1.ConditionUnknown,
 		Message:            fmt.Sprintf("Some works associated with this resource are not ready: [%s]", strings.Join(works, ",")),
@@ -101,8 +101,8 @@ func MarkResourceRequestAsWorksPending(obj *unstructured.Unstructured, works []s
 	})
 }
 
-func MarkResourceRequestAsWorksSucceeded(obj *unstructured.Unstructured) {
-	SetCondition(obj, &clusterv1.Condition{
+func MarkResourceRequestAsWorksSucceeded(obj *unstructured.Unstructured) bool {
+	return SetConditionIfChanged(obj, &clusterv1.Condition{
 		Type:               WorksSucceededCondition,
 		Status:             v1.ConditionTrue,
 		Message:            "All works associated with this resource are ready",
@@ -111,8 +111,8 @@ func MarkResourceRequestAsWorksSucceeded(obj *unstructured.Unstructured) {
 	})
 }
 
-func MarkReconciledAsDryRun(obj *unstructured.Unstructured) {
-	SetCondition(obj, &clusterv1.Condition{
+func MarkReconciledAsDryRun(obj *unstructured.Unstructured) bool {
+	return SetConditionIfChanged(obj, &clusterv1.Condition{
 		Type:               ReconciledCondition,
 		Status:             v1.ConditionTrue,
 		Message:            "Dry run completed",
@@ -121,8 +121,8 @@ func MarkReconciledAsDryRun(obj *unstructured.Unstructured) {
 	})
 }
 
-func MarkReconciledPending(obj *unstructured.Unstructured, reason string) {
-	SetCondition(obj, &clusterv1.Condition{
+func MarkReconciledPending(obj *unstructured.Unstructured, reason string) bool {
+	return SetConditionIfChanged(obj, &clusterv1.Condition{
 		Type:               ReconciledCondition,
 		Status:             v1.ConditionUnknown,
 		Message:            "Pending",
@@ -131,8 +131,8 @@ func MarkReconciledPending(obj *unstructured.Unstructured, reason string) {
 	})
 }
 
-func MarkReconciledFailing(obj *unstructured.Unstructured, reason string) {
-	SetCondition(obj, &clusterv1.Condition{
+func MarkReconciledFailing(obj *unstructured.Unstructured, reason string) bool {
+	return SetConditionIfChanged(obj, &clusterv1.Condition{
 		Type:               ReconciledCondition,
 		Status:             v1.ConditionFalse,
 		Message:            "Failing",
@@ -141,8 +141,8 @@ func MarkReconciledFailing(obj *unstructured.Unstructured, reason string) {
 	})
 }
 
-func MarkReconciledTrue(obj *unstructured.Unstructured) {
-	SetCondition(obj, &clusterv1.Condition{
+func MarkReconciledTrue(obj *unstructured.Unstructured) bool {
+	return SetConditionIfChanged(obj, &clusterv1.Condition{
 		Type:               ReconciledCondition,
 		Status:             v1.ConditionTrue,
 		Message:            "Reconciled",
