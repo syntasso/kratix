@@ -29,9 +29,11 @@ TEST_GIT_WRITER_GITHUB_HTTP_PAT
 # base64 encoded
 TEST_GIT_WRITER_GITHUB_SSH_PRIVATE_KEY
 
+The suite isolates itself from concurrent runs by pushing to a per-run ci-* branch
+on the fixture repo (created in BeforeSuite, deleted in AfterSuite; see
+git_suite_test.go). The specs still run in Serial mode as they share that one branch.
 */
 
-// NOTE: These tests need to run in Serial mode as they use the same Git repository to store and verify data
 var _ = Describe("Git tests", func() {
 	logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)).WithName("git-writer")
 	httpPrivateRepo := "https://github.com/syntasso/testing-git-writer-private.git"
@@ -42,7 +44,7 @@ var _ = Describe("Git tests", func() {
 	var branch string
 
 	BeforeEach(func() {
-		branch = "main"
+		branch = testBranch
 		basicAuthCreds = genBasicAuthCreds()
 	})
 
@@ -120,7 +122,8 @@ var _ = Describe("Git tests", func() {
 				})
 				Expect(err).ToNot(HaveOccurred())
 
-				_, err = client.Clone(branch)
+				// the per-run branch only exists on the private fixture repo
+				_, err = client.Clone("main")
 				defer os.RemoveAll(client.Root())
 				Expect(err).ToNot(HaveOccurred())
 				Expect(client.Root()).ToNot(BeEmpty())
@@ -205,10 +208,10 @@ var _ = Describe("Git tests", func() {
 
 				var pathOne, pathTwo string
 				By("cloning to two different paths", func() {
-					pathOne, err = clientOne.Clone("main")
+					pathOne, err = clientOne.Clone(branch)
 					Expect(err).ToNot(HaveOccurred())
 
-					pathTwo, err = clientTwo.Clone("main")
+					pathTwo, err = clientTwo.Clone(branch)
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -226,7 +229,7 @@ var _ = Describe("Git tests", func() {
 					Expect(err).ToNot(HaveOccurred())
 
 					_, err = clientOne.CommitAndPush(
-						"main", "TEST: test", "test-user", "test-user@syntasso.io")
+						branch, "TEST: test", "test-user", "test-user@syntasso.io")
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -237,7 +240,7 @@ var _ = Describe("Git tests", func() {
 					// Option A no longer rebases on rejection; the writer requeues,
 					// re-syncs to the remote, and retries at the reconcile level.
 					_, err = clientTwo.CommitAndPush(
-						"main", "TEST: test", "test-user", "test-user@syntasso.io")
+						branch, "TEST: test", "test-user", "test-user@syntasso.io")
 					Expect(err).To(MatchError(ContainSubstring("failed to push")))
 				})
 
@@ -247,14 +250,14 @@ var _ = Describe("Git tests", func() {
 
 				var testFilesTwo []string
 				By("resetting the second clone to the remote and retrying the write", func() {
-					Expect(clientTwo.ResetToRemote("main")).To(Succeed())
+					Expect(clientTwo.ResetToRemote(branch)).To(Succeed())
 
 					testDirTwo, testFilesTwo = createTestAssets(clientTwo.Root(), randomIDTwo)
 					_, err := clientTwo.Add(filepath.Join(clientTwo.Root(), testDirTwo))
 					Expect(err).ToNot(HaveOccurred())
 
 					_, err = clientTwo.CommitAndPush(
-						"main", "TEST: test after reset", "test-user", "test-user@syntasso.io")
+						branch, "TEST: test after reset", "test-user", "test-user@syntasso.io")
 					Expect(err).ToNot(HaveOccurred())
 				})
 
