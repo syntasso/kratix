@@ -339,25 +339,31 @@ func GetStatus(rr *unstructured.Unstructured, key string) string {
 	return nestedMap[key].(string)
 }
 
-func GetWorkflowsCounterStatus(rr *unstructured.Unstructured, key string) int64 {
-	if rr.Object["status"] == nil {
+// CountPipelinesInPhase returns how many workflow pipelines are in the given
+// phase, or -1 when the pipeline status has not been initialised yet.
+func CountPipelinesInPhase(obj *unstructured.Unstructured, phase string) int64 {
+	pipelines, found, err := unstructured.NestedSlice(obj.Object, "status", "kratix", "workflows", "pipelines")
+	if err != nil || !found {
 		return -1
 	}
 
-	nestedMap := rr.Object["status"].(map[string]interface{})
-	value := nestedMap[key]
-	if value == nil {
-		return -1
+	var count int64
+	for _, p := range pipelines {
+		pipeline, ok := p.(map[string]any)
+		if !ok {
+			continue
+		}
+		if pipeline["phase"] == phase {
+			count++
+		}
 	}
 
-	switch v := value.(type) {
-	case float64:
-		return int64(v)
-	case int64:
-		return v
-	}
+	return count
+}
 
-	return -1
+// HasPipelineInPhase reports whether any workflow pipeline is in the given phase.
+func HasPipelineInPhase(obj *unstructured.Unstructured, phase string) bool {
+	return CountPipelinesInPhase(obj, phase) > 0
 }
 
 func MarkCurrentPipelineAsSucceeded(rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) error {
@@ -432,7 +438,39 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger 
 	return unstructured.SetNestedSlice(rr.Object, workflows, "status", "kratix", "workflows", "pipelines")
 }
 
+// MarkPipelinesAsSucceeded marks the first count pipelines as succeeded, so the
+// status catches up with pipeline completions no reconciliation ever observed.
+func MarkPipelinesAsSucceeded(obj *unstructured.Unstructured, count int64) error {
+	pipelines, found, err := unstructured.NestedSlice(obj.Object, "status", "kratix", "workflows", "pipelines")
+	if err != nil || !found {
+		return err
+	}
+
+	for i := range min(int(count), len(pipelines)) {
+		pipeline, ok := pipelines[i].(map[string]any)
+		if !ok {
+			continue
+		}
+		previousPhase, _ := pipeline["phase"].(string)
+		if previousPhase == v1alpha1.WorkflowPhaseSucceeded {
+			continue
+		}
+		if previousPhase == v1alpha1.WorkflowPhaseSuspended {
+			delete(pipeline, "message")
+		}
+		pipeline["phase"] = v1alpha1.WorkflowPhaseSucceeded
+		pipeline["lastTransitionTime"] = metav1.Now().Format(time.RFC3339)
+		pipelines[i] = pipeline
+	}
+
+	return unstructured.SetNestedSlice(obj.Object, pipelines, "status", "kratix", "workflows", "pipelines")
+}
+
 func ResetPipelineStatusToPending(obj *unstructured.Unstructured, pipelines []v1alpha1.PipelineJobResources) error {
+	if obj.Object["status"] == nil {
+		obj.Object["status"] = map[string]any{}
+	}
+
 	workflows := make([]any, 0, len(pipelines))
 	for _, pipeline := range pipelines {
 		workflows = append(workflows, map[string]any{

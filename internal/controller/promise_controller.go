@@ -320,7 +320,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	}
 	updateConditionOnPromise(promise, promiseAvailableStatusCondition(timeStamp))
 
-	statusUpdate, err := r.generateConditions(ctx, promise, r.getWorkflowsCount(promise))
+	statusUpdate, err := r.generateConditions(ctx, promise)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -517,35 +517,15 @@ func resetPromiseWorkflowPipelinesToPending(promise *v1alpha1.Promise) {
 	}
 }
 
-func (r *PromiseReconciler) generateConditions(ctx context.Context, promise *v1alpha1.Promise, numberOfPipelines int64) (bool, error) {
+func (r *PromiseReconciler) generateConditions(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
 	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, promise)
 	if err != nil {
 		return false, err
 	}
 	worksSucceededUpdate := r.updateWorksSucceededCondition(promise, failed, pending, ready, misplaced)
 	reconciledUpdate := r.updateReconciledCondition(promise)
-	workflowsCounterStatusUpdate := r.generateWorkflowsCounterStatus(promise, numberOfPipelines)
 
-	return worksSucceededUpdate || reconciledUpdate || workflowsCounterStatusUpdate, nil
-}
-
-func (r *PromiseReconciler) generateWorkflowsCounterStatus(promise *v1alpha1.Promise, numOfPipelines int64) bool {
-	desiredWorkflows := numOfPipelines
-	var desiredWorkflowsSucceeded int64
-
-	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
-	if completedCond != nil && completedCond.Status == metav1.ConditionTrue {
-		desiredWorkflowsSucceeded = numOfPipelines
-	}
-
-	// TODO: remove deprecated promise.Status.Workflows, promise.Status.WorkflowsSucceeded, promise.Status.WorkflowsFailed
-	if promise.Status.Workflows != desiredWorkflows || promise.Status.WorkflowsSucceeded != desiredWorkflowsSucceeded {
-		promise.Status.Workflows = desiredWorkflows
-		promise.Status.WorkflowsSucceeded = desiredWorkflowsSucceeded
-		promise.Status.WorkflowsFailed = 0
-		return true
-	}
-	return false
+	return worksSucceededUpdate || reconciledUpdate, nil
 }
 
 func (r *PromiseReconciler) updateReconciledCondition(promise *v1alpha1.Promise) bool {
@@ -1013,12 +993,6 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 		// No workflow to run, abort
 		return false, nil, nil
-	}
-
-	if promise.Status.Workflows != pipelineCount {
-		/* New pipelines have been added, regenerate the pipelines execution statuses */
-		promise.Status.Workflows = pipelineCount
-		return false, nil, r.Client.Status().Update(o.ctx, promise)
 	}
 
 	if requeue, err := r.ensureKratixWorkflowStatusIsSetup(promise); err != nil || requeue {
@@ -2075,18 +2049,6 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 					Type: "string",
 				},
 				"observedGeneration": {
-					Type:   "integer",
-					Format: "int64",
-				},
-				"workflows": {
-					Type:   "integer",
-					Format: "int64",
-				},
-				"workflowsSucceeded": {
-					Type:   "integer",
-					Format: "int64",
-				},
-				"workflowsFailed": {
 					Type:   "integer",
 					Format: "int64",
 				},

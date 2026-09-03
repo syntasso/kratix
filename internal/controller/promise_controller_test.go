@@ -117,21 +117,6 @@ var _ = Describe("PromiseController", func() {
 						Expect(ok).To(BeTrue(), ".status.message did not exist. Spec %v", status)
 						Expect(message.Type).To(Equal("string"))
 
-						workflows, ok := status.Properties["workflows"]
-						Expect(ok).To(BeTrue(), ".status.workflows did not exist. Spec %v", status)
-						Expect(workflows.Type).To(Equal("integer"))
-						Expect(workflows.Format).To(Equal("int64"))
-
-						workflowsSucceeded, ok := status.Properties["workflowsSucceeded"]
-						Expect(ok).To(BeTrue(), ".status.workflowsSucceeded did not exist. Spec %v", status)
-						Expect(workflowsSucceeded.Type).To(Equal("integer"))
-						Expect(workflowsSucceeded.Format).To(Equal("int64"))
-
-						workflowsFailed, ok := status.Properties["workflowsFailed"]
-						Expect(ok).To(BeTrue(), ".status.workflowsFailed did not exist. Spec %v", status)
-						Expect(workflowsFailed.Type).To(Equal("integer"))
-						Expect(workflowsFailed.Format).To(Equal("int64"))
-
 						kratixStatus, ok := status.Properties["kratix"]
 						Expect(ok).To(BeTrue(), ".status.kratix did not exist. Spec %v", status)
 						Expect(kratixStatus.Type).To(Equal("object"))
@@ -210,12 +195,6 @@ var _ = Describe("PromiseController", func() {
 						Expect(promise.Status.Kind).To(Equal("redis"))
 						Expect(promise.Status.Kratix.Kind).To(Equal("redis"))
 						Expect(promise.Status.Kratix.Version).To(Equal("v1.1.0"))
-					})
-
-					By("updating the status with workflow counters all to zero", func() {
-						Expect(promise.Status.Workflows).To(Equal(int64(0)))
-						Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(0)))
-						Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
 					})
 
 					By("creating the resources for the dynamic controller", func() {
@@ -806,10 +785,6 @@ var _ = Describe("PromiseController", func() {
 						Expect(role.GetLabels()).To(Equal(promiseCommonLabels))
 					})
 
-					By("setting the workflows counter to the number of pipelines", func() {
-						Expect(promise.Status.Workflows).To(Equal(int64(2)))
-					})
-
 					By("associates the new role with the new service account", func() {
 						Expect(resources[3]).To(BeAssignableToTypeOf(&rbacv1.ClusterRoleBinding{}))
 						binding := resources[3].(*rbacv1.ClusterRoleBinding)
@@ -828,15 +803,6 @@ var _ = Describe("PromiseController", func() {
 						Expect(err).NotTo(HaveOccurred())
 					})
 
-					By("setting status.workflows to the number of configure pipelines", func() {
-						setReconcileConfigureWorkflowToReturnFinished()
-						_, err = t.reconcileUntilCompletion(reconciler, promise)
-						Expect(err).NotTo(HaveOccurred())
-						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-
-						Expect(promise.Status.Workflows).To(Equal(int64(2)))
-					})
-
 					By("finishing the creation once the job is finished and publishes event", func() {
 						setReconcileConfigureWorkflowToReturnFinished()
 						markPromiseWorkflowAsCompleted(fakeK8sClient, promise)
@@ -850,13 +816,6 @@ var _ = Describe("PromiseController", func() {
 						Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
 							"Normal ConfigureWorkflowCompleted All workflows completed",
 						)))
-					})
-
-					By("updating the status of the promise workflow", func() {
-						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-						Expect(promise.Status.Workflows).To(Equal(int64(2)))
-						Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
-						Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(2)))
 					})
 
 					By("not creating a Work for the empty static dependencies", func() {

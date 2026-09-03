@@ -243,7 +243,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	if updated, err := r.ensureConfigureWorkflowStatus(ctx, logger, rr, pipelineResources); updated || err != nil {
+	if updated, err := r.ensureConfigureWorkflowStatus(ctx, rr, pipelineResources); updated || err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -289,7 +289,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
-	return r.reconcileAfterConfigure(ctx, logger, opts, rr, promise, pipelineResources, bindingVersion, promiseRevisionUsed)
+	return r.reconcileAfterConfigure(ctx, logger, opts, rr, promise, bindingVersion, promiseRevisionUsed)
 }
 
 func (r *DynamicResourceRequestController) syncResourceBindingUpgradeStatusOnPassiveRequeue(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured, promiseRevisionUsed *v1alpha1.PromiseRevision) error {
@@ -320,7 +320,6 @@ func (r *DynamicResourceRequestController) reconcileAfterConfigure(
 	opts opts,
 	rr *unstructured.Unstructured,
 	promise *v1alpha1.Promise,
-	pipelineResources []v1alpha1.PipelineJobResources,
 	bindingVersion string,
 	promiseRevisionUsed *v1alpha1.PromiseRevision,
 ) (ctrl.Result, error) {
@@ -337,10 +336,10 @@ func (r *DynamicResourceRequestController) reconcileAfterConfigure(
 		if versionUpdated {
 			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 		}
-		return r.nextReconciliation(logger, promiseRevisionUsed), r.cleanupWorkflowCountersAndExecution(ctx, logger, rr)
+		return r.nextReconciliation(logger, promiseRevisionUsed), nil
 	}
 
-	statusUpdated, err := r.ensureResourceStatus(ctx, logger, rr, promise, pipelineResources, bindingVersion, promiseRevisionUsed)
+	statusUpdated, err := r.ensureResourceStatus(ctx, logger, rr, promise, bindingVersion, promiseRevisionUsed)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -427,7 +426,6 @@ func (r *DynamicResourceRequestController) ensureResourceStatus(
 	logger logr.Logger,
 	rr *unstructured.Unstructured,
 	promise *v1alpha1.Promise,
-	pipelineResources []v1alpha1.PipelineJobResources,
 	bindingVersion string,
 	promiseRevisionUsed *v1alpha1.PromiseRevision,
 ) (bool, error) {
@@ -437,7 +435,7 @@ func (r *DynamicResourceRequestController) ensureResourceStatus(
 	}
 	workLabels := resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), rrNamespace, "", v1alpha1.WorkTypeResource)
 
-	statusUpdate, err := r.generateResourceStatus(ctx, logger, rr, int64(len(pipelineResources)), workLabels, bindingVersion, promiseRevisionUsed)
+	statusUpdate, err := r.generateResourceStatus(ctx, logger, rr, workLabels, bindingVersion, promiseRevisionUsed)
 	if err != nil {
 		return false, err
 	}
@@ -726,15 +724,10 @@ func (r *DynamicResourceRequestController) determineResourceBindingVersion(ctx c
 
 func (r *DynamicResourceRequestController) ensureConfigureWorkflowStatus(
 	ctx context.Context,
-	logger logr.Logger,
 	rr *unstructured.Unstructured,
 	pipelineResources []v1alpha1.PipelineJobResources,
 ) (updated bool, err error) {
-	statusChanged := false
-	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != int64(len(pipelineResources)) {
-		resourceutil.SetStatus(rr, logger, "workflows", int64(len(pipelineResources)))
-		statusChanged = true
-	}
+	statusChanged := removeWorkflowCounters(rr)
 
 	workflowStatusChanged, err := ensureRRKratixWorkflowStatusIsSetup(rr, pipelineResources)
 	if err != nil {
@@ -818,7 +811,7 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 }
 
 func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured,
-	numberOfPipelines int64, workLabels map[string]string, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision,
+	workLabels map[string]string, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision,
 ) (bool, error) {
 	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, logger, rr, workLabels)
 	if err != nil {
@@ -826,10 +819,9 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	}
 	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
 	reconciledUpdate := r.updateReconciledCondition(rr)
-	workflowsCounterStatusUpdate := r.generateWorkflowsCounterStatus(logger, rr, numberOfPipelines)
 	promiseVersionUpdate := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevision)
 
-	return worksSucceededUpdate || reconciledUpdate || workflowsCounterStatusUpdate || promiseVersionUpdate, nil
+	return worksSucceededUpdate || reconciledUpdate || promiseVersionUpdate, nil
 }
 
 func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, _, misplaced []string) bool {
@@ -1153,42 +1145,17 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, l
 	return failed, misplaced, pending, ready, nil
 }
 
-func (r *DynamicResourceRequestController) generateWorkflowsCounterStatus(logger logr.Logger, rr *unstructured.Unstructured, numOfPipelines int64) bool {
-	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-
-	desiredWorkflows := numOfPipelines
-	var desiredWorkflowsSucceeded int64
-
-	if completedCond != nil && completedCond.Status == v1.ConditionTrue {
-		desiredWorkflowsSucceeded = numOfPipelines
+// The resource request status schema preserves unknown fields, so the workflow
+// counters written by older versions of Kratix stay until they are removed here.
+func removeWorkflowCounters(rr *unstructured.Unstructured) bool {
+	removed := false
+	for _, counter := range []string{"workflows", "workflowsSucceeded", "workflowsFailed"} {
+		if _, found, _ := unstructured.NestedFieldNoCopy(rr.Object, "status", counter); found {
+			unstructured.RemoveNestedField(rr.Object, "status", counter)
+			removed = true
+		}
 	}
-
-	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != desiredWorkflows ||
-		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != desiredWorkflowsSucceeded {
-
-		resourceutil.SetStatus(rr, logger,
-			"workflows", desiredWorkflows,
-			"workflowsSucceeded", desiredWorkflowsSucceeded,
-			"workflowsFailed", int64(0),
-		)
-
-		return true
-	}
-	return false
-}
-
-func (r *DynamicResourceRequestController) cleanupWorkflowCountersAndExecution(ctx context.Context, logger logr.Logger,
-	rr *unstructured.Unstructured,
-) error {
-	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != 0 ||
-		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != 0 ||
-		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsFailed") != 0 {
-
-		resourceutil.SetStatus(rr, logger, "workflows", int64(0), "workflowsSucceeded", int64(0), "workflowsFailed", int64(0))
-		unstructured.RemoveNestedField(rr.Object, "status", "kratix", "workflows", "pipelines")
-		return r.Client.Status().Update(ctx, rr)
-	}
-	return nil
+	return removed
 }
 
 func ensureRRKratixWorkflowStatusIsSetup(rr *unstructured.Unstructured, pipelines []v1alpha1.PipelineJobResources) (bool, error) {

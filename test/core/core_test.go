@@ -178,9 +178,6 @@ var _ = Describe("Core Tests", Ordered, func() {
 						reconciledCondition := `.status.conditions[?(@.type=="Reconciled")]`
 						worksSucceededCondition := `.status.conditions[?(@.type=="WorksSucceeded")]`
 						promiseStatus := ".status.status"
-						promiseWorkflows := ".status.workflows"
-						promiseWorkflowsSucceeded := ".status.workflowsSucceeded"
-						promiseWorkflowsFailed := ".status.workflowsFailed"
 
 						Eventually(func(g Gomega) {
 							g.Expect(
@@ -195,16 +192,6 @@ var _ = Describe("Core Tests", Ordered, func() {
 							g.Expect(
 								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s.status}'`, worksSucceededCondition))...),
 							).To(ContainSubstring("True"))
-							g.Expect(
-								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s}'`, promiseWorkflows))...),
-							).To(ContainSubstring("1"))
-							g.Expect(
-								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s}'`, promiseWorkflowsFailed))...),
-							).To(ContainSubstring("0"))
-							g.Expect(
-								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s}'`, promiseWorkflowsSucceeded))...),
-							).To(ContainSubstring("1"))
-
 							var parsedOutput [][]v1alpha1.WorkflowPipelineStatus // jsonpath-as-json returns a nested array of the target objects
 							jsonOutput := platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath-as-json={%s}`, pipelinesExecutionStatusPath))...)
 							json.Unmarshal([]byte(jsonOutput), &parsedOutput)
@@ -246,10 +233,6 @@ var _ = Describe("Core Tests", Ordered, func() {
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.stage}'")...)).To(ContainSubstring("two"))
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.completed}'")...)).To(ContainSubstring("true"))
 						g.Expect(platform.Kubectl(append(rrArgs, `-o=jsonpath='{.status.observedGeneration}'`)...)).To(Equal(generation))
-
-						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.workflows}'")...)).To(ContainSubstring("2"))
-						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.workflowsSucceeded}'")...)).To(ContainSubstring("2"))
-						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.workflowsFailed}'")...)).To(ContainSubstring("0"))
 
 						if platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows}`)...) != "" {
 							var parsedOutput [][]v1alpha1.WorkflowPipelineStatus
