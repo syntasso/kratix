@@ -684,14 +684,15 @@ func createConfigurePipeline(opts Opts, state *workflowState, resources v1alpha1
 		}
 	}
 
+	if err = setPipelineStartingStatus(opts, state.pipelineIndex, opts.parentObject, resources.Job); err != nil {
+		return false, err
+	}
+
 	deleteResources(opts, objectToDelete...)
 	applyResources(opts, append(resources.GetObjects(), resources.Job)...)
 
 	opts.eventRecorder.Eventf(opts.parentObject, nil, "Normal", "PipelineStarted", "PipelineStarted", "Configure Pipeline started: %s", resources.Name)
 
-	if err = setPipelineStartingStatus(opts, state.pipelineIndex, opts.parentObject, resources.Job); err != nil {
-		return false, err
-	}
 	return true, nil
 }
 
