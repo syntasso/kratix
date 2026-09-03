@@ -49,6 +49,13 @@ var _ = Describe("Compound Promise", Label("compound-promise"), Serial, func() {
 				}).Should(ContainSubstring("Available"))
 			})
 
+			By("clearing the RequirementsNotFulfilled reason it was given before its requirements existed", func() {
+				Eventually(func() string {
+					return platform.Kubectl("get", "promise", "compound-promise", "-o",
+						`jsonpath={.status.conditions[?(@.type=="Reconciled")].status}`)
+				}).Should(Equal("True"))
+			})
+
 			By("fulfilling the Resource Request", func() {
 				Eventually(func() string {
 					return platform.Kubectl("get", "compound", "example-compound-rr")
