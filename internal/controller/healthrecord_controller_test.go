@@ -258,6 +258,38 @@ var _ = Describe("HealthRecordController", func() {
 		})
 	})
 
+	When("another promise has a resource with the same name and namespace", func() {
+		BeforeEach(func() {
+			otherPromiseRecord := &v1alpha1.HealthRecord{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: v1alpha1.GroupVersion.String(),
+					Kind:       "HealthRecord",
+				},
+				ObjectMeta: metav1.ObjectMeta{Name: "other-promise-record", Namespace: "default"},
+				Data: v1alpha1.HealthRecordData{
+					PromiseRef:  v1alpha1.PromiseRef{Name: "other-promise"},
+					ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
+					State:       "unhealthy",
+					LastRun:     now,
+					Details:     details,
+				},
+			}
+
+			Expect(fakeK8sClient.Create(ctx, otherPromiseRecord)).To(Succeed())
+		})
+
+		It("only considers records with a matching promiseRef", func() {
+			updatedResource := reconcile()
+
+			status := getResourceStatus(updatedResource)
+			records := getHealthRecordsList(status)
+
+			Expect(records).To(HaveLen(1))
+			Expect(records[0]).To(HaveKeyWithValue("source", HaveKeyWithValue("name", healthRecord.GetName())))
+			Expect(getHealthStatusState(status)).To(Equal("ready"))
+		})
+	})
+
 	When("a healthRecord is deleted", func() {
 		var updatedResource *unstructured.Unstructured
 

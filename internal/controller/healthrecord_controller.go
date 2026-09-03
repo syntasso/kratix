@@ -146,8 +146,7 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 
 	var resourceHealthRecords []platformv1alpha1.HealthRecord
 	for _, record := range healthRecords.Items {
-		if record.Data.ResourceRef.Name == healthRecord.Data.ResourceRef.Name &&
-			record.Data.ResourceRef.Namespace == healthRecord.Data.ResourceRef.Namespace {
+		if referToSameResource(&record, healthRecord) {
 			resourceHealthRecords = append(resourceHealthRecords, record)
 		}
 	}
@@ -222,6 +221,12 @@ func (r *HealthRecordReconciler) getInitialHealthStatusState(resReq *unstructure
 	return initialHealthStatusState
 }
 
+func referToSameResource(a, b *platformv1alpha1.HealthRecord) bool {
+	return a.Data.PromiseRef.Name == b.Data.PromiseRef.Name &&
+		a.Data.ResourceRef.Name == b.Data.ResourceRef.Name &&
+		a.Data.ResourceRef.Namespace == b.Data.ResourceRef.Namespace
+}
+
 func getHealthDataAndStates(healthRecords []platformv1alpha1.HealthRecord) ([]any, string, error) {
 	var healthData []any
 	var statePriority = map[string]int{
@@ -291,7 +296,7 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 	}
 
 	for _, record := range healthRecords.Items {
-		if record.GetName() != healthRecord.GetName() {
+		if record.GetName() != healthRecord.GetName() && referToSameResource(&record, healthRecord) {
 			logging.Debug(r.Log, "updating health records list", "item", record.GetName())
 
 			updatedHealthRecords = append(updatedHealthRecords, record)
