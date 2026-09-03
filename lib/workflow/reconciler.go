@@ -180,7 +180,6 @@ type workflowState struct {
 	restartFromStart     bool
 	resumeFromSuspended  bool
 	suspendedPipelineIdx int
-	desiredFailedCount   *int64
 	desiredPipelinePhase string
 	desiredPipelineJob   *batchv1.Job
 }
@@ -295,45 +294,29 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 }
 
 func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bool, err error) {
-	//these are set to -1 if unset in the status
-	currentSucceededCount := resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsSucceeded")
-	currentFailedCount := resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsFailed")
+	//this is -1 if the pipeline status has not been initialised yet
+	succeededPipelines := resourceutil.CountPipelinesInPhase(opts.parentObject, v1alpha1.WorkflowPhaseSucceeded)
 
-	if currentFailedCount == -1 && state.desiredFailedCount == nil {
-		// this means the failed count has never been set, so we should initialise it to 0 to avoid drift
-		state.desiredFailedCount = new(int64)
-		*state.desiredFailedCount = 0
-	}
-
-	succeededCountDrifted := currentSucceededCount != state.completedCount
+	succeededCountDrifted := succeededPipelines != state.completedCount
 	shouldResetForManualRetry := (state.manualReconcile || state.restartFromStart) &&
-		(currentFailedCount != 0 || currentSucceededCount != 0)
-	failedCountDrifted := state.desiredFailedCount != nil && currentFailedCount != *state.desiredFailedCount
+		(succeededPipelines != 0 || resourceutil.HasPipelineInPhase(opts.parentObject, v1alpha1.WorkflowPhaseFailed))
 	pipelinePhaseDrifted := state.desiredPipelineJob != nil && state.desiredPipelinePhase != ""
 
-	if !succeededCountDrifted && !shouldResetForManualRetry && !failedCountDrifted && !pipelinePhaseDrifted {
+	if !succeededCountDrifted && !shouldResetForManualRetry && !pipelinePhaseDrifted {
 		return false, nil
 	}
 
-	if succeededCountDrifted {
-		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsSucceeded", state.completedCount)
-		if state.completedCount > 0 {
-			if err = resourceutil.MarkCurrentPipelineAsSucceeded(opts.parentObject, opts.logger, state.mostRecentJob); err != nil {
-				logging.Error(opts.logger, err, "failed to mark current pipeline as succeeded")
-				return false, err
-			}
-		}
-	}
-
-	if shouldResetForManualRetry || (succeededCountDrifted && state.completedCount == 0) {
-		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(0))
-		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.Resources); err != nil {
+	if succeededCountDrifted && state.completedCount > 0 {
+		if err = resourceutil.MarkPipelinesAsSucceeded(opts.parentObject, state.completedCount); err != nil {
+			logging.Error(opts.logger, err, "failed to mark completed pipelines as succeeded")
 			return false, err
 		}
 	}
 
-	if failedCountDrifted {
-		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", *state.desiredFailedCount)
+	if shouldResetForManualRetry || (succeededCountDrifted && state.completedCount == 0) {
+		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.Resources); err != nil {
+			return false, err
+		}
 	}
 
 	if pipelinePhaseDrifted {
@@ -430,8 +413,6 @@ func setFailedConditionAndEvents(opts Opts, state *workflowState, pipeline v1alp
 		resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
 		resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
 
-		failedCount := int64(1)
-		state.desiredFailedCount = &failedCount
 		state.desiredPipelinePhase = v1alpha1.WorkflowPhaseFailed
 		state.desiredPipelineJob = state.mostRecentJob
 

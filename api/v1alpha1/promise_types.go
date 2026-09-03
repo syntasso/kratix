@@ -156,12 +156,6 @@ type PromiseStatus struct {
 	Message string `json:"message,omitempty"`
 	// Kratix-managed status for this Promise. This field contains fields set by Kratix controllers.
 	Kratix KratixPromiseStatus `json:"kratix,omitempty"`
-	// Total number of Promise-level workflow pipelines
-	Workflows int64 `json:"workflows"`
-	// Number of Promise-level workflow pipelines that have completed successfully
-	WorkflowsSucceeded int64 `json:"workflowsSucceeded"`
-	// Number of Promise-level workflow pipelines that have failed
-	WorkflowsFailed int64 `json:"workflowsFailed"`
 	// Status of each required Promise dependency
 	RequiredPromises []RequiredPromiseStatus `json:"requiredPromises,omitempty"`
 	// List of other Promises that depend on this Promise
@@ -535,14 +529,8 @@ const (
 )
 
 func (p *Promise) ClearPipelineExecutionStatus() bool {
-	changed := p.Status.Workflows != 0 ||
-		p.Status.WorkflowsSucceeded != 0 ||
-		p.Status.WorkflowsFailed != 0 ||
-		len(p.Status.Kratix.Workflows.Pipelines) != 0
+	changed := len(p.Status.Kratix.Workflows.Pipelines) != 0
 
-	p.Status.Workflows = 0
-	p.Status.WorkflowsSucceeded = 0
-	p.Status.WorkflowsFailed = 0
 	p.Status.Kratix.Workflows.Pipelines = nil
 	return changed
 }
