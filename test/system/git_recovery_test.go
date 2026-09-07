@@ -20,8 +20,10 @@ import (
 // These tests cover the writer recovering when the Git state store is changed
 // outside of Kratix (a manual commit, a Flux/Argo prune, another tool). They
 // mutate the in-KinD Gitea repository directly, so they only run against KinD
-// (not the LRE, which uses a real GitHub repository).
-var _ = Describe("GitStateStore writer recovery", Label("git-recovery"), Serial, func() {
+// (not the LRE, which uses a real GitHub repository). The spec uses its own
+// Gitea repository, so its external pushes can never race Kratix's pushes to
+// the shared repo and it does not need to be Serial.
+var _ = Describe("GitStateStore writer recovery", Label("git-recovery"), func() {
 	BeforeEach(func() {
 		if os.Getenv("LRE") == "true" {
 			Skip("external repo mutation targets the in-KinD Gitea; not applicable on the LRE")
@@ -30,7 +32,8 @@ var _ = Describe("GitStateStore writer recovery", Label("git-recovery"), Serial,
 		SetDefaultEventuallyPollingInterval(2 * time.Second)
 		kubeutils.SetTimeoutAndInterval(3*time.Minute, 2*time.Second)
 
-		platform.Kubectl("apply", "-f", "assets/destination/destination-git-test-store.yaml")
+		createGitRecoveryRepo()
+		platform.Kubectl("apply", "-f", "assets/destination/destination-git-recovery-store.yaml")
 		platform.Kubectl("apply", "-f", "assets/destination/destination-git-recovery.yaml")
 		platform.Kubectl("apply", "-f", "assets/destination/promise-git-recovery.yaml")
 
@@ -94,6 +97,14 @@ func runGit(dir string, args ...string) {
 	Eventually(session).Should(gexec.Exit(0))
 }
 
+func giteaPassword() string {
+	GinkgoHelper()
+	encodedPassword := platform.Kubectl("get", "secret", "gitea-credentials", "-n", "default", "-o", "jsonpath={.data.password}")
+	password, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encodedPassword))
+	Expect(err).NotTo(HaveOccurred())
+	return string(password)
+}
+
 // giteaRepoURL returns the host-reachable URL of the Gitea repository backing
 // the state store. The controller reaches Gitea via its in-cluster service; from
 // the test process it is reached on localhost via the NodePort that KinD maps to
@@ -101,17 +112,30 @@ func runGit(dir string, args ...string) {
 // elsewhere because Gitea uses a self-signed certificate.
 func giteaRepoURL() string {
 	GinkgoHelper()
-	encodedPassword := platform.Kubectl("get", "secret", "gitea-credentials", "-n", "default", "-o", "jsonpath={.data.password}")
-	password, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encodedPassword))
-	Expect(err).NotTo(HaveOccurred())
-
 	repoURL := url.URL{
 		Scheme: "https",
-		User:   url.UserPassword("gitea_admin", string(password)),
+		User:   url.UserPassword("gitea_admin", giteaPassword()),
 		Host:   "localhost:31333",
-		Path:   "/gitea_admin/kratix.git",
+		Path:   "/gitea_admin/gitrecovery.git",
 	}
 	return repoURL.String()
+}
+
+// createGitRecoveryRepo creates the spec's dedicated Gitea repository so its
+// external pushes never race Kratix's pushes to the shared repo. Tolerates the
+// repository already existing (409) from a previous run.
+func createGitRecoveryRepo() {
+	GinkgoHelper()
+	command := exec.Command("curl", "-sk", "-o", "/dev/null", "-w", "%{http_code}",
+		"-u", "gitea_admin:"+giteaPassword(),
+		"-H", "Content-Type: application/json",
+		"-d", `{"name":"gitrecovery","auto_init":true,"default_branch":"main"}`,
+		"https://localhost:31333/api/v1/user/repos")
+	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
+	Expect(err).NotTo(HaveOccurred())
+	Eventually(session).Should(gexec.Exit(0))
+	Expect(string(session.Out.Contents())).To(BeElementOf("201", "409"),
+		"expected the gitrecovery repo to be created or to already exist")
 }
 
 // cloneStateStore clones a fresh copy of the state store repository into a

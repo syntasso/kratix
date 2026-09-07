@@ -3,8 +3,9 @@ kind: Destination
 metadata:
   name: test-worker-git
   labels:
-    environment: dev
+    target: destination-status-git
 spec:
+  strictMatchLabels: true
   path: worker-git
   stateStoreRef:
     name: destination-git-test-store

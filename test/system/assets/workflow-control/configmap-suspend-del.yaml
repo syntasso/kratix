@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workflow-suspend-del-test
+  namespace: default
+data:
+  value: ready

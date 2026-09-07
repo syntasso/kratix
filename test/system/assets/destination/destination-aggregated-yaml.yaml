@@ -5,6 +5,7 @@ metadata:
   labels:
     target: aggregated-yaml
 spec:
+  strictMatchLabels: true
   path: aggregated-yaml
   stateStoreRef:
     name: default

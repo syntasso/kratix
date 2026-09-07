@@ -5,7 +5,8 @@ metadata:
   labels:
     target: git-recovery
 spec:
+  strictMatchLabels: true
   path: git-recovery
   stateStoreRef:
-    name: destination-git-test-store
+    name: destination-git-recovery-store
     kind: GitStateStore

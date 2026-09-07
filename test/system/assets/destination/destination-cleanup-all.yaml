@@ -5,6 +5,7 @@ metadata:
   labels:
     target: cleanup-all
 spec:
+  strictMatchLabels: true
   cleanup: all
   path: cleanup-all
   stateStoreRef:
