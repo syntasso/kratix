@@ -36,23 +36,59 @@ func (c Cluster) KubectlAllowFail(args ...string) string {
 	return c.kubectlInternalG(Default, false, args...)
 }
 
+// transientKubectlErrors match apiserver blips (overloaded kind clusters, brief
+// unavailability) that should be retried rather than failing the calling spec.
+var transientKubectlErrors = []string{
+	"TLS handshake timeout",
+	"connection refused",
+	"connection reset by peer",
+	"unexpected EOF",
+	"etcdserver: request timed out",
+	"the server is currently unable to handle the request",
+	"error dialing backend", //nolint:misspell // the apiserver emits the US spelling
+}
+
+func isTransientKubectlError(stderr string) bool {
+	for _, pattern := range transientKubectlErrors {
+		if strings.Contains(stderr, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
 func (c Cluster) kubectlInternalG(g Gomega, checkExitCode bool, args ...string) string {
 	GinkgoHelper()
 	args = append(args, "--context="+c.Context)
 
-	command := exec.Command("kubectl", args...)
-	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
+	var session *gexec.Session
+	// Retry transient apiserver failures so a blip fails the current poll (or
+	// nothing at all) instead of the whole spec.
+	const attempts = 3
+	for attempt := 1; ; attempt++ {
+		command := exec.Command("kubectl", args...)
+		var err error
+		session, err = gexec.Start(command, GinkgoWriter, GinkgoWriter)
 
-	fmt.Fprintf(GinkgoWriter, "Running: kubectl %s\n", strings.Join(args, " "))
+		fmt.Fprintf(GinkgoWriter, "Running: kubectl %s\n", strings.Join(args, " "))
 
-	g.ExpectWithOffset(2, err).ShouldNot(HaveOccurred())
+		g.ExpectWithOffset(2, err).ShouldNot(HaveOccurred())
 
-	g.EventuallyWithOffset(2, session, timeout, interval).Should(gexec.Exit())
+		g.EventuallyWithOffset(2, session, timeout, interval).Should(gexec.Exit())
 
-	if session.ExitCode() != 0 {
+		if session.ExitCode() == 0 {
+			break
+		}
+
 		fmt.Fprintf(GinkgoWriter, "kubectl %s exited %d\nstdout: %s\nstderr: %s\n",
 			strings.Join(args, " "), session.ExitCode(),
 			session.Out.Contents(), session.Err.Contents())
+
+		if attempt >= attempts || !isTransientKubectlError(string(session.Err.Contents())) {
+			break
+		}
+		fmt.Fprintf(GinkgoWriter, "transient apiserver error, retrying (%d/%d)\n", attempt, attempts)
+		time.Sleep(2 * time.Second)
 	}
 
 	if checkExitCode {

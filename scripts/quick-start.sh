@@ -200,7 +200,21 @@ _build_kratix_image() {
             docker build --tag "${kratix_image}" --quiet --file ${ROOT}/Dockerfile ${ROOT}
         fi
     fi
-    kind load docker-image "${kratix_image}" --name ${PLATFORM_CLUSTER_NAME}
+    kind_load_with_retry docker-image "${kratix_image}" --name ${PLATFORM_CLUSTER_NAME}
+}
+
+# containerd inside a freshly-created node can take a few seconds to accept
+# connections; retry image loads instead of failing the whole quick-start.
+kind_load_with_retry() {
+    local attempt
+    for attempt in 1 2 3 4 5; do
+        if kind load "$@"; then
+            return 0
+        fi
+        echo "kind load $1 failed (attempt ${attempt}/5); retrying in 5s..."
+        sleep 5
+    done
+    return 1
 }
 
 cluster_exists() {
@@ -405,7 +419,7 @@ pull_save_load_image() {
     stat "${image_tar}" || ( docker pull "${image}" && docker save --output "${image_tar}" "${image}" )
     for destination in "${dests[@]}"
     do
-        kind load image-archive --name "$destination" "$image_tar" &
+        kind_load_with_retry image-archive --name "$destination" "$image_tar" &
     done
     wait
 }

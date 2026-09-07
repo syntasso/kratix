@@ -8,7 +8,10 @@ import (
 	"github.com/syntasso/kratix/test/kubeutils"
 )
 
-var _ = Describe("Compound Promise", Label("compound-promise"), Serial, func() {
+// Ordered (not Serial): the two specs share promise names so they must not
+// overlap each other, but they are self-contained and can run alongside the
+// rest of the suite.
+var _ = Describe("Compound Promise", Label("compound-promise"), Ordered, func() {
 	BeforeEach(func() {
 		SetDefaultEventuallyTimeout(2 * time.Minute)
 		SetDefaultEventuallyPollingInterval(2 * time.Second)

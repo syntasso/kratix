@@ -189,169 +189,192 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 		})
 	})
 
-	Describe("filepath modes", func() {
-		// We are changing the LRE environment
-		// Skipping this test on the LRE to avoid unnecessary work
-		if os.Getenv("LRE") != "true" {
-			Describe("aggregatedYAML", func() {
-				BeforeEach(func() {
-					platform.Kubectl("apply", "-f", "assets/destination/destination-aggregated-yaml.yaml")
-					platform.Kubectl("apply", "-f", "assets/destination/promise.yaml")
+})
 
-					Eventually(func() string {
-						return platform.Kubectl("get", "crds")
-					}).Should(ContainSubstring("aggregates.test.kratix.io"))
-
-					platform.Kubectl("apply", "-f", "assets/destination/resources.yaml")
-				})
-
-				AfterEach(func() {
-					platform.Kubectl("delete", "promises", "aggregate-promise", "--ignore-not-found")
-					platform.Kubectl("delete", "-f", "assets/destination/destination-aggregated-yaml.yaml")
-				})
-
-				It("aggregates workplacements into a single file", func() {
-					By("bundling promise and resources into the same file", func() {
-						Eventually(func() []string {
-							return filenames(bucketLs("aggregated-yaml", true))
-						}).Should(ConsistOf(
-							"catalog.yaml",
-							"kratix-canary-configmap.yaml",
-							"kratix-canary-namespace.yaml",
-						))
-
-						Eventually(func() []string {
-							contents := bucketCat("aggregated-yaml/catalog.yaml")
-							uContents := parseYAML(contents)
-							return kindAndName(uContents)
-						}).Should(
-							ConsistOf("Namespace:aggregate-test-ns", "ConfigMap:req-1", "ConfigMap:req-2"),
-						)
-					})
-
-					By("removing the part associated with a resource when the resource gets deleted", func() {
-						platform.EventuallyKubectlDelete("aggregates", "req-1")
-
-						Eventually(func() []string {
-							contents := bucketCat("aggregated-yaml/catalog.yaml")
-							uContents := parseYAML(contents)
-							return kindAndName(uContents)
-						}).Should(
-							ConsistOf("Namespace:aggregate-test-ns", "ConfigMap:req-2"),
-						)
-					})
-
-					By("removing the entire file when the promise gets deleted", func() {
-						platform.Kubectl("delete", "promises", "aggregate-promise")
-						Eventually(func() string {
-							return platform.Kubectl("get", "crds")
-						}).ShouldNot(ContainSubstring("aggregates.test.kratix.io"))
-
-						Eventually(func() []string {
-							return filenames(bucketLs("aggregated-yaml", true))
-						}).Should(ConsistOf(
-							"kratix-canary-configmap.yaml",
-							"kratix-canary-namespace.yaml",
-						))
-					})
-				})
-			})
-
-			Describe("none", func() {
-				BeforeEach(func() {
-					platform.Kubectl("apply", "-f", "assets/destination/destination-git-filepathmode-none.yaml")
-					platform.Kubectl("apply", "-f", "assets/destination/promise-filepathmode-none.yaml")
-
-					Eventually(func() string {
-						return platform.Kubectl("get", "crds")
-					}).Should(ContainSubstring("modenone.test.kratix.io"))
-
-					platform.Kubectl("apply", "-f", "assets/destination/resource-filepathmode-none.yaml")
-				})
-
-				AfterEach(func() {
-					platform.Kubectl("delete", "promises", "filepathmode-none", "--ignore-not-found")
-					platform.Kubectl("delete", "-f", "assets/destination/destination-git-filepathmode-none.yaml")
-				})
-
-				It("can write and delete from statestore", func() {
-					rrName := "modenone-request-1"
-					Eventually(func() string {
-						return platform.Kubectl("get", "modenone", rrName)
-					}).Should(ContainSubstring("Reconciled"))
-
-					Eventually(func() string {
-						return platform.Kubectl("get", "workplacement")
-					}).Should(ContainSubstring("Ready"))
-
-					platform.Kubectl("delete", "-f", "assets/destination/resource-filepathmode-none.yaml")
-					Eventually(func() string {
-						return platform.Kubectl("-n", "default", "get", "workplacements",
-							"-l", "kratix.io/targetDestinationName=test-worker-git-filepathmode-none")
-					}).ShouldNot(ContainSubstring(rrName))
-
-					platform.Kubectl("delete", "promises", "filepathmode-none")
-					Eventually(func() string {
-						return platform.Kubectl("get", "workplacements", "--all-namespaces",
-							"-l", "kratix.io/targetDestinationName=test-worker-git-filepathmode-none")
-					}, 3*time.Minute).Should(ContainSubstring("No resources found"))
-				})
-			})
-		}
+// The destinations these specs create set strictMatchLabels, so works from
+// concurrently-running specs can never be scheduled onto them and the
+// file-content assertions stay exact without Serial.
+var _ = Describe("Destination filepath modes", Label("destination"), func() {
+	BeforeEach(func() {
+		SetDefaultEventuallyTimeout(3 * time.Minute)
+		SetDefaultEventuallyPollingInterval(2 * time.Second)
+		kubeutils.SetTimeoutAndInterval(3*time.Minute, 2*time.Second)
 	})
 
-	Describe("cleanup all", func() {
-		if os.Getenv("LRE") != "true" {
-			When("destination cleanup strategy is set to 'all'", func() {
-				destinationName := "cleanup-all"
-				BeforeEach(func() {
-					platform.Kubectl("apply", "-f", "assets/destination/destination-cleanup-all.yaml")
-					platform.Kubectl("apply", "-f", "assets/destination/promise-cleanup-all.yaml")
+	// We are changing the LRE environment
+	// Skipping this test on the LRE to avoid unnecessary work
+	if os.Getenv("LRE") != "true" {
+		Describe("aggregatedYAML", func() {
+			BeforeEach(func() {
+				platform.Kubectl("apply", "-f", "assets/destination/destination-aggregated-yaml.yaml")
+				platform.Kubectl("apply", "-f", "assets/destination/promise.yaml")
+
+				Eventually(func() string {
+					return platform.Kubectl("get", "crds")
+				}).Should(ContainSubstring("aggregates.test.kratix.io"))
+
+				platform.Kubectl("apply", "-f", "assets/destination/resources.yaml")
+			})
+
+			AfterEach(func() {
+				platform.Kubectl("delete", "promises", "aggregate-promise", "--ignore-not-found")
+				platform.Kubectl("delete", "-f", "assets/destination/destination-aggregated-yaml.yaml")
+			})
+
+			It("aggregates workplacements into a single file", func() {
+				By("bundling promise and resources into the same file", func() {
+					Eventually(func() []string {
+						return filenames(bucketLs("aggregated-yaml", true))
+					}).Should(ConsistOf(
+						"catalog.yaml",
+						"kratix-canary-configmap.yaml",
+						"kratix-canary-namespace.yaml",
+					))
+
+					Eventually(func() []string {
+						contents := bucketCat("aggregated-yaml/catalog.yaml")
+						uContents := parseYAML(contents)
+						return kindAndName(uContents)
+					}).Should(
+						ConsistOf("Namespace:aggregate-test-ns", "ConfigMap:req-1", "ConfigMap:req-2"),
+					)
+				})
+
+				By("removing the part associated with a resource when the resource gets deleted", func() {
+					platform.EventuallyKubectlDelete("aggregates", "req-1")
+
+					Eventually(func() []string {
+						contents := bucketCat("aggregated-yaml/catalog.yaml")
+						uContents := parseYAML(contents)
+						return kindAndName(uContents)
+					}).Should(
+						ConsistOf("Namespace:aggregate-test-ns", "ConfigMap:req-2"),
+					)
+				})
+
+				By("removing the entire file when the promise gets deleted", func() {
+					platform.Kubectl("delete", "promises", "aggregate-promise")
 					Eventually(func() string {
 						return platform.Kubectl("get", "crds")
-					}).Should(ContainSubstring("cleanupalls.test.kratix.io"))
-					platform.Kubectl("apply", "-f", "assets/destination/resources-cleanup-all.yaml")
-				})
+					}).ShouldNot(ContainSubstring("aggregates.test.kratix.io"))
 
-				AfterEach(func() {
-					platform.EventuallyKubectlDelete("-f", "assets/destination/resources-cleanup-all.yaml")
-					platform.EventuallyKubectlDelete("-f", "assets/destination/promise-cleanup-all.yaml")
-				})
-
-				It("reconciles successfully and delete all workplacements on deletion", func() {
-					By("showing `Ready` as true when created", func() {
-						Eventually(func() string {
-							return platform.Kubectl("get", "destinations", destinationName)
-						}).Should(ContainSubstring("True"))
-					})
-
-					By("setting clean up finalizer correctly", func() {
-						Eventually(func() string {
-							return platform.Kubectl("get", "destinations", destinationName, "-ojsonpath='{.metadata.finalizers}'")
-						}).Should(ContainSubstring(v1alpha1.KratixPrefix + "destination-cleanup"))
-					})
-
-					By("allowing works to be scheduled to", func() {
-						Eventually(func() string {
-							return bucketLs("cleanup-all", true)
-						}).Should(SatisfyAll(
-							ContainSubstring("ns.yaml"),
-							ContainSubstring("/configmap.yaml"),
-							ContainSubstring("kratix-canary-namespace.yaml"),
-							ContainSubstring("kratix-canary-configmap.yaml"),
-						))
-					})
-
-					By("cleaning up all resources on deletion", func() {
-						platform.EventuallyKubectlDelete("destinations", destinationName)
-						Eventually(func() string {
-							return bucketLs("", false)
-						}).ShouldNot(ContainSubstring(destinationName))
-					})
+					Eventually(func() []string {
+						return filenames(bucketLs("aggregated-yaml", true))
+					}).Should(ConsistOf(
+						"kratix-canary-configmap.yaml",
+						"kratix-canary-namespace.yaml",
+					))
 				})
 			})
-		}
+		})
+
+		Describe("none", func() {
+			BeforeEach(func() {
+				// This destination is git-backed; the statestore used to be applied by
+				// the (Serial) status-and-events Describe, which no longer wraps this.
+				platform.Kubectl("apply", "-f", "assets/destination/destination-git-test-store.yaml")
+				platform.Kubectl("apply", "-f", "assets/destination/destination-git-filepathmode-none.yaml")
+				platform.Kubectl("apply", "-f", "assets/destination/promise-filepathmode-none.yaml")
+
+				Eventually(func() string {
+					return platform.Kubectl("get", "crds")
+				}).Should(ContainSubstring("modenone.test.kratix.io"))
+
+				platform.Kubectl("apply", "-f", "assets/destination/resource-filepathmode-none.yaml")
+			})
+
+			AfterEach(func() {
+				platform.Kubectl("delete", "promises", "filepathmode-none", "--ignore-not-found")
+				platform.Kubectl("delete", "-f", "assets/destination/destination-git-filepathmode-none.yaml")
+			})
+
+			It("can write and delete from statestore", func() {
+				rrName := "modenone-request-1"
+				Eventually(func() string {
+					return platform.Kubectl("get", "modenone", rrName)
+				}).Should(ContainSubstring("Reconciled"))
+
+				// Scope to this destination: an unscoped listing matches any
+				// concurrent spec's Ready workplacement, letting the delete below
+				// race this spec's own (still Pending) write.
+				Eventually(func() string {
+					return platform.Kubectl("-n", "default", "get", "workplacements",
+						"-l", "kratix.io/targetDestinationName=test-worker-git-filepathmode-none")
+				}).Should(ContainSubstring("Ready"))
+
+				platform.Kubectl("delete", "-f", "assets/destination/resource-filepathmode-none.yaml")
+				Eventually(func() string {
+					return platform.Kubectl("-n", "default", "get", "workplacements",
+						"-l", "kratix.io/targetDestinationName=test-worker-git-filepathmode-none")
+				}).ShouldNot(ContainSubstring(rrName))
+
+				platform.Kubectl("delete", "promises", "filepathmode-none")
+				Eventually(func() string {
+					return platform.Kubectl("get", "workplacements", "--all-namespaces",
+						"-l", "kratix.io/targetDestinationName=test-worker-git-filepathmode-none")
+				}, 3*time.Minute).Should(ContainSubstring("No resources found"))
+			})
+		})
+	}
+})
+
+var _ = Describe("Destination cleanup all", Label("destination"), func() {
+	BeforeEach(func() {
+		SetDefaultEventuallyTimeout(3 * time.Minute)
+		SetDefaultEventuallyPollingInterval(2 * time.Second)
+		kubeutils.SetTimeoutAndInterval(3*time.Minute, 2*time.Second)
 	})
+
+	if os.Getenv("LRE") != "true" {
+		When("destination cleanup strategy is set to 'all'", func() {
+			destinationName := "cleanup-all"
+			BeforeEach(func() {
+				platform.Kubectl("apply", "-f", "assets/destination/destination-cleanup-all.yaml")
+				platform.Kubectl("apply", "-f", "assets/destination/promise-cleanup-all.yaml")
+				Eventually(func() string {
+					return platform.Kubectl("get", "crds")
+				}).Should(ContainSubstring("cleanupalls.test.kratix.io"))
+				platform.Kubectl("apply", "-f", "assets/destination/resources-cleanup-all.yaml")
+			})
+
+			AfterEach(func() {
+				platform.EventuallyKubectlDelete("-f", "assets/destination/resources-cleanup-all.yaml")
+				platform.EventuallyKubectlDelete("-f", "assets/destination/promise-cleanup-all.yaml")
+			})
+
+			It("reconciles successfully and delete all workplacements on deletion", func() {
+				By("showing `Ready` as true when created", func() {
+					Eventually(func() string {
+						return platform.Kubectl("get", "destinations", destinationName)
+					}).Should(ContainSubstring("True"))
+				})
+
+				By("setting clean up finalizer correctly", func() {
+					Eventually(func() string {
+						return platform.Kubectl("get", "destinations", destinationName, "-ojsonpath='{.metadata.finalizers}'")
+					}).Should(ContainSubstring(v1alpha1.KratixPrefix + "destination-cleanup"))
+				})
+
+				By("allowing works to be scheduled to", func() {
+					Eventually(func() string {
+						return bucketLs("cleanup-all", true)
+					}).Should(SatisfyAll(
+						ContainSubstring("ns.yaml"),
+						ContainSubstring("/configmap.yaml"),
+						ContainSubstring("kratix-canary-namespace.yaml"),
+						ContainSubstring("kratix-canary-configmap.yaml"),
+					))
+				})
+
+				By("cleaning up all resources on deletion", func() {
+					platform.EventuallyKubectlDelete("destinations", destinationName)
+					Eventually(func() string {
+						return bucketLs("", false)
+					}).ShouldNot(ContainSubstring(destinationName))
+				})
+			})
+		})
+	}
 })
 
 func kindAndName(objs []*unstructured.Unstructured) []string {

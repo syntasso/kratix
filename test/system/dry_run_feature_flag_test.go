@@ -12,7 +12,7 @@ import (
 // This spec covers the featureFlags.dryRun wiring rather than dry-run behaviour: the
 // flag is set suite-wide in assets/kratix-config.yaml, and status on the DryRun is the
 // proof the controller it gates is actually running.
-var _ = Describe("Dry Run feature flag", Serial, func() {
+var _ = Describe("Dry Run feature flag", func() {
 	const (
 		assetsPath      = "assets/dry-run-feature-flag"
 		promiseName     = "dryrunflag"
