@@ -267,9 +267,13 @@ run-core-test:
 build-and-push-core-test-image: # for non-kind environment where images cannot be loaded
 	cd test/core/assets/workflows/ && docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t syntasso/test-bundle-image:v0.1.0 -t syntasso/test-bundle-image:v0.1.0 .
 
+# Parallel ginkgo procs for the system suite. -p (one per CPU) overloads the
+# kind apiserver on machines with many cores; override with GINKGO_PROCS=--procs=N.
+GINKGO_PROCS ?= -p
+
 .PHONY: run-system-test
 run-system-test: fmt vet
-	PATH="$(PROJECT_DIR)/bin:${PATH}" PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} -v ${GINKGO_FLAGS} -r --coverprofile cover.out -p --output-interceptor-mode=none ./test/system/
+	PATH="$(PROJECT_DIR)/bin:${PATH}" PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} -v ${GINKGO_FLAGS} -r --coverprofile cover.out ${GINKGO_PROCS} --output-interceptor-mode=none ./test/system/
 
 .PHONY: run-git-integration-test
 run-git-integration-test: fmt vet ## Runs the integration test suite for the Git client

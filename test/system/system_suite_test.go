@@ -36,6 +36,11 @@ var _ = SynchronizedBeforeSuite(func() {
 	kratixConfigPath = "./assets/kratix-config.yaml"
 
 	platform.Kubectl("apply", "-f", kratixConfigPath)
+	// The manager ships with a 100m CPU / 256Mi limit, which throttles it badly
+	// under the suite's parallel load. Give it headroom for the tests.
+	platform.Kubectl("patch", "deployment", "kratix-platform-controller-manager",
+		"-n", "kratix-platform-system", "--type=strategic", "-p",
+		`{"spec":{"template":{"spec":{"containers":[{"name":"manager","resources":{"limits":{"cpu":"2","memory":"1Gi"},"requests":{"cpu":"200m","memory":"256Mi"}}}]}}}}`)
 	platform.Kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
 	platform.Kubectl("wait", "-n", "kratix-platform-system", "deployments", "-l", "control-plane=controller-manager", "--for=condition=Available")
 
@@ -51,6 +56,14 @@ var _ = SynchronizedBeforeSuite(func() {
 		Context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
 		Name:    getEnvOrDefault("WORKER_NAME", "worker-1")}
 	kratixConfigPath = "./assets/kratix-config.yaml"
+})
+
+// Config-mutating Serial specs no longer restore the default config after
+// every spec (each of them applies its own config in BeforeEach anyway), so
+// restore it once here, after everything has run.
+var _ = SynchronizedAfterSuite(func() {}, func() {
+	platform.Kubectl("apply", "-f", kratixConfigPath)
+	restartController()
 })
 
 func getEnvOrDefault(envVar, defaultValue string) string {
