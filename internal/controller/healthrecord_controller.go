@@ -296,6 +296,11 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 	}
 
 	for _, record := range healthRecords.Items {
+		// Skip records already being deleted: including one puts it back on the
+		// list, and two deleted together re-add each other forever.
+		if !record.DeletionTimestamp.IsZero() {
+			continue
+		}
 		if record.GetName() != healthRecord.GetName() && referToSameResource(&record, healthRecord) {
 			logging.Debug(r.Log, "updating health records list", "item", record.GetName())
 
