@@ -1,0 +1,6 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: WorkflowRetryDel
+metadata:
+  name: retry-test-del
+  namespace: default
+spec: {}

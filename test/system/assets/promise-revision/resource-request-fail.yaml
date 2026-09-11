@@ -1,0 +1,9 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: UpgradeFail
+metadata:
+  name: upgradefail-rr-one
+  namespace: default
+  labels:
+    environment: staging
+spec:
+  configMapName: banana

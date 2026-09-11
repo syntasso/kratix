@@ -11,23 +11,30 @@ import (
 	"github.com/syntasso/kratix/test/kubeutils"
 )
 
+// The configure-time and delete-time behaviours are covered by separate specs
+// with their own promise copies (…-del assets) so they can run on different
+// ginkgo procs instead of as one long serial phase chain.
 const (
 	suspendPromiseName       = "workflow-suspend"
-	suspendResource          = "assets/workflow-control/resource-request.yaml"
-	suspendResourceName      = "suspend-test"
-	suspendCRDPlural         = "workflowsuspends"
-	suspendConfigMap         = "assets/workflow-control/configmap.yaml"
 	suspendPromiseDeleteGate = "workflow-suspend-promise-delete-gate"
 
-	retryPromiseName        = "workflow-retry"
-	retryResourceGate       = "workflow-retry-resource-gate"
-	retryResourceDeleteGate = "workflow-retry-delete-gate"
-	retryPromiseDeleteGate  = "workflow-retry-promise-delete-gate"
+	suspendDelPromiseName       = "workflow-suspend-del"
+	suspendDelResource          = "assets/workflow-control/resource-request-suspend-del.yaml"
+	suspendDelResourceName      = "suspend-test-del"
+	suspendDelCRDPlural         = "workflowsuspenddels"
+	suspendDelConfigMap         = "assets/workflow-control/configmap-suspend-del.yaml"
+	suspendDelPromiseDeleteGate = "workflow-suspend-del-promise-delete-gate"
+
+	retryPromiseName  = "workflow-retry"
+	retryResourceGate = "workflow-retry-resource-gate"
+	retryDependentCM  = "workflow-retry-test"
+
+	retryDelPromiseName        = "wf-retry-del"
+	retryDelResourceDeleteGate = "workflow-retry-del-delete-gate"
+	retryDelPromiseDeleteGate  = "workflow-retry-del-promise-delete-gate"
 )
 
 var _ = Describe("Workflow Control", func() {
-	dependentCM := "workflow-retry-test"
-
 	BeforeEach(func() {
 		SetDefaultEventuallyTimeout(4 * time.Minute)
 		SetDefaultEventuallyPollingInterval(2 * time.Second)
@@ -37,25 +44,23 @@ var _ = Describe("Workflow Control", func() {
 	When("the file has 'retryAfter' set", func() {
 		BeforeEach(func() {
 			// clear all retry gates in case a previous run was interrupted
-			platform.EventuallyKubectlDelete("cm", dependentCM, "-n", "kratix-platform-system", "--ignore-not-found")
-			platform.Kubectl("delete", "cm", retryResourceGate, retryResourceDeleteGate, "-n", "default", "--ignore-not-found")
-			platform.Kubectl("delete", "cm", retryPromiseDeleteGate, "-n", "kratix-platform-system", "--ignore-not-found")
+			platform.EventuallyKubectlDelete("cm", retryDependentCM, "-n", "kratix-platform-system", "--ignore-not-found")
+			platform.Kubectl("delete", "cm", retryResourceGate, "-n", "default", "--ignore-not-found")
 		})
 
 		AfterEach(func() {
-			// open all gates so teardown is never blocked by a retrying
-			// configure or delete pipeline
+			// open the gates so teardown is never blocked by a retrying pipeline
 			platform.KubectlAllowFail("create", "cm", retryResourceGate, "-n", "default")
-			platform.KubectlAllowFail("create", "cm", retryResourceDeleteGate, "-n", "default")
-			platform.KubectlAllowFail("create", "cm", retryPromiseDeleteGate, "-n", "kratix-platform-system")
-			platform.EventuallyKubectlDelete("cm", dependentCM, "-n", "kratix-platform-system", "--ignore-not-found")
+			platform.KubectlAllowFail("create", "cm", "workflow-retry-delete-gate", "-n", "default")
+			platform.KubectlAllowFail("create", "cm", "workflow-retry-promise-delete-gate", "-n", "kratix-platform-system")
+			platform.EventuallyKubectlDelete("cm", retryDependentCM, "-n", "kratix-platform-system", "--ignore-not-found")
 			platform.EventuallyKubectlDelete("promise", retryPromiseName, "--ignore-not-found")
 			platform.Kubectl("delete", "cm", retryResourceGate, "-n", "default", "--ignore-not-found")
-			platform.Kubectl("delete", "cm", retryResourceDeleteGate, "-n", "default", "--ignore-not-found")
-			platform.Kubectl("delete", "cm", retryPromiseDeleteGate, "-n", "kratix-platform-system", "--ignore-not-found")
+			platform.Kubectl("delete", "cm", "workflow-retry-delete-gate", "-n", "default", "--ignore-not-found")
+			platform.Kubectl("delete", "cm", "workflow-retry-promise-delete-gate", "-n", "kratix-platform-system", "--ignore-not-found")
 		})
 
-		It("works", func() {
+		It("retries the configure pipelines after the interval", func() {
 			By("retrying the Promise pipeline after the interval", func() {
 				platform.Kubectl("apply", "-f", "assets/workflow-control/promise-retry.yaml")
 
@@ -82,7 +87,7 @@ var _ = Describe("Workflow Control", func() {
 			})
 
 			By("not retrying if retryAfter is not configured", func() {
-				platform.Kubectl("create", "-n", "kratix-platform-system", "cm", dependentCM)
+				platform.Kubectl("create", "-n", "kratix-platform-system", "cm", retryDependentCM)
 
 				Eventually(func(g Gomega) {
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, phaseJSONPath("pipe-0"))).To(Equal("Succeeded"))
@@ -121,13 +126,41 @@ var _ = Describe("Workflow Control", func() {
 					g.Expect(platform.Kubectl("get", "workflowretries", "retry-test", `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(BeEmpty())
 				}).Should(Succeed())
 			})
+		})
+	})
 
+	When("the delete pipelines have 'retryAfter' set", func() {
+		BeforeEach(func() {
+			// clear any leftover delete gates
+			platform.Kubectl("delete", "cm", retryDelResourceDeleteGate, "-n", "default", "--ignore-not-found")
+			platform.Kubectl("delete", "cm", retryDelPromiseDeleteGate, "-n", "kratix-platform-system", "--ignore-not-found")
+
+			platform.Kubectl("apply", "-f", "assets/workflow-control/promise-retry-del.yaml")
+			Eventually(func() string {
+				return platform.Kubectl("get", "promise", retryDelPromiseName)
+			}).Should(ContainSubstring("Available"))
+
+			platform.Kubectl("apply", "-f", "assets/workflow-control/resource-request-retry-del.yaml")
+			Eventually(func(g Gomega) {
+				g.Expect(platform.Kubectl("get", "workflowretrydels", "retry-test-del", phaseJSONPath("resource-pipe-retry"))).To(Equal("Succeeded"))
+			}).Should(Succeed())
+		})
+
+		AfterEach(func() {
+			platform.KubectlAllowFail("create", "cm", retryDelResourceDeleteGate, "-n", "default")
+			platform.KubectlAllowFail("create", "cm", retryDelPromiseDeleteGate, "-n", "kratix-platform-system")
+			platform.EventuallyKubectlDelete("promise", retryDelPromiseName, "--ignore-not-found")
+			platform.Kubectl("delete", "cm", retryDelResourceDeleteGate, "-n", "default", "--ignore-not-found")
+			platform.Kubectl("delete", "cm", retryDelPromiseDeleteGate, "-n", "kratix-platform-system", "--ignore-not-found")
+		})
+
+		It("retries the delete pipelines after the interval", func() {
 			By("retrying the resource delete pipeline after the interval", func() {
-				platform.Kubectl("delete", "-f", "assets/workflow-control/resource-request-retry.yaml", "--wait=false")
+				platform.Kubectl("delete", "-f", "assets/workflow-control/resource-request-retry-del.yaml", "--wait=false")
 
 				Eventually(func(g Gomega) {
-					g.Expect(jobCountForWorkflow("resource", retryPromiseName, "resource-delete-retry-pipe", "delete")).To(BeNumerically(">=", 1))
-					state := pipelineState("workflowretries", "retry-test", "resource-delete-retry-pipe")
+					g.Expect(jobCountForWorkflow("resource", retryDelPromiseName, "resource-delete-retry-pipe", "delete")).To(BeNumerically(">=", 1))
+					state := pipelineState("workflowretrydels", "retry-test-del", "resource-delete-retry-pipe")
 					g.Expect(state.phase).To(Equal("Suspended"))
 					g.Expect(state.message).To(Equal("waiting for delete gate configmap"))
 					g.Expect(state.nextRetryAt).NotTo(BeEmpty())
@@ -135,42 +168,42 @@ var _ = Describe("Workflow Control", func() {
 				}).Should(Succeed())
 
 				By("reporting only the delete pipeline in the workflow status", func() {
-					Expect(platform.Kubectl("get", "workflowretries", "retry-test",
+					Expect(platform.Kubectl("get", "workflowretrydels", "retry-test-del",
 						`-o=jsonpath={.status.kratix.workflows.pipelines[*].name}`)).To(Equal("resource-delete-retry-pipe"))
 				})
 
 				By("setting the DeleteWorkflowCompleted condition while retrying", func() {
 					Eventually(func(g Gomega) {
-						g.Expect(platform.Kubectl("get", "workflowretries", "retry-test",
+						g.Expect(platform.Kubectl("get", "workflowretrydels", "retry-test-del",
 							`-o=jsonpath={.status.conditions[?(@.type=="DeleteWorkflowCompleted")].status}`)).To(Equal("False"))
-						g.Expect(platform.Kubectl("get", "workflowretries", "retry-test",
+						g.Expect(platform.Kubectl("get", "workflowretrydels", "retry-test-del",
 							`-o=jsonpath={.status.conditions[?(@.type=="DeleteWorkflowCompleted")].reason}`)).To(Equal("DeleteWorkflowSuspended"))
 					}).Should(Succeed())
 				})
 
 				By("keep on retrying", func() {
 					Eventually(func(g Gomega) {
-						g.Expect(jobCountForWorkflow("resource", retryPromiseName, "resource-delete-retry-pipe", "delete")).To(BeNumerically(">=", 2))
-						state := pipelineState("workflowretries", "retry-test", "resource-delete-retry-pipe")
+						g.Expect(jobCountForWorkflow("resource", retryDelPromiseName, "resource-delete-retry-pipe", "delete")).To(BeNumerically(">=", 2))
+						state := pipelineState("workflowretrydels", "retry-test-del", "resource-delete-retry-pipe")
 						expectAttemptsAtLeast(g, state, 2)
 					}).Should(Succeed())
 				})
 			})
 
 			By("completing deletion once the delete gate configmap exists", func() {
-				platform.Kubectl("create", "cm", retryResourceDeleteGate, "-n", "default")
+				platform.Kubectl("create", "cm", retryDelResourceDeleteGate, "-n", "default")
 
 				Eventually(func(g Gomega) {
-					g.Expect(platform.Kubectl("get", "workflowretries", "retry-test", "--ignore-not-found")).To(BeEmpty())
+					g.Expect(platform.Kubectl("get", "workflowretrydels", "retry-test-del", "--ignore-not-found")).To(BeEmpty())
 				}).Should(Succeed())
 			})
 
 			By("retrying the promise delete pipeline after the interval", func() {
-				platform.Kubectl("delete", "promise", retryPromiseName, "--wait=false")
+				platform.Kubectl("delete", "promise", retryDelPromiseName, "--wait=false")
 
 				Eventually(func(g Gomega) {
-					g.Expect(jobCountForWorkflow("promise", retryPromiseName, "promise-delete-retry-pipe", "delete")).To(BeNumerically(">=", 1))
-					state := pipelineState("promise", retryPromiseName, "promise-delete-retry-pipe")
+					g.Expect(jobCountForWorkflow("promise", retryDelPromiseName, "promise-delete-retry-pipe", "delete")).To(BeNumerically(">=", 1))
+					state := pipelineState("promise", retryDelPromiseName, "promise-delete-retry-pipe")
 					g.Expect(state.phase).To(Equal("Suspended"))
 					g.Expect(state.message).To(Equal("waiting for promise delete gate configmap"))
 					g.Expect(state.nextRetryAt).NotTo(BeEmpty())
@@ -179,51 +212,47 @@ var _ = Describe("Workflow Control", func() {
 
 				By("setting the DeleteWorkflowCompleted condition while retrying", func() {
 					Eventually(func(g Gomega) {
-						g.Expect(platform.Kubectl("get", "promise", retryPromiseName,
+						g.Expect(platform.Kubectl("get", "promise", retryDelPromiseName,
 							`-o=jsonpath={.status.conditions[?(@.type=="DeleteWorkflowCompleted")].status}`)).To(Equal("False"))
-						g.Expect(platform.Kubectl("get", "promise", retryPromiseName,
+						g.Expect(platform.Kubectl("get", "promise", retryDelPromiseName,
 							`-o=jsonpath={.status.conditions[?(@.type=="DeleteWorkflowCompleted")].reason}`)).To(Equal("DeleteWorkflowSuspended"))
 					}).Should(Succeed())
 				})
 
 				By("keep on retrying", func() {
 					Eventually(func(g Gomega) {
-						g.Expect(jobCountForWorkflow("promise", retryPromiseName, "promise-delete-retry-pipe", "delete")).To(BeNumerically(">=", 2))
-						state := pipelineState("promise", retryPromiseName, "promise-delete-retry-pipe")
+						g.Expect(jobCountForWorkflow("promise", retryDelPromiseName, "promise-delete-retry-pipe", "delete")).To(BeNumerically(">=", 2))
+						state := pipelineState("promise", retryDelPromiseName, "promise-delete-retry-pipe")
 						expectAttemptsAtLeast(g, state, 2)
 					}).Should(Succeed())
 				})
 			})
 
 			By("completing promise deletion once its gate configmap exists", func() {
-				platform.Kubectl("create", "cm", retryPromiseDeleteGate, "-n", "kratix-platform-system")
+				platform.Kubectl("create", "cm", retryDelPromiseDeleteGate, "-n", "kratix-platform-system")
 
 				Eventually(func(g Gomega) {
-					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, "--ignore-not-found")).To(BeEmpty())
+					g.Expect(platform.Kubectl("get", "promise", retryDelPromiseName, "--ignore-not-found")).To(BeEmpty())
 				}).Should(Succeed())
 			})
 		})
-
 	})
 
 	When("pipelines are suspended by the workflow control file", func() {
 		BeforeEach(func() {
 			// clear all suspend gates in case a previous run was interrupted
-			platform.Kubectl("delete", "-f", suspendConfigMap, "--ignore-not-found")
+			platform.Kubectl("delete", "-f", "assets/workflow-control/configmap.yaml", "--ignore-not-found")
 			platform.Kubectl("delete", "cm", suspendPromiseDeleteGate, "-n", "kratix-platform-system", "--ignore-not-found")
 		})
 
 		AfterEach(func() {
-			// remove all suspend gates and labels so teardown is never
-			// blocked by a suspended delete pipeline
-			platform.Kubectl("delete", "-f", suspendConfigMap, "--ignore-not-found")
+			platform.Kubectl("delete", "-f", "assets/workflow-control/configmap.yaml", "--ignore-not-found")
 			platform.Kubectl("delete", "cm", suspendPromiseDeleteGate, "-n", "kratix-platform-system", "--ignore-not-found")
-			platform.KubectlAllowFail("label", suspendCRDPlural, suspendResourceName, "kratix.io/workflow-suspended-")
 			platform.KubectlAllowFail("label", "promise", suspendPromiseName, "kratix.io/workflow-suspended-")
 			platform.EventuallyKubectlDelete("promise", suspendPromiseName, "--ignore-not-found")
 		})
 
-		It("works", func() {
+		It("suspends and resumes the configure pipelines", func() {
 			By("suspending the correct pipeline", func() {
 				platform.Kubectl("apply", "-f", "assets/workflow-control/promise.yaml")
 
@@ -319,113 +348,137 @@ var _ = Describe("Workflow Control", func() {
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, "-o", "yaml")).NotTo(ContainSubstring("kratix.io/workflow-suspended"))
 				}).Should(Succeed())
 			})
+		})
+	})
 
+	When("resource and delete pipelines are suspended by the workflow control file", func() {
+		BeforeEach(func() {
+			// clear all suspend gates in case a previous run was interrupted
+			platform.Kubectl("delete", "-f", suspendDelConfigMap, "--ignore-not-found")
+			platform.Kubectl("delete", "cm", suspendDelPromiseDeleteGate, "-n", "kratix-platform-system", "--ignore-not-found")
+
+			// This promise copy has no configure-time suspensions, so it installs clean.
+			platform.Kubectl("apply", "-f", "assets/workflow-control/promise-suspend-del.yaml")
+			Eventually(func() string {
+				return platform.Kubectl("get", "promise", suspendDelPromiseName)
+			}).Should(ContainSubstring("Available"))
+		})
+
+		AfterEach(func() {
+			// remove all suspend gates and labels so teardown is never
+			// blocked by a suspended delete pipeline
+			platform.Kubectl("delete", "-f", suspendDelConfigMap, "--ignore-not-found")
+			platform.Kubectl("delete", "cm", suspendDelPromiseDeleteGate, "-n", "kratix-platform-system", "--ignore-not-found")
+			platform.KubectlAllowFail("label", suspendDelCRDPlural, suspendDelResourceName, "kratix.io/workflow-suspended-")
+			platform.KubectlAllowFail("label", "promise", suspendDelPromiseName, "kratix.io/workflow-suspended-")
+			platform.EventuallyKubectlDelete("promise", suspendDelPromiseName, "--ignore-not-found")
+		})
+
+		It("suspends and resumes the resource and delete pipelines", func() {
 			By("suspending the resource pipeline", func() {
-				platform.Kubectl("apply", "-f", suspendResource)
+				platform.Kubectl("apply", "-f", suspendDelResource)
 
 				Eventually(func(g Gomega) {
-					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, phaseJSONPath("resource-pipe-0"))).To(Equal("Suspended"))
-					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, messageJSONPath("resource-pipe-0"))).To(Equal("waiting for configmap"))
-					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
+					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, phaseJSONPath("resource-pipe-0"))).To(Equal("Suspended"))
+					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, messageJSONPath("resource-pipe-0"))).To(Equal("waiting for configmap"))
+					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
 				}).Should(Succeed())
 
 				Consistently(func() int {
-					return workCountForResourcePipeline()
+					return workCountForResourcePipeline(suspendDelPromiseName, suspendDelResourceName)
 				}, 5*time.Second).Should(Equal(0))
 			})
 
 			By("unsuspending the pipeline through the label", func() {
-				resourceJobCountBefore := jobCountForResourcePipeline(suspendPromiseName, "resource-pipe-0")
+				resourceJobCountBefore := jobCountForResourcePipeline(suspendDelPromiseName, "resource-pipe-0")
 
-				platform.Kubectl("apply", "-f", suspendConfigMap)
-				platform.Kubectl("label", suspendCRDPlural, suspendResourceName, "kratix.io/workflow-suspended-")
+				platform.Kubectl("apply", "-f", suspendDelConfigMap)
+				platform.Kubectl("label", suspendDelCRDPlural, suspendDelResourceName, "kratix.io/workflow-suspended-")
 
 				Eventually(func() int {
-					return jobCountForResourcePipeline(suspendPromiseName, "resource-pipe-0")
+					return jobCountForResourcePipeline(suspendDelPromiseName, "resource-pipe-0")
 				}).Should(Equal(resourceJobCountBefore + 1))
 				Eventually(func(g Gomega) {
-					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, phaseJSONPath("resource-pipe-0"))).To(Equal("Succeeded"))
-					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, messageJSONPath("resource-pipe-0"))).To(BeEmpty())
-					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}`)).To(Equal("True"))
-					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.status.kratix.workflows.suspendedGeneration}`)).To(BeEmpty())
-					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(BeEmpty())
+					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, phaseJSONPath("resource-pipe-0"))).To(Equal("Succeeded"))
+					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, messageJSONPath("resource-pipe-0"))).To(BeEmpty())
+					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, `-o=jsonpath={.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}`)).To(Equal("True"))
+					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, `-o=jsonpath={.status.kratix.workflows.suspendedGeneration}`)).To(BeEmpty())
+					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(BeEmpty())
 				}).Should(Succeed())
 
 				Eventually(func() int {
-					return workCountForResourcePipeline()
+					return workCountForResourcePipeline(suspendDelPromiseName, suspendDelResourceName)
 				}).Should(Equal(1))
 			})
 
 			By("suspending the resource delete pipeline when the resource is deleted", func() {
-				platform.Kubectl("delete", "-f", suspendResource, "--wait=false")
+				platform.Kubectl("delete", "-f", suspendDelResource, "--wait=false")
 
 				Eventually(func(g Gomega) {
-					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, phaseJSONPath("resource-delete-pipe"))).To(Equal("Suspended"))
-					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, messageJSONPath("resource-delete-pipe"))).To(Equal("waiting for delete approval"))
-					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
+					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, phaseJSONPath("resource-delete-pipe"))).To(Equal("Suspended"))
+					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, messageJSONPath("resource-delete-pipe"))).To(Equal("waiting for delete approval"))
+					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
 				}).Should(Succeed())
 
 				By("setting the DeleteWorkflowCompleted condition to reflect the wait is on delete", func() {
 					Eventually(func(g Gomega) {
-						g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName,
+						g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName,
 							`-o=jsonpath={.status.conditions[?(@.type=="DeleteWorkflowCompleted")].status}`)).To(Equal("False"))
-						g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName,
+						g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName,
 							`-o=jsonpath={.status.conditions[?(@.type=="DeleteWorkflowCompleted")].reason}`)).To(Equal("DeleteWorkflowSuspended"))
 					}).Should(Succeed())
 				})
 
 				By("preserving Works while the delete pipeline is suspended", func() {
 					Consistently(func() int {
-						return workCountForResourcePipeline()
+						return workCountForResourcePipeline(suspendDelPromiseName, suspendDelResourceName)
 					}, 5*time.Second).Should(Equal(1))
 				})
 			})
 
 			By("resuming resource deletion after the gate is removed and suspend label cleared", func() {
-				platform.Kubectl("delete", "-f", suspendConfigMap)
-				platform.Kubectl("label", suspendCRDPlural, suspendResourceName, "kratix.io/workflow-suspended-")
+				platform.Kubectl("delete", "-f", suspendDelConfigMap)
+				platform.Kubectl("label", suspendDelCRDPlural, suspendDelResourceName, "kratix.io/workflow-suspended-")
 
 				Eventually(func(g Gomega) {
-					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, "--ignore-not-found")).To(BeEmpty())
+					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, "--ignore-not-found")).To(BeEmpty())
 				}).Should(Succeed())
 			})
 
 			By("suspending the promise delete pipeline when the promise is deleted", func() {
-				platform.Kubectl("create", "cm", suspendPromiseDeleteGate, "-n", "kratix-platform-system")
-				platform.Kubectl("delete", "promise", suspendPromiseName, "--wait=false")
+				platform.Kubectl("create", "cm", suspendDelPromiseDeleteGate, "-n", "kratix-platform-system")
+				platform.Kubectl("delete", "promise", suspendDelPromiseName, "--wait=false")
 
 				Eventually(func(g Gomega) {
-					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, phaseJSONPath("promise-delete-pipe"))).To(Equal("Suspended"))
-					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, messageJSONPath("promise-delete-pipe"))).To(Equal("waiting for promise delete approval"))
-					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
+					g.Expect(platform.Kubectl("get", "promise", suspendDelPromiseName, phaseJSONPath("promise-delete-pipe"))).To(Equal("Suspended"))
+					g.Expect(platform.Kubectl("get", "promise", suspendDelPromiseName, messageJSONPath("promise-delete-pipe"))).To(Equal("waiting for promise delete approval"))
+					g.Expect(platform.Kubectl("get", "promise", suspendDelPromiseName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
 				}).Should(Succeed())
 
 				Consistently(func() int {
-					return jobCountForWorkflow("promise", suspendPromiseName, "promise-delete-pipe", "delete")
+					return jobCountForWorkflow("promise", suspendDelPromiseName, "promise-delete-pipe", "delete")
 				}, 10*time.Second).Should(Equal(1))
 
 				By("setting the DeleteWorkflowCompleted condition to reflect the wait is on delete", func() {
 					Eventually(func(g Gomega) {
-						g.Expect(platform.Kubectl("get", "promise", suspendPromiseName,
+						g.Expect(platform.Kubectl("get", "promise", suspendDelPromiseName,
 							`-o=jsonpath={.status.conditions[?(@.type=="DeleteWorkflowCompleted")].status}`)).To(Equal("False"))
-						g.Expect(platform.Kubectl("get", "promise", suspendPromiseName,
+						g.Expect(platform.Kubectl("get", "promise", suspendDelPromiseName,
 							`-o=jsonpath={.status.conditions[?(@.type=="DeleteWorkflowCompleted")].reason}`)).To(Equal("DeleteWorkflowSuspended"))
 					}).Should(Succeed())
 				})
 			})
 
 			By("resuming promise deletion after the gate is removed and suspend label cleared", func() {
-				platform.Kubectl("delete", "cm", suspendPromiseDeleteGate, "-n", "kratix-platform-system")
-				platform.Kubectl("label", "promise", suspendPromiseName, "kratix.io/workflow-suspended-")
+				platform.Kubectl("delete", "cm", suspendDelPromiseDeleteGate, "-n", "kratix-platform-system")
+				platform.Kubectl("label", "promise", suspendDelPromiseName, "kratix.io/workflow-suspended-")
 
 				Eventually(func(g Gomega) {
-					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, "--ignore-not-found")).To(BeEmpty())
+					g.Expect(platform.Kubectl("get", "promise", suspendDelPromiseName, "--ignore-not-found")).To(BeEmpty())
 				}).Should(Succeed())
 			})
 		})
-
 	})
-
 })
 
 func phaseJSONPath(pipelineName string) string {
@@ -550,11 +603,11 @@ func workflowJobSelector(workflowType, promiseName, pipelineName, action string)
 	}, ",")
 }
 
-func workCountForResourcePipeline() int {
+func workCountForResourcePipeline(promiseName, resourceName string) int {
 	selector := strings.Join([]string{
-		"kratix.io/promise-name=" + suspendPromiseName,
+		"kratix.io/promise-name=" + promiseName,
 		"kratix.io/work-type=resource",
-		"kratix.io/resource-name=" + suspendResourceName,
+		"kratix.io/resource-name=" + resourceName,
 		"kratix.io/pipeline-name=resource-pipe-0",
 	}, ",")
 	output := platform.Kubectl(

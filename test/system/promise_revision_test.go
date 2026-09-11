@@ -20,7 +20,6 @@ var _ = Describe("Promise Revisions", func() {
 	promiseName := "upgrade"
 	rrOneName := "upgrade-rr-one"
 	rrTwoName := "upgrade-rr-two"
-	rrThreeName := "upgrade-rr-three"
 
 	BeforeEach(func() {
 		SetDefaultEventuallyTimeout(4 * time.Minute)
@@ -29,8 +28,8 @@ var _ = Describe("Promise Revisions", func() {
 	})
 
 	AfterEach(func() {
+		platform.EventuallyKubectlDelete("upgrades", rrOneName)
 		platform.EventuallyKubectlDelete("upgrades", rrTwoName)
-		platform.EventuallyKubectlDelete("upgrades", rrThreeName)
 		platform.EventuallyKubectlDelete("promise", promiseName)
 	})
 
@@ -248,12 +247,69 @@ var _ = Describe("Promise Revisions", func() {
 			}).Should(Succeed())
 		})
 
+	})
+})
+
+// The upgrade-failure and binding-management behaviours run as their own spec
+// (with their own setup) so they can execute on a different ginkgo proc than
+// the lifecycle spec above.
+var _ = Describe("Promise Revisions upgrade failures and bindings", func() {
+
+	const assetsPath = "assets/promise-revision"
+
+	promiseName := "upgradefail"
+	rrOneName := "upgradefail-rr-one"
+	rrTwoName := "upgradefail-rr-two"
+	rrThreeName := "upgradefail-rr-three"
+
+	initialPromiseVersion := "v0.1.0-BETA"
+	updatedPromiseVersion := "v0.2.0-NEXTVERSION"
+
+	BeforeEach(func() {
+		SetDefaultEventuallyTimeout(4 * time.Minute)
+		SetDefaultEventuallyPollingInterval(2 * time.Second)
+		kubeutils.SetTimeoutAndInterval(4*time.Minute, 2*time.Second)
+
+		// Recreate the state the lifecycle spec ends up in before its failing-
+		// version phases: v0.1.0 then v0.2.0 installed (both revisions must
+		// exist), rrOne bound to latest, rrTwo pinned to v0.2.0.
+		platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise-fail.yaml"))
+		Eventually(func() string {
+			return platform.Kubectl("get", "promise", promiseName)
+		}).Should(SatisfyAll(ContainSubstring("Available"), ContainSubstring(initialPromiseVersion)))
+
+		platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise-new-version-fail.yaml"))
+		Eventually(func() string {
+			return platform.Kubectl("get", "promise", promiseName)
+		}).Should(SatisfyAll(ContainSubstring("Available"), ContainSubstring(updatedPromiseVersion)))
+
+		platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-request-fail.yaml"))
+		platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-request-2-fail.yaml"))
+		for _, rr := range []string{rrOneName, rrTwoName} {
+			Eventually(func() string {
+				return platform.Kubectl("get", "upgradefails", rr, "-ojsonpath='{.status.promiseVersion}'")
+			}).Should(ContainSubstring(updatedPromiseVersion))
+		}
+
+		// Pin rrTwo to the current version so binding-restore assertions can
+		// distinguish it from rrOne's "latest".
+		pinPatch := fmt.Sprintf(`[{"op":"replace","path":"/spec/version","value":"%s"}]`, updatedPromiseVersion)
+		platform.Kubectl("patch", getBindingName(promiseName, rrTwoName), "--type=json", "-p", pinPatch)
+	})
+
+	AfterEach(func() {
+		platform.EventuallyKubectlDelete("upgradefails", rrTwoName)
+		platform.EventuallyKubectlDelete("upgradefails", rrThreeName)
+		platform.EventuallyKubectlDelete("promise", promiseName)
+	})
+
+	It("reports failed upgrades and manages resource bindings", func() {
 		failingPromiseVersion := "v0.3.0-FAILING"
 
 		By("setting UpgradeSucceeded to False when an upgrade pipeline fails", func() {
 			// rrOne is pinned to "latest"; applying a failing promise version triggers
 			// an upgrade attempt which will fail, setting UpgradeSucceeded=False on its binding.
-			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise-failing-version.yaml"))
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise-failing-version-fail.yaml"))
 
 			upgradeSucceededCondition := `.status.conditions[?(@.type=="UpgradeSucceeded")]`
 			Eventually(func(g Gomega) {
@@ -311,7 +367,7 @@ var _ = Describe("Promise Revisions", func() {
 
 		By("recovering when a new (working) promise version is applied after the failure", func() {
 			// Re-apply the working promise version to move "latest" past the failing one.
-			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise-new-version.yaml"))
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise-new-version-fail.yaml"))
 
 			Eventually(func(g Gomega) {
 				name := getBindingName(promiseName, rrOneName)
@@ -332,7 +388,9 @@ var _ = Describe("Promise Revisions", func() {
 		})
 
 		By("restoring the bindings correctly when they are deleted", func() {
-			platform.EventuallyKubectlDelete("resourcebindings", "--all")
+			// Scoped to this promise: --all would delete concurrently-running
+			// specs' bindings too.
+			platform.EventuallyKubectlDelete("resourcebindings", "-l", fmt.Sprintf("kratix.io/promise-name=%s", promiseName))
 
 			Eventually(func(g Gomega) {
 				resourceOneBindingName := getBindingName(promiseName, rrOneName)
@@ -344,7 +402,7 @@ var _ = Describe("Promise Revisions", func() {
 		})
 
 		By("cleaning up the right resource binding when a request is deleted", func() {
-			platform.EventuallyKubectlDelete("upgrades", rrOneName)
+			platform.EventuallyKubectlDelete("upgradefails", rrOneName)
 
 			bindingLabels := strings.Join([]string{
 				fmt.Sprintf("kratix.io/promise-name=%s", promiseName),
@@ -363,15 +421,15 @@ var _ = Describe("Promise Revisions", func() {
 		By("adopting a resource binding created before the request", func() {
 			preCreatedBindingName := "pre-created-binding-for-rr-three"
 
-			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-binding-3.yaml"))
-			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-request-3.yaml"))
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-binding-3-fail.yaml"))
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-request-3-fail.yaml"))
 
 			Eventually(func() string {
-				return platform.Kubectl("get", "upgrades", rrThreeName)
+				return platform.Kubectl("get", "upgradefails", rrThreeName)
 			}).Should(ContainSubstring("Reconciled"))
 
 			Eventually(func(g Gomega) {
-				g.Expect(platform.Kubectl("get", "upgrades", rrThreeName,
+				g.Expect(platform.Kubectl("get", "upgradefails", rrThreeName,
 					"-o=jsonpath='{.status.promiseVersion}'")).To(ContainSubstring(initialPromiseVersion))
 
 				bindings := strings.TrimSpace(platform.Kubectl("get", "--namespace=default", "resourcebindings",

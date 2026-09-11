@@ -1,0 +1,7 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: WorkflowSuspendDel
+metadata:
+  name: suspend-test-del
+  namespace: default
+spec:
+  data: banana

@@ -10,7 +10,7 @@ import (
 	"github.com/syntasso/kratix/test/kubeutils"
 )
 
-var _ = Describe("Workflow-defined RBAC", Label("rbac"), Serial, func() {
+var _ = Describe("Workflow-defined RBAC", Label("rbac"), func() {
 	kratixSystemNs := "-n=kratix-platform-system"
 	promiseWorkflowLabels := strings.Join([]string{
 		"kratix.io/pipeline-name=rbac-pro",
