@@ -31,58 +31,6 @@ spec:
                   type: object
   workflows:
     promise:
-      configure:
-        - apiVersion: platform.kratix.io/v1alpha1
-          kind: Pipeline
-          metadata:
-            name: pipe-0
-          spec:
-            containers:
-              - name: complete
-                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
-                command: ["/bin/sh", "-c"]
-                args:
-                  - |
-                    set -eu
-                    echo "pipe-0 complete"
-        - apiVersion: platform.kratix.io/v1alpha1
-          kind: Pipeline
-          metadata:
-            name: pipe-retry
-          spec:
-            rbac:
-              permissions:
-                - apiGroups: [ "" ]
-                  resources: [ "configmaps" ]
-                  verbs: [ "get" ]
-            containers:
-              - name: retry
-                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
-                command: ["/bin/sh", "-c"]
-                args:
-                  - |
-                    set -eu
-                    if kubectl get configmap workflow-retry-del-test -n kratix-platform-system >/dev/null 2>&1; then
-                      echo "configmap exists; not retrying for another time"
-                      exit 0
-                    fi
-                    cat <<'EOF' > /kratix/metadata/workflow-control.yaml
-                    retryAfter: 10s
-                    message: configmap workflow-retry-del-test not found
-                    EOF
-        - apiVersion: platform.kratix.io/v1alpha1
-          kind: Pipeline
-          metadata:
-            name: pipe-2
-          spec:
-            containers:
-              - name: complete
-                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
-                command: ["/bin/sh", "-c"]
-                args:
-                  - |
-                    set -eu
-                    echo "pipe-2 complete"
       delete:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
@@ -116,26 +64,11 @@ spec:
           metadata:
             name: resource-pipe-retry
           spec:
-            rbac:
-              permissions:
-                - apiGroups: [ "" ]
-                  resources: [ "configmaps" ]
-                  verbs: [ "get" ]
             containers:
-              - name: retry
+              - name: complete
                 image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
                 command: ["/bin/sh", "-c"]
-                args:
-                  - |
-                    set -eu
-                    if kubectl get configmap workflow-retry-del-resource-gate -n default >/dev/null 2>&1; then
-                      echo "gate exists; configure complete"
-                      exit 0
-                    fi
-                    cat <<'EOF' > /kratix/metadata/workflow-control.yaml
-                    retryAfter: 10s
-                    message: retrying resource pipeline
-                    EOF
+                args: ["echo 'configure complete'"]
       delete:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline

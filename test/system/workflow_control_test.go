@@ -30,8 +30,6 @@ const (
 	retryDependentCM  = "workflow-retry-test"
 
 	retryDelPromiseName        = "wf-retry-del"
-	retryDelDependentCM        = "workflow-retry-del-test"
-	retryDelResourceGate       = "workflow-retry-del-resource-gate"
 	retryDelResourceDeleteGate = "workflow-retry-del-delete-gate"
 	retryDelPromiseDeleteGate  = "workflow-retry-del-promise-delete-gate"
 )
@@ -133,10 +131,7 @@ var _ = Describe("Workflow Control", func() {
 
 	When("the delete pipelines have 'retryAfter' set", func() {
 		BeforeEach(func() {
-			// open the configure gates upfront so setup completes without retries,
-			// and clear any leftover delete gates
-			platform.KubectlAllowFail("create", "cm", retryDelDependentCM, "-n", "kratix-platform-system")
-			platform.KubectlAllowFail("create", "cm", retryDelResourceGate, "-n", "default")
+			// clear any leftover delete gates
 			platform.Kubectl("delete", "cm", retryDelResourceDeleteGate, "-n", "default", "--ignore-not-found")
 			platform.Kubectl("delete", "cm", retryDelPromiseDeleteGate, "-n", "kratix-platform-system", "--ignore-not-found")
 
@@ -155,8 +150,6 @@ var _ = Describe("Workflow Control", func() {
 			platform.KubectlAllowFail("create", "cm", retryDelResourceDeleteGate, "-n", "default")
 			platform.KubectlAllowFail("create", "cm", retryDelPromiseDeleteGate, "-n", "kratix-platform-system")
 			platform.EventuallyKubectlDelete("promise", retryDelPromiseName, "--ignore-not-found")
-			platform.Kubectl("delete", "cm", retryDelDependentCM, "-n", "kratix-platform-system", "--ignore-not-found")
-			platform.Kubectl("delete", "cm", retryDelResourceGate, "-n", "default", "--ignore-not-found")
 			platform.Kubectl("delete", "cm", retryDelResourceDeleteGate, "-n", "default", "--ignore-not-found")
 			platform.Kubectl("delete", "cm", retryDelPromiseDeleteGate, "-n", "kratix-platform-system", "--ignore-not-found")
 		})
