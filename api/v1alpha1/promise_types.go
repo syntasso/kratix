@@ -181,8 +181,9 @@ type KratixPromiseStatus struct {
 	// Timestamp of when this Promise was last in an Available state
 	LastAvailableTime *metav1.Time `json:"lastAvailableTime,omitempty"`
 
-	// Status of the Workflow execution
-	Workflows WorkflowStatus `json:"workflows,omitempty"`
+	// Status of each workflow, keyed by the workflow it belongs to: "configure",
+	// "delete", or a key chosen by a controller that runs its own workflows.
+	Workflows map[string]WorkflowStatus `json:"workflows,omitempty"`
 }
 
 type WorkflowStatus struct {
@@ -199,6 +200,14 @@ type WorkflowPipelineStatus struct {
 
 	// Phase of the workflow
 	Phase string `json:"phase,omitempty"`
+
+	// Hash of the spec and of the pipeline definition this pipeline last ran
+	// for. A pipeline runs again when the hash no longer matches.
+	Hash string `json:"hash,omitempty"`
+
+	// Name of the Job of the run in progress. The workflow waits for this Job,
+	// so that a Job left behind by an earlier run is not taken for this one.
+	Job string `json:"job,omitempty"`
 
 	// Message from the suspended pipeline
 	Message string `json:"message,omitempty"`
@@ -528,11 +537,18 @@ const (
 	WorkflowPhaseSuspended = "Suspended"
 )
 
-func (p *Promise) ClearPipelineExecutionStatus() bool {
-	changed := len(p.Status.Kratix.Workflows.Pipelines) != 0
+func (p *Promise) ConfigureWorkflowStatus() WorkflowStatus {
+	return p.Status.Kratix.Workflows[string(WorkflowActionConfigure)]
+}
 
-	p.Status.Kratix.Workflows.Pipelines = nil
-	return changed
+func (p *Promise) ClearPipelineExecutionStatus() bool {
+	configure := string(WorkflowActionConfigure)
+	if _, found := p.Status.Kratix.Workflows[configure]; !found {
+		return false
+	}
+
+	delete(p.Status.Kratix.Workflows, configure)
+	return true
 }
 
 type pipelineMap map[Type]map[Action][]Pipeline

@@ -64,6 +64,7 @@ import (
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/fetchers"
+	"github.com/syntasso/kratix/lib/migration"
 	gitutil "github.com/syntasso/kratix/util/git"
 	//+kubebuilder:scaffold:imports
 )
@@ -487,6 +488,18 @@ func main() {
 	}
 	if err := mgr.AddReadyzCheck("webhook", mgr.GetWebhookServer().StartedChecker()); err != nil {
 		setupLog.Error(err, "unable to set up webhook ready check")
+		os.Exit(1)
+	}
+
+	// Before the manager: nothing can decode a Promise written by an older
+	// Kratix until this has moved its workflow status.
+	migrationClient, err := client.New(config, client.Options{Scheme: mgr.GetScheme()})
+	if err != nil {
+		setupLog.Error(err, "unable to create client for migrations")
+		os.Exit(1)
+	}
+	if err := migration.PromiseWorkflowStatus(ctx, migrationClient); err != nil {
+		setupLog.Error(err, "unable to migrate promise workflow status")
 		os.Exit(1)
 	}
 

@@ -243,12 +243,12 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	if updated, err := r.ensureConfigureWorkflowStatus(ctx, rr, pipelineResources); updated || err != nil {
+	if updated, err := r.ensureConfigureWorkflowStatus(ctx, rr); updated || err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(ctx, logger, rr,
-		pipelineResources); passiveRequeue || requeueResult != nil || err != nil {
+	if passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(ctx, logger,
+		rr, string(v1alpha1.WorkflowActionConfigure)); passiveRequeue || requeueResult != nil || err != nil {
 		if requeueResult != nil {
 			return *requeueResult, err
 		}
@@ -725,19 +725,8 @@ func (r *DynamicResourceRequestController) determineResourceBindingVersion(ctx c
 func (r *DynamicResourceRequestController) ensureConfigureWorkflowStatus(
 	ctx context.Context,
 	rr *unstructured.Unstructured,
-	pipelineResources []v1alpha1.PipelineJobResources,
 ) (updated bool, err error) {
-	statusChanged := removeWorkflowCounters(rr)
-
-	workflowStatusChanged, err := ensureRRKratixWorkflowStatusIsSetup(rr, pipelineResources)
-	if err != nil {
-		return false, err
-	}
-	if workflowStatusChanged {
-		statusChanged = true
-	}
-
-	if statusChanged {
+	if removeWorkflowCounters(rr) {
 		return true, r.Client.Status().Update(ctx, rr)
 	}
 
@@ -748,14 +737,14 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 	ctx context.Context,
 	logger logr.Logger,
 	rr *unstructured.Unstructured,
-	pipelineResources []v1alpha1.PipelineJobResources,
+	workflow string,
 ) (shouldRequeue bool, result *ctrl.Result, err error) {
 	if notWorkflowSuspended(rr) {
 		return false, nil, nil
 	}
 
-	resourceSpecChanged := resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration") != 0 &&
-		rr.GetGeneration() > resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration")
+	suspendedGeneration := resourceutil.GetSuspendedGeneration(rr, workflow)
+	resourceSpecChanged := suspendedGeneration != 0 && rr.GetGeneration() > suspendedGeneration
 
 	if isManualReconcile(rr) || resourceSpecChanged {
 		if resourceSpecChanged {
@@ -772,22 +761,14 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 		if err := r.Client.Update(ctx, rr); err != nil {
 			return true, nil, err
 		}
-		updatedRR := &unstructured.Unstructured{}
-		updatedRR.SetGroupVersionKind(*r.GVK)
-		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(rr), updatedRR); err != nil {
-			return true, nil, err
-		}
-		if err := resourceutil.ResetPipelineStatusToPending(updatedRR, pipelineResources); err != nil {
-			return true, nil, err
-		}
-		return true, nil, r.Client.Status().Update(ctx, updatedRR)
+		return true, nil, nil
 	}
 
 	msg := fmt.Sprintf("'%s' label set to 'true' for resource request; skipping reconciliation", v1alpha1.WorkflowSuspendedLabel)
 	logging.Info(logger, msg)
 	r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, workflowSuspendedReason, workflowSuspendedReason, "%s", msg)
 
-	nextRetryAtTime, err := nextRetryAtForResource(rr)
+	nextRetryAtTime, err := nextRetryAtForResource(rr, workflow)
 	if err != nil {
 		return true, nil, err
 	}
@@ -1158,26 +1139,6 @@ func removeWorkflowCounters(rr *unstructured.Unstructured) bool {
 	return removed
 }
 
-func ensureRRKratixWorkflowStatusIsSetup(rr *unstructured.Unstructured, pipelines []v1alpha1.PipelineJobResources) (bool, error) {
-	existingPipelines, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
-	if err != nil {
-		return false, err
-	}
-
-	if !found || len(existingPipelines) != len(pipelines) {
-		return true, resourceutil.ResetPipelineStatusToPending(rr, pipelines)
-	}
-
-	for i, pipeline := range pipelines {
-		pipelineStatus, ok := existingPipelines[i].(map[string]any)
-		if !ok || pipelineStatus["name"] != pipeline.Name {
-			return true, resourceutil.ResetPipelineStatusToPending(rr, pipelines)
-		}
-	}
-
-	return false, nil
-}
-
 func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured) (ctrl.Result, error) {
 	if resourceutil.FinalizersAreDeleted(resourceRequest, r.getRRFinalizers()) {
 		if err := r.ensureResourceBindingRemoved(o, resourceRequest, promise); err != nil {
@@ -1197,7 +1158,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 			return ctrl.Result{}, err
 		}
 
-		if handled, result, err := r.handleSuspendedDeleteWorkflow(o, resourceRequest, pipelineResources); handled {
+		if handled, result, err := r.handleSuspendedDeleteWorkflow(o, resourceRequest); handled {
 			return result, err
 		}
 
@@ -1245,8 +1206,8 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	return fastRequeue, nil
 }
 
-func (r *DynamicResourceRequestController) handleSuspendedDeleteWorkflow(o opts, resourceRequest *unstructured.Unstructured, pipelineResources []v1alpha1.PipelineJobResources) (bool, ctrl.Result, error) {
-	passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(o.ctx, o.logger, resourceRequest, pipelineResources)
+func (r *DynamicResourceRequestController) handleSuspendedDeleteWorkflow(o opts, resourceRequest *unstructured.Unstructured) (bool, ctrl.Result, error) {
+	passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(o.ctx, o.logger, resourceRequest, string(v1alpha1.WorkflowActionDelete))
 	if !passiveRequeue && requeueResult == nil && err == nil {
 		return false, ctrl.Result{}, nil
 	}
@@ -1764,19 +1725,12 @@ func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clust
 	return opts.client.Status().Update(opts.ctx, rr)
 }
 
-func nextRetryAtForResource(rr *unstructured.Unstructured) (time.Time, error) {
-	pipelines, err := resourceutil.GetResourceRequestStatusPipelines(rr)
+func nextRetryAtForResource(rr *unstructured.Unstructured, workflow string) (time.Time, error) {
+	pipelines, err := resourceutil.GetPipelineStatuses(rr, workflow)
 	if err != nil {
 		return time.Time{}, err
 	}
-	for _, pipeline := range pipelines {
-		if pipeline["phase"] == v1alpha1.WorkflowPhaseSuspended {
-			if v, ok := pipeline["nextRetryAt"].(string); ok && v != "" {
-				return time.Parse(time.RFC3339, v)
-			}
-		}
-	}
-	return time.Time{}, nil
+	return nextRetryAtForPipelines(pipelines)
 }
 
 func addDynamicResourceRequestSpanAttributes(traceCtx *reconcileTrace, promise *v1alpha1.Promise, rr *unstructured.Unstructured) {

@@ -508,15 +508,6 @@ func (r *PromiseReconciler) setPromiseUnavailableStatusConditions(
 	return r.Client.Status().Update(ctx, promise)
 }
 
-func resetPromiseWorkflowPipelinesToPending(promise *v1alpha1.Promise) {
-	promise.Status.Kratix.Workflows.SuspendedGeneration = 0
-	for i := range promise.Status.Kratix.Workflows.Pipelines {
-		promise.Status.Kratix.Workflows.Pipelines[i].Phase = v1alpha1.WorkflowPhasePending
-		promise.Status.Kratix.Workflows.Pipelines[i].Message = ""
-		promise.Status.Kratix.Workflows.Pipelines[i].LastTransitionTime = metav1.Now()
-	}
-}
-
 func (r *PromiseReconciler) generateConditions(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
 	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, promise)
 	if err != nil {
@@ -995,10 +986,6 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return false, nil, nil
 	}
 
-	if requeue, err := r.ensureKratixWorkflowStatusIsSetup(promise); err != nil || requeue {
-		return requeue, nil, err
-	}
-
 	if promise.Labels == nil {
 		promise.Labels = make(map[string]string)
 	}
@@ -1012,7 +999,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		promise.Labels[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
-	promiseSpecChanged := promise.Status.Kratix.Workflows.SuspendedGeneration != 0 && promise.GetGeneration() > promise.Status.Kratix.Workflows.SuspendedGeneration
+	promiseSpecChanged := promise.ConfigureWorkflowStatus().SuspendedGeneration != 0 && promise.GetGeneration() > promise.ConfigureWorkflowStatus().SuspendedGeneration
 
 	if restarted, err := r.restartOnReconciliationInterval(o.ctx, o.logger, promise, completedCond, forcePipelineRun); restarted || err != nil {
 		return restarted, nil, err
@@ -1030,7 +1017,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return true, &result, err
 	}
 
-	if shouldRequeue, result, suspendErr := r.reconcileSuspendedWorkflow(o, promise,
+	if shouldRequeue, result, suspendErr := r.reconcileSuspendedWorkflow(o, promise, string(v1alpha1.WorkflowActionConfigure),
 		promiseSpecChanged); shouldRequeue || result != nil || suspendErr != nil {
 
 		return shouldRequeue, result, suspendErr
@@ -1064,6 +1051,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 	o opts,
 	promise *v1alpha1.Promise,
+	workflow string,
 	promiseSpecChanged bool,
 ) (bool, *ctrl.Result, error) {
 	var result *ctrl.Result
@@ -1078,22 +1066,14 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 			logging.Info(o.logger, "Promise spec changed while suspended; forcing reconciliation", "generation", promise.GetGeneration(), "observedGeneration", promise.Status.ObservedGeneration)
 		}
 		delete(promise.Labels, v1alpha1.WorkflowSuspendedLabel)
-		if err := r.Client.Update(o.ctx, promise); err != nil {
-			return true, result, err
-		}
-		updatedPromise := &v1alpha1.Promise{}
-		if err := r.Client.Get(o.ctx, client.ObjectKeyFromObject(promise), updatedPromise); err != nil {
-			return true, result, err
-		}
-		resetPromiseWorkflowPipelinesToPending(updatedPromise)
-		return true, result, r.Client.Status().Update(o.ctx, updatedPromise)
+		return true, result, r.Client.Update(o.ctx, promise)
 	}
 
 	msg := fmt.Sprintf("'%s' label set to 'true' for promise; skipping reconciliation", v1alpha1.WorkflowSuspendedLabel)
 	logging.Info(r.Log, msg)
 	r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, workflowSuspendedReason, workflowSuspendedReason, "%s", msg)
 
-	retryAtTime, err := nextRetryAt(*promise)
+	retryAtTime, err := nextRetryAt(*promise, workflow)
 	if err != nil {
 		return true, result, err
 	}
@@ -1117,35 +1097,6 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 	}
 
 	return shouldRequeue, result, r.setWorkflowSuspendedStatusCondition(o.ctx, promise)
-}
-
-// Either its not set, or its changed, either number of pipelines has changed, or names have changed
-func (r *PromiseReconciler) ensureKratixWorkflowStatusIsSetup(promise *v1alpha1.Promise) (bool, error) {
-	if len(promise.Status.Kratix.Workflows.Pipelines) != len(promise.Spec.Workflows.Promise.Configure) {
-		setNewPipelineStatus(promise)
-		return true, r.Client.Status().Update(context.Background(), promise)
-	}
-
-	for i, pipelineStatus := range promise.Status.Kratix.Workflows.Pipelines {
-		if pipelineStatus.Name != promise.Spec.Workflows.Promise.Configure[i].GetName() {
-			setNewPipelineStatus(promise)
-			return true, r.Client.Status().Update(context.Background(), promise)
-		}
-	}
-
-	return false, nil
-}
-
-func setNewPipelineStatus(promise *v1alpha1.Promise) {
-	workflowPipelinesStatus := []v1alpha1.WorkflowPipelineStatus{}
-	for _, pipeline := range promise.Spec.Workflows.Promise.Configure {
-		workflowPipelinesStatus = append(workflowPipelinesStatus, v1alpha1.WorkflowPipelineStatus{
-			Name:               pipeline.GetName(),
-			Phase:              v1alpha1.WorkflowPhasePending,
-			LastTransitionTime: metav1.NewTime(time.Now()),
-		})
-	}
-	promise.Status.Kratix.Workflows.Pipelines = workflowPipelinesStatus
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.GroupVersionKind) error {
@@ -1618,7 +1569,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 }
 
 func (r *PromiseReconciler) handleSuspendedDeleteWorkflow(o opts, promise *v1alpha1.Promise) (bool, ctrl.Result, error) {
-	shouldRequeue, result, err := r.reconcileSuspendedWorkflow(o, promise, false)
+	shouldRequeue, result, err := r.reconcileSuspendedWorkflow(o, promise, string(v1alpha1.WorkflowActionDelete), false)
 	if !shouldRequeue && result == nil && err == nil {
 		return false, ctrl.Result{}, nil
 	}
@@ -2020,6 +1971,54 @@ func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiexten
 	return rrCRD, rrGVK, nil
 }
 
+func workflowStatusSchema() apiextensionsv1.JSONSchemaProps {
+	return apiextensionsv1.JSONSchemaProps{
+		Type: "object",
+		Properties: map[string]apiextensionsv1.JSONSchemaProps{
+			"pipelines": {
+				Type: "array",
+				Items: &apiextensionsv1.JSONSchemaPropsOrArray{
+					Schema: &apiextensionsv1.JSONSchemaProps{
+						Type: "object",
+						Properties: map[string]apiextensionsv1.JSONSchemaProps{
+							"name": {
+								Type: "string",
+							},
+							"phase": {
+								Type: "string",
+							},
+							"hash": {
+								Type: "string",
+							},
+							"job": {
+								Type: "string",
+							},
+							"message": {
+								Type: "string",
+							},
+							"nextRetryAt": {
+								Type: "string",
+							},
+							"attempts": {
+								Type:   "integer",
+								Format: "int64",
+							},
+							"lastTransitionTime": {
+								Type:   "string",
+								Format: "datetime",
+							},
+						},
+					},
+				},
+			},
+			"suspendedGeneration": {
+				Type:   "integer",
+				Format: "int64",
+			},
+		},
+	}
+}
+
 func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 	for i := range rrCRD.Spec.Versions {
 		rrCRD.Spec.Versions[i].Subresources = &apiextensionsv1.CustomResourceSubresources{
@@ -2087,40 +2086,8 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 								"lastSuccessfulConfigureWorkflowTime": {
 									Type: "string",
 								},
-								"pipelines": {
-									Type: "array",
-									Items: &apiextensionsv1.JSONSchemaPropsOrArray{
-										Schema: &apiextensionsv1.JSONSchemaProps{
-											Type: "object",
-											Properties: map[string]apiextensionsv1.JSONSchemaProps{
-												"name": {
-													Type: "string",
-												},
-												"phase": {
-													Type: "string",
-												},
-												"message": {
-													Type: "string",
-												},
-												"nextRetryAt": {
-													Type: "string",
-												},
-												"attempts": {
-													Type:   "integer",
-													Format: "int64",
-												},
-												"lastTransitionTime": {
-													Type:   "string",
-													Format: "datetime",
-												},
-											},
-										},
-									},
-								},
-								"suspendedGeneration": {
-									Type:   "integer",
-									Format: "int64",
-								},
+								"configure": workflowStatusSchema(),
+								"delete":    workflowStatusSchema(),
 							},
 						},
 					},
@@ -2323,10 +2290,16 @@ func promiseWorkflowCompletedWithFailure(completedCond *metav1.Condition) bool {
 		completedCond.Reason == resourceutil.ConfigureWorkflowCompletedFailedReason
 }
 
-func nextRetryAt(promise v1alpha1.Promise) (time.Time, error) {
+func nextRetryAt(promise v1alpha1.Promise, workflow string) (time.Time, error) {
+	return nextRetryAtForPipelines(promise.Status.Kratix.Workflows[workflow].Pipelines)
+}
+
+// nextRetryAtForPipelines returns the zero time when no pipeline is waiting to
+// be retried.
+func nextRetryAtForPipelines(pipelines []v1alpha1.WorkflowPipelineStatus) (time.Time, error) {
 	var retryTime time.Time
 	var err error
-	for _, pipeline := range promise.Status.Kratix.Workflows.Pipelines {
+	for _, pipeline := range pipelines {
 		if pipeline.Phase == v1alpha1.WorkflowPhaseSuspended && pipeline.NextRetryAt != "" {
 			retryTime, err = time.Parse(time.RFC3339, pipeline.NextRetryAt)
 			if err != nil {

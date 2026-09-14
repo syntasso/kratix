@@ -169,7 +169,7 @@ var _ = Describe("Workflow Control", func() {
 
 				By("reporting only the delete pipeline in the workflow status", func() {
 					Expect(platform.Kubectl("get", "workflowretrydels", "retry-test-del",
-						`-o=jsonpath={.status.kratix.workflows.pipelines[*].name}`)).To(Equal("resource-delete-retry-pipe"))
+						`-o=jsonpath={.status.kratix.workflows.delete.pipelines[*].name}`)).To(Equal("resource-delete-retry-pipe"))
 				})
 
 				By("setting the DeleteWorkflowCompleted condition while retrying", func() {
@@ -344,7 +344,7 @@ var _ = Describe("Workflow Control", func() {
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, phaseJSONPath("pipe-2"))).To(Equal("Succeeded"))
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, messageJSONPath("pipe-1"))).To(BeEmpty())
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, `-o=jsonpath={.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}`)).To(Equal("True"))
-					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, `-o=jsonpath={.status.kratix.workflows.suspendedGeneration}`)).To(BeEmpty())
+					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, `-o=jsonpath={.status.kratix.workflows.configure.suspendedGeneration}`)).To(BeEmpty())
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, "-o", "yaml")).NotTo(ContainSubstring("kratix.io/workflow-suspended"))
 				}).Should(Succeed())
 			})
@@ -402,7 +402,7 @@ var _ = Describe("Workflow Control", func() {
 					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, phaseJSONPath("resource-pipe-0"))).To(Equal("Succeeded"))
 					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, messageJSONPath("resource-pipe-0"))).To(BeEmpty())
 					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, `-o=jsonpath={.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}`)).To(Equal("True"))
-					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, `-o=jsonpath={.status.kratix.workflows.suspendedGeneration}`)).To(BeEmpty())
+					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, `-o=jsonpath={.status.kratix.workflows.configure.suspendedGeneration}`)).To(BeEmpty())
 					g.Expect(platform.Kubectl("get", suspendDelCRDPlural, suspendDelResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(BeEmpty())
 				}).Should(Succeed())
 
@@ -482,19 +482,19 @@ var _ = Describe("Workflow Control", func() {
 })
 
 func phaseJSONPath(pipelineName string) string {
-	return fmt.Sprintf(`-o=jsonpath={.status.kratix.workflows.pipelines[?(@.name=="%s")].phase}`, pipelineName)
+	return fmt.Sprintf(`-o=jsonpath={.status.kratix.workflows.*.pipelines[?(@.name=="%s")].phase}`, pipelineName)
 }
 
 func messageJSONPath(pipelineName string) string {
-	return fmt.Sprintf(`-o=jsonpath={.status.kratix.workflows.pipelines[?(@.name=="%s")].message}`, pipelineName)
+	return fmt.Sprintf(`-o=jsonpath={.status.kratix.workflows.*.pipelines[?(@.name=="%s")].message}`, pipelineName)
 }
 
 func nextRetryAtJSONPath(pipelineName string) string {
-	return fmt.Sprintf(`-o=jsonpath={.status.kratix.workflows.pipelines[?(@.name=="%s")].nextRetryAt}`, pipelineName)
+	return fmt.Sprintf(`-o=jsonpath={.status.kratix.workflows.*.pipelines[?(@.name=="%s")].nextRetryAt}`, pipelineName)
 }
 
 func attemptsJSONPath(pipelineName string) string {
-	return fmt.Sprintf(`-o=jsonpath={.status.kratix.workflows.pipelines[?(@.name=="%s")].attempts}`, pipelineName)
+	return fmt.Sprintf(`-o=jsonpath={.status.kratix.workflows.*.pipelines[?(@.name=="%s")].attempts}`, pipelineName)
 }
 
 type workflowPipelineState struct {
@@ -508,7 +508,7 @@ type workflowPipelineState struct {
 func pipelineState(kind, name, pipelineName string) workflowPipelineState {
 	jsonpath := fmt.Sprintf(
 		`-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`+
-			`{"|"}{range .status.kratix.workflows.pipelines[?(@.name=="%s")]}{.phase}{"|"}{.message}{"|"}{.nextRetryAt}{"|"}{.attempts}{end}`,
+			`{"|"}{range .status.kratix.workflows.*.pipelines[?(@.name=="%s")]}{.phase}{"|"}{.message}{"|"}{.nextRetryAt}{"|"}{.attempts}{end}`,
 		pipelineName)
 	parts := strings.Split(strings.TrimSpace(platform.Kubectl("get", kind, name, jsonpath)), "|")
 	for len(parts) < 5 {
