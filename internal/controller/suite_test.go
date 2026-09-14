@@ -53,6 +53,9 @@ var (
 	t                       *testReconciler
 	interceptorsFuncs       interceptor.Funcs
 	errSubResourceUpdate    error
+
+	// Lets a spec reorder List results, which a real cache does not guarantee.
+	reorderListResults func(client.ObjectList)
 )
 
 var _ = BeforeSuite(func(_ SpecContext) {
@@ -80,6 +83,15 @@ var _ = BeforeEach(func() {
 			return errSubResourceUpdate
 		}
 		return client.Status().Update(ctx, obj, opts...)
+	}
+	interceptorsFuncs.List = func(ctx context.Context, cli client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+		if err := cli.List(ctx, list, opts...); err != nil {
+			return err
+		}
+		if reorderListResults != nil {
+			reorderListResults(list)
+		}
+		return nil
 	}
 
 	fakeK8sClient = fake.NewClientBuilder().
@@ -123,6 +135,7 @@ var _ = BeforeEach(func() {
 
 var _ = AfterEach(func() {
 	errSubResourceUpdate = nil
+	reorderListResults = nil
 })
 
 func TestControllers(t *testing.T) {
