@@ -60,11 +60,11 @@ IsDeleteAction returns true if the KRATIX_WORKFLOW_ACTION environment variable i
 
 **`WriteSuspend(message string) error`**
 
-WriteSuspend suspends the Workflow by writing workflow-control.yaml with suspend: true. Kratix will stop any further pipeline execution and set the current pipeline execution phase to Suspended. If a message is provided, it will be surfaced in the object's status (status.kratix.workflows.pipelines[PIPELINE_NAME].message).
+WriteSuspend suspends the Workflow by writing workflow-control.yaml with suspend: true. Kratix will stop any further pipeline execution and set the current pipeline execution phase to Suspended. If a message is provided, it will be surfaced in the object's status (status.kratix.workflows.<action>.pipelines[PIPELINE_NAME].message). `<action>` is the action of the workflow the pipeline belongs to: `configure` or `delete`.
 
 **`WriteRetryAfter(duration string, message string) error`**
 
-WriteRetryAfter configures the current pipeline to be retried after the given duration. The duration must be a valid Go duration string (e.g. "5m", "1h30m", "300ms"). Kratix will requeue this pipeline after the specified duration and increment the attempt counter in the object's status (status.kratix.workflows.pipelines[PIPELINE_NAME].attempts). If a message is provided, it will be surfaced in the object's status (status.kratix.workflows.pipelines[PIPELINE_NAME].message).
+WriteRetryAfter configures the current pipeline to be retried after the given duration. The duration must be a valid Go duration string (e.g. "5m", "1h30m", "300ms"). Kratix will requeue this pipeline after the specified duration and increment the attempt counter in the object's status (status.kratix.workflows.<action>.pipelines[PIPELINE_NAME].attempts). If a message is provided, it will be surfaced in the object's status (status.kratix.workflows.<action>.pipelines[PIPELINE_NAME].message).
 
 **`PipelineName() string`**
 

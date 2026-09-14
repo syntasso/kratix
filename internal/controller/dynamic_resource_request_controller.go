@@ -1716,6 +1716,11 @@ func getResourceLabels(rr *unstructured.Unstructured) map[string]string {
 	return labels
 }
 
+// The last successful configure time lives in two places, and both are written:
+// the keyed status.kratix.workflows.configure.lastSuccessfulTime, and the legacy
+// top-level status.lastSuccessfulConfigureWorkflowTime that predates the keyed
+// layout and is still what interval scheduling reads. A write that lands in only
+// one of them leaves the two disagreeing, so they are compared and set together.
 func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 	workflowCompletedCondition *clusterv1.Condition,
 	rr *unstructured.Unstructured,

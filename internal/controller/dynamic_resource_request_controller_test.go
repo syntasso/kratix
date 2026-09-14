@@ -175,7 +175,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(statusMap["observedGeneration"]).To(Equal(int64(1)))
 			})
 
-			By("setting the lastSuccessfulConfigureWorkflowTime in the resource status", func() {
+			By("setting the configure workflow's lastSuccessfulTime in the resource status", func() {
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 				configuredWorkflowTime := resourceutil.GetKratixWorkflowsStatus(resReq, configureKey, "lastSuccessfulTime")
 				lastSuccessfulConfigureWorkflowTime, err := time.Parse(time.RFC3339, configuredWorkflowTime)

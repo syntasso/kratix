@@ -2310,7 +2310,7 @@ var _ = Describe("PromiseController", func() {
 	})
 
 	Describe(".status", func() {
-		Describe(".kratix.workflows.pipelines", func() {
+		Describe(".kratix.workflows.configure.pipelines", func() {
 			BeforeEach(func() {
 				// create promise with multiple workflows, and persist the ledger the
 				// workflow engine would have seeded for them: this suite stubs the
@@ -2326,7 +2326,7 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 				})
 
-				It("removes .kratix.workflows.pipelines", func() {
+				It("removes .kratix.workflows.configure.pipelines", func() {
 					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 						funcs: []func(client.Object) error{autoMarkCRDAsEstablished}})
 					Expect(err).NotTo(HaveOccurred())
