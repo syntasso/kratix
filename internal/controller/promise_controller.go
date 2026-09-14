@@ -1100,6 +1100,12 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 		return true, result, r.Client.Status().Update(o.ctx, updatedPromise)
 	}
 
+	if !suspensionRecordedUnderKey(promise, key) {
+		logging.Info(o.logger, "no suspension recorded under the workflow key; running the workflow from the start",
+			"workflow", key)
+		return true, result, ensureWorkflowRunsFromStart(o.ctx, r.Client, promise)
+	}
+
 	msg := fmt.Sprintf("'%s' label set to 'true' for promise; skipping reconciliation", v1alpha1.WorkflowSuspendedLabel)
 	logging.Info(r.Log, msg)
 	r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, workflowSuspendedReason, workflowSuspendedReason, "%s", msg)
@@ -2272,6 +2278,25 @@ func promiseWorkflowCompletedWithFailure(completedCond *metav1.Condition) bool {
 	return completedCond != nil &&
 		completedCond.Status == metav1.ConditionFalse &&
 		completedCond.Reason == resourceutil.ConfigureWorkflowCompletedFailedReason
+}
+
+// suspensionRecordedUnderKey reports whether the keyed workflow status still holds
+// the suspension the kratix.io/workflow-suspended label claims. The label is
+// metadata and survives an upgrade that drops a status the typed decode cannot
+// read, leaving nothing to schedule a retry from and no generation to resume at.
+func suspensionRecordedUnderKey(promise *v1alpha1.Promise, key string) bool {
+	status := promise.Status.Kratix.Workflows[key]
+	if status.SuspendedGeneration != 0 {
+		return true
+	}
+
+	for _, pipeline := range status.Pipelines {
+		if pipeline.Phase == v1alpha1.WorkflowPhaseSuspended {
+			return true
+		}
+	}
+
+	return false
 }
 
 func nextRetryAt(promise v1alpha1.Promise, key string) (time.Time, error) {

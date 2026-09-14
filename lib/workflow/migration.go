@@ -72,9 +72,9 @@ func migrateWorkflowStatus(opts Opts, key string, action v1alpha1.Action) (bool,
 func migrateFlatPipelines(opts Opts, key string, action v1alpha1.Action) (bool, error) {
 	obj := opts.parentObject
 
-	flatPipelines, found, err := unstructured.NestedSlice(obj.Object, flatWorkflowsPath(flatPipelinesField)...)
-	if !found || err != nil {
-		return false, nil //nolint:nilerr // a value that is not a list of entries is treated as absent, not as a reconcile failure.
+	flatPipelines, found, _ := unstructured.NestedSlice(obj.Object, flatWorkflowsPath(flatPipelinesField)...)
+	if !found {
+		return false, nil
 	}
 
 	if keyedPath := resourceutil.WorkflowsPath(key, flatPipelinesField); !keyedValueExists(obj, keyedPath) {
@@ -114,12 +114,9 @@ func migrateFlatField[T int64 | string](obj *unstructured.Unstructured, flatFiel
 	return true
 }
 
-// keyedValueExists reports whether the keyed layout already holds this field. An
-// unreadable keyed node counts as holding one: the flat copy is discarded rather
-// than written over something the migration cannot see.
 func keyedValueExists(obj *unstructured.Unstructured, keyedPath []string) bool {
-	_, found, err := unstructured.NestedFieldNoCopy(obj.Object, keyedPath...)
-	return found || err != nil
+	_, found, _ := unstructured.NestedFieldNoCopy(obj.Object, keyedPath...)
+	return found
 }
 
 func removeLegacyStatusCounters(obj *unstructured.Unstructured) bool {

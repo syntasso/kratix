@@ -3,6 +3,7 @@ package workflow_test
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -184,7 +185,17 @@ var _ = Describe("Workflow status migration", func() {
 			Expect(changed).To(BeTrue())
 
 			Expect(pipelinesUnderKey(parentObject, configureKey)).To(ConsistOf(HaveKeyWithValue("name", "pipeline-1")))
-			Expect(resourceutil.GetKratixWorkflowsInt64Status(parentObject, configureKey, "suspendedGeneration")).To(BeZero())
+
+			By("writing no keyed suspendedGeneration at all, rather than one that reads as zero", func() {
+				_, found := keyedWorkflowsField(parentObject, configureKey, "suspendedGeneration")
+				Expect(found).To(BeFalse())
+			})
+
+			By("leaving the unreadable flat value where it is", func() {
+				value, found := flatWorkflowsField(parentObject, "suspendedGeneration")
+				Expect(found).To(BeTrue())
+				Expect(value).To(Equal("not-a-generation"))
+			})
 		})
 
 		It("reports no change for an object that was never on the flat layout", func() {
@@ -435,6 +446,32 @@ var _ = Describe("Workflow status migration", func() {
 				Expect(resourceutil.GetSuspendedPipelineIndex(stored, deleteKey)).To(Equal(0))
 			})
 		})
+
+		DescribeTable("fails the reconciliation, writing no status, when the retained Jobs cannot be listed",
+			func(reconcile func(workflow.Opts) (bool, error)) {
+				setFlatWorkflowsStatus(uPromise, map[string]any{
+					"pipelines": []any{
+						map[string]any{"name": "pipeline-1", "phase": v1alpha1.WorkflowPhaseSucceeded},
+					},
+				})
+
+				listErr := fmt.Errorf("the apiserver said no")
+				opts := workflow.NewOpts(ctx, failingHashLiftClient(listErr), eventRecorder, logger,
+					uPromise, resources, "promise", 5, namespace)
+
+				_, err := reconcile(opts)
+				Expect(err).To(MatchError(listErr))
+
+				By("leaving the stored object on the layout it was on, for the next attempt to migrate whole", func() {
+					_, found, err := unstructured.NestedFieldNoCopy(
+						fetchPromise(promise.GetName()).Object, "status", "kratix", "workflows")
+					Expect(err).NotTo(HaveOccurred())
+					Expect(found).To(BeFalse())
+				})
+			},
+			Entry("reconciling the configure workflow", workflow.ReconcileConfigure),
+			Entry("reconciling the delete workflow", workflow.ReconcileDelete),
+		)
 	})
 })
 
@@ -457,6 +494,34 @@ func setFlatWorkflowsStatus(obj *unstructured.Unstructured, flat map[string]any)
 func flatWorkflowsField(obj *unstructured.Unstructured, field string) (any, bool) {
 	GinkgoHelper()
 	value, found, err := unstructured.NestedFieldNoCopy(obj.Object, "status", "kratix", "workflows", field)
+	Expect(err).NotTo(HaveOccurred())
+	return value, found
+}
+
+// failingHashLiftClient fails only the List the hash lift makes, the one selecting
+// a single pipeline's Jobs. Failing every Job List instead lets the Job-evidence
+// List raise the same error a moment later, and the spec then passes with the
+// migration's error return deleted from the reconciler.
+func failingHashLiftClient(listErr error) client.Client {
+	return interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, listOpts ...client.ListOption) error {
+			options := &client.ListOptions{}
+			for _, listOpt := range listOpts {
+				listOpt.ApplyToList(options)
+			}
+			_, isJobList := list.(*batchv1.JobList)
+			if isJobList && options.LabelSelector != nil &&
+				strings.Contains(options.LabelSelector.String(), v1alpha1.PipelineNameLabel) {
+				return listErr
+			}
+			return c.List(ctx, list, listOpts...)
+		},
+	})
+}
+
+func keyedWorkflowsField(obj *unstructured.Unstructured, key, field string) (any, bool) {
+	GinkgoHelper()
+	value, found, err := unstructured.NestedFieldNoCopy(obj.Object, resourceutil.WorkflowsPath(key, field)...)
 	Expect(err).NotTo(HaveOccurred())
 	return value, found
 }

@@ -33,6 +33,49 @@ var _ = Describe("WorkflowsStatus", func() {
 			Expect(promise.GetName()).To(Equal("stored-promise"))
 			Expect(promise.Status.Kratix.Workflows).To(BeEmpty())
 		})
+
+		It("clears the workflow status already in the value the decoder is reusing", func() {
+			Expect(json.Unmarshal(promiseJSONWithWorkflows(
+				`{"configure":{"pipelines":[{"name":"first-pipeline","phase":"Succeeded"}]}}`,
+			), &promise)).To(Succeed())
+			Expect(promise.Status.Kratix.Workflows).To(HaveKey("configure"))
+
+			Expect(json.Unmarshal(promiseJSONWithWorkflows(storedFlatWorkflows), &promise)).To(Succeed())
+
+			Expect(promise.Status.Kratix.Workflows).To(BeEmpty())
+		})
+	})
+
+	Describe("decoding a workflow key that is not a workflow status", func() {
+		var promise v1alpha1.Promise
+
+		BeforeEach(func() {
+			promise = v1alpha1.Promise{}
+			Expect(json.Unmarshal(promiseJSONWithWorkflows(
+				`{"configure":{"pipelines":[{"name":"first-pipeline","phase":"Succeeded"}]},`+
+					`"delete":{"pipelines":[{"name":"cleanup","phase":"Pending"}]},`+
+					`"their-workflow":{"pipelines":[{"name":"theirs","phase":"Running"}]},`+
+					`"their-other-workflow":{"suspendedGeneration":"not-a-generation"}}`,
+			), &promise)).To(Succeed())
+		})
+
+		It("keeps every key that does decode, Kratix's own and the embedding controller's", func() {
+			Expect(promise.Status.Kratix.Workflows).To(HaveKey("configure"))
+			Expect(promise.Status.Kratix.Workflows).To(HaveKey("delete"))
+			Expect(promise.Status.Kratix.Workflows["their-workflow"].Pipelines).To(ConsistOf(
+				v1alpha1.WorkflowPipelineStatus{Name: "theirs", Phase: v1alpha1.WorkflowPhaseRunning},
+			))
+			Expect(promise.Status.Kratix.Workflows).NotTo(HaveKey("their-other-workflow"))
+		})
+
+		It("re-encodes the surviving keys, so the next status write does not delete them", func() {
+			encoded, err := json.Marshal(promise)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(string(encoded)).To(ContainSubstring(`"configure":`))
+			Expect(string(encoded)).To(ContainSubstring(`"delete":`))
+			Expect(string(encoded)).To(ContainSubstring(`"their-workflow":`))
+		})
 	})
 
 	Describe("decoding the keyed layout", func() {

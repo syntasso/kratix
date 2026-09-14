@@ -2022,6 +2022,10 @@ var _ = Describe("PromiseController", func() {
 				seedPromiseConfigureWorkflowPipelines(promise, "first-pipeline", "second-pipeline")
 
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				configureWorkflowPipelines(promise)[0].Phase = v1alpha1.WorkflowPhaseSuspended
+				Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 				promise.Labels[v1alpha1.WorkflowSuspendedLabel] = "true"
 				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 			})
@@ -2050,6 +2054,30 @@ var _ = Describe("PromiseController", func() {
 				Expect(string(reconcileCond.Status)).To(Equal("Unknown"))
 				Expect(reconcileCond.Reason).To(Equal("WorkflowSuspended"))
 				Expect(reconcileCond.Message).To(Equal("Suspended"))
+			})
+
+			It("runs the workflow from the start when nothing under the workflow key records the suspension", func() {
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				promise.Status.Kratix.Workflows = nil
+				Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
+
+				uPromise, err := promise.ToUnstructured()
+				Expect(err).NotTo(HaveOccurred())
+				resourceutil.SetCondition(uPromise, &clusterv1.Condition{
+					Type:               resourceutil.ConfigureWorkflowCompletedCondition,
+					Status:             v1.ConditionFalse,
+					Message:            "Pipelines in progress",
+					Reason:             resourceutil.PipelinesInProgressReason,
+					LastTransitionTime: metav1.NewTime(time.Now().Add(-reconciler.ReconciliationInterval).Add(-time.Hour)),
+				})
+				Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
+
+				_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				Expect(promise.Labels).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+				Expect(promise.Labels).To(HaveKeyWithValue(resourceutil.WorkflowRunFromStartLabel, "true"))
 			})
 
 			It("resumes the suspended workflow when the reconciliation interval elapses", func() {
