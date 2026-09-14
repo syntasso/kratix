@@ -2280,6 +2280,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				BeforeEach(func() {
 					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
 					markJobAsComplete(workflowPipelines[0].Job.Name)
+					recordDeletePipelines(uPromise, runningPipeline(workflowPipelines[0]))
 				})
 
 				It("considers the workflow as completed", func() {
@@ -2297,6 +2298,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			When("the pipeline job completes having set the workflow-suspended label", func() {
 				BeforeEach(func() {
 					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
+					recordDeletePipelines(uPromise, runningPipeline(workflowPipelines[0]))
 					markJobAsCompleteWithSuspend(workflowPipelines[0].Job.Name, uPromise)
 				})
 
