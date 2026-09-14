@@ -1453,7 +1453,7 @@ var _ = Describe("PromiseController", func() {
 						promise.SetLabels(labels)
 						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
-						setConfigureWorkflowPipelines(promise, []v1alpha1.WorkflowPipelineStatus{
+						setDeleteWorkflowPipelines(promise, []v1alpha1.WorkflowPipelineStatus{
 							{Name: "delete", Phase: v1alpha1.WorkflowPhaseSuspended, Message: "waiting for approval before deleting"},
 						})
 						Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
@@ -1496,7 +1496,7 @@ var _ = Describe("PromiseController", func() {
 						promise.SetLabels(labels)
 						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
-						setConfigureWorkflowPipelines(promise, []v1alpha1.WorkflowPipelineStatus{
+						setDeleteWorkflowPipelines(promise, []v1alpha1.WorkflowPipelineStatus{
 							{
 								Name:        "delete",
 								Phase:       v1alpha1.WorkflowPhaseSuspended,
@@ -1544,7 +1544,7 @@ var _ = Describe("PromiseController", func() {
 						promise.SetLabels(labels)
 						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
-						setConfigureWorkflowPipelines(promise, []v1alpha1.WorkflowPipelineStatus{
+						setDeleteWorkflowPipelines(promise, []v1alpha1.WorkflowPipelineStatus{
 							{
 								Name:        "delete",
 								Phase:       v1alpha1.WorkflowPhaseSuspended,
@@ -2119,6 +2119,69 @@ var _ = Describe("PromiseController", func() {
 				Expect(promise.Labels[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
 				Expect(configureWorkflowPipelines(promise)[0].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
 				Expect(configureWorkflowPipelines(promise)[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
+			})
+
+			// F4 (UPG-C-1) — a Promise suspended before the upgrade decodes its
+			// whole flat workflow status into LegacyRaw, so Get("configure")
+			// returns the zero WorkflowStatus. The migration that would move it
+			// lives inside the engine, and the suspended branch returns before
+			// the engine runs: without a fallback the retry is invisible and a
+			// spec change cannot un-suspend the Promise either.
+			When("it was suspended before the workflow status was keyed by workflow", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					uPromise, err := promise.ToUnstructured()
+					Expect(err).NotTo(HaveOccurred())
+					unstructured.RemoveNestedField(uPromise.Object, "status", "kratix", "workflows", configureKey)
+					Expect(unstructured.SetNestedSlice(uPromise.Object, []any{
+						map[string]any{
+							"name":        "first-pipeline",
+							"phase":       v1alpha1.WorkflowPhaseSuspended,
+							"nextRetryAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+						},
+					}, "status", "kratix", "workflows", "pipelines")).To(Succeed())
+					Expect(unstructured.SetNestedField(uPromise.Object, int64(1),
+						"status", "kratix", "workflows", "suspendedGeneration")).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
+				})
+
+				It("schedules the retry the flat ledger recorded", func() {
+					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result.RequeueAfter).NotTo(BeZero())
+				})
+
+				It("still runs the workflow from the start when the spec changes while it is suspended", func() {
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					promise.SetGeneration(2)
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					Expect(promise.Labels).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+					Expect(promise.Labels).To(HaveKeyWithValue(resourceutil.WorkflowRunFromStartLabel, "true"))
+				})
+			})
+
+			// Pins the keyed write-back in the reset. Get returns a copy of the
+			// workflow status, so without storing it again the cleared
+			// suspended generation is thrown away and the next reconcile reads
+			// the Promise as still suspended at a generation it has moved past.
+			It("clears the suspended generation when the spec change resumes it", func() {
+				promise.SetGeneration(2)
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				setConfigureSuspendedGeneration(promise, 1)
+				Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
+
+				_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				Expect(promise.Status.Kratix.Workflows.Get(configureKey).SuspendedGeneration).To(BeZero())
 			})
 
 			When("the promise is unpaused while suspended", func() {
@@ -3175,6 +3238,15 @@ func setConfigureWorkflowPipelines(promise *v1alpha1.Promise, pipelines []v1alph
 	configure := promise.Status.Kratix.Workflows.Get(configureKey)
 	configure.Pipelines = pipelines
 	promise.Status.Kratix.Workflows.Set(configureKey, configure)
+}
+
+// setDeleteWorkflowPipelines writes the delete workflow's ledger under the
+// delete key, where the in-Job status writer and the engine's delete lane both
+// put it.
+func setDeleteWorkflowPipelines(promise *v1alpha1.Promise, pipelines []v1alpha1.WorkflowPipelineStatus) {
+	deleteStatus := promise.Status.Kratix.Workflows.Get(deleteKey)
+	deleteStatus.Pipelines = pipelines
+	promise.Status.Kratix.Workflows.Set(deleteKey, deleteStatus)
 }
 
 func setConfigureSuspendedGeneration(promise *v1alpha1.Promise, generation int64) {

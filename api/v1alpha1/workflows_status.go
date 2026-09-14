@@ -69,6 +69,29 @@ func (w WorkflowsStatus) IsZero() bool {
 	return len(w.Actions) == 0 && len(w.LegacyRaw) == 0
 }
 
+// Legacy decodes a stored pre-keyed (flat) workflow status, or returns nil when
+// there is none. The flat layout named the same fields this type does — its
+// pipelines, suspendedGeneration and nothing else — one workflow's worth of
+// status for the whole object.
+//
+// It is transitional, for the readers that run before the engine's migration
+// can: both controllers decide whether a workflow is suspended, and when to
+// retry it, before they call the engine, and the engine is the only thing that
+// migrates. Reading the keyed layout alone left an object that was suspended at
+// upgrade with no retry scheduled and no way to un-suspend it — the migration
+// could never run, because the suspended branch returns before the engine.
+// Delete it when the flat layout can no longer be encountered.
+func (w WorkflowsStatus) Legacy() *WorkflowStatus {
+	if len(w.LegacyRaw) == 0 {
+		return nil
+	}
+	legacy := &WorkflowStatus{}
+	if err := json.Unmarshal(w.LegacyRaw, legacy); err != nil {
+		return nil
+	}
+	return legacy
+}
+
 // Get returns the status stored under key, or the zero WorkflowStatus when the
 // key is absent.
 func (w WorkflowsStatus) Get(key string) WorkflowStatus {

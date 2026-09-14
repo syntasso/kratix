@@ -56,7 +56,7 @@ var _ = Describe("Workflow status migration", func() {
 			})
 
 			It("moves the ledger under the invoking key, entries and order untouched", func() {
-				Expect(workflow.MigrateWorkflowStatus(opts, configureKey)).To(BeTrue())
+				Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeTrue())
 
 				Expect(pipelinesUnderKey(parentObject, configureKey)).To(Equal([]any{
 					map[string]any{"name": "pipeline-1", "phase": v1alpha1.WorkflowPhaseSucceeded},
@@ -70,15 +70,15 @@ var _ = Describe("Workflow status migration", func() {
 			})
 
 			It("reports no change, and changes nothing, when it runs again", func() {
-				Expect(workflow.MigrateWorkflowStatus(opts, configureKey)).To(BeTrue())
+				Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeTrue())
 				migrated := pipelinesUnderKey(parentObject, configureKey)
 
-				Expect(workflow.MigrateWorkflowStatus(opts, configureKey)).To(BeFalse())
+				Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeFalse())
 				Expect(pipelinesUnderKey(parentObject, configureKey)).To(Equal(migrated))
 			})
 
 			It("keeps the keyed ledger when a half-upgraded writer recreates the flat one", func() {
-				Expect(workflow.MigrateWorkflowStatus(opts, configureKey)).To(BeTrue())
+				Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeTrue())
 
 				setFlatWorkflowsStatus(parentObject, map[string]any{
 					"pipelines": []any{
@@ -86,7 +86,7 @@ var _ = Describe("Workflow status migration", func() {
 					},
 				})
 
-				Expect(workflow.MigrateWorkflowStatus(opts, configureKey)).To(BeTrue())
+				Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeTrue())
 
 				By("keeping the keyed entries the migration already established", func() {
 					Expect(pipelinesUnderKey(parentObject, configureKey)).To(Equal([]any{
@@ -101,7 +101,7 @@ var _ = Describe("Workflow status migration", func() {
 				})
 
 				By("settling: a further run has nothing left to do", func() {
-					Expect(workflow.MigrateWorkflowStatus(opts, configureKey)).To(BeFalse())
+					Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeFalse())
 				})
 			})
 		})
@@ -112,7 +112,7 @@ var _ = Describe("Workflow status migration", func() {
 			})
 
 			It("moves it under the invoking key", func() {
-				Expect(workflow.MigrateWorkflowStatus(opts, deleteKey)).To(BeTrue())
+				Expect(workflow.MigrateWorkflowStatus(opts, deleteKey, v1alpha1.WorkflowActionDelete)).To(BeTrue())
 
 				Expect(resourceutil.GetKratixWorkflowsInt64Status(parentObject, deleteKey, "suspendedGeneration")).
 					To(Equal(int64(7)))
@@ -123,10 +123,23 @@ var _ = Describe("Workflow status migration", func() {
 			It("never overwrites a keyed suspendedGeneration that is already there", func() {
 				Expect(resourceutil.SetKratixWorkflowsInt64Status(parentObject, deleteKey, "suspendedGeneration", 42)).To(Succeed())
 
-				Expect(workflow.MigrateWorkflowStatus(opts, deleteKey)).To(BeTrue())
+				Expect(workflow.MigrateWorkflowStatus(opts, deleteKey, v1alpha1.WorkflowActionDelete)).To(BeTrue())
 
 				Expect(resourceutil.GetKratixWorkflowsInt64Status(parentObject, deleteKey, "suspendedGeneration")).
 					To(Equal(int64(42)))
+			})
+			// The flat copy goes whether or not it was the one that won: leaving
+			// it behind means the next reconcile finds it again, reports the
+			// migration as a change again, and writes the status again — for
+			// ever.
+			It("removes the stale flat field even when the keyed one wins, and then settles", func() {
+				Expect(resourceutil.SetKratixWorkflowsInt64Status(parentObject, deleteKey, "suspendedGeneration", 42)).To(Succeed())
+
+				Expect(workflow.MigrateWorkflowStatus(opts, deleteKey, v1alpha1.WorkflowActionDelete)).To(BeTrue())
+
+				_, found := flatWorkflowsField(parentObject, "suspendedGeneration")
+				Expect(found).To(BeFalse())
+				Expect(workflow.MigrateWorkflowStatus(opts, deleteKey, v1alpha1.WorkflowActionDelete)).To(BeFalse())
 			})
 		})
 
@@ -135,7 +148,7 @@ var _ = Describe("Workflow status migration", func() {
 				"lastSuccessfulConfigureWorkflowTime": "2026-01-01T00:00:00Z",
 			})
 
-			Expect(workflow.MigrateWorkflowStatus(opts, deleteKey)).To(BeTrue())
+			Expect(workflow.MigrateWorkflowStatus(opts, deleteKey, v1alpha1.WorkflowActionDelete)).To(BeTrue())
 
 			Expect(resourceutil.GetKratixWorkflowsStatus(parentObject, configureKey, "lastSuccessfulTime")).
 				To(Equal("2026-01-01T00:00:00Z"))
@@ -151,7 +164,7 @@ var _ = Describe("Workflow status migration", func() {
 			Expect(unstructured.SetNestedField(parentObject.Object, int64(2), "status", "workflowsSucceeded")).To(Succeed())
 			Expect(unstructured.SetNestedField(parentObject.Object, int64(0), "status", "workflowsFailed")).To(Succeed())
 
-			Expect(workflow.MigrateWorkflowStatus(opts, configureKey)).To(BeTrue())
+			Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeTrue())
 
 			status, _, err := unstructured.NestedMap(parentObject.Object, "status")
 			Expect(err).NotTo(HaveOccurred())
@@ -160,14 +173,14 @@ var _ = Describe("Workflow status migration", func() {
 			Expect(status).NotTo(HaveKey("workflowsFailed"))
 
 			By("settling: a further run has nothing left to do", func() {
-				Expect(workflow.MigrateWorkflowStatus(opts, configureKey)).To(BeFalse())
+				Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeFalse())
 			})
 		})
 
 		It("reports no change for an object that was never on the flat layout", func() {
 			Expect(resourceutil.ResetPipelineStatusToPending(parentObject, configureKey, nil)).To(Succeed())
 
-			Expect(workflow.MigrateWorkflowStatus(opts, configureKey)).To(BeFalse())
+			Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeFalse())
 		})
 
 		Describe("lifting each pipeline's hash off its retained Job", func() {
@@ -181,14 +194,14 @@ var _ = Describe("Workflow status migration", func() {
 			})
 
 			It("takes the hash of the most recent Job that succeeded for that pipeline", func() {
-				createRetainedJob("pipeline-1-old", "pipeline-1", "hash-of-the-older-run", true)
-				createRetainedJob("pipeline-1-current", "pipeline-1", "hash-of-the-run", true)
+				createRetainedJob("pipeline-1-old", "pipeline-1", "hash-of-the-older-run", true, v1alpha1.WorkflowActionConfigure)
+				createRetainedJob("pipeline-1-current", "pipeline-1", "hash-of-the-run", true, v1alpha1.WorkflowActionConfigure)
 				// A later run that never succeeded says nothing about what the
 				// Succeeded entry ran with, so it must not supply the hash.
-				createRetainedJob("pipeline-1-failed", "pipeline-1", "hash-of-a-failed-run", false)
-				createRetainedJob("pipeline-2-current", "pipeline-2", "hash-of-the-other-run", true)
+				createRetainedJob("pipeline-1-failed", "pipeline-1", "hash-of-a-failed-run", false, v1alpha1.WorkflowActionConfigure)
+				createRetainedJob("pipeline-2-current", "pipeline-2", "hash-of-the-other-run", true, v1alpha1.WorkflowActionConfigure)
 
-				Expect(workflow.MigrateWorkflowStatus(opts, configureKey)).To(BeTrue())
+				Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeTrue())
 
 				Expect(pipelinesUnderKey(parentObject, configureKey)).To(ConsistOf(
 					SatisfyAll(
@@ -203,9 +216,9 @@ var _ = Describe("Workflow status migration", func() {
 			})
 
 			It("leaves the entry without a hash when no succeeded Job is retained for it", func() {
-				createRetainedJob("pipeline-1-failed", "pipeline-1", "hash-of-a-failed-run", false)
+				createRetainedJob("pipeline-1-failed", "pipeline-1", "hash-of-a-failed-run", false, v1alpha1.WorkflowActionConfigure)
 
-				Expect(workflow.MigrateWorkflowStatus(opts, configureKey)).To(BeTrue())
+				Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeTrue())
 
 				for _, pipeline := range pipelinesUnderKey(parentObject, configureKey) {
 					Expect(pipeline).NotTo(HaveKey("hash"))
@@ -219,10 +232,10 @@ var _ = Describe("Workflow status migration", func() {
 						map[string]any{"name": "pipeline-2", "phase": v1alpha1.WorkflowPhasePending},
 					},
 				})
-				createRetainedJob("pipeline-1-current", "pipeline-1", "hash-of-the-run", true)
-				createRetainedJob("pipeline-2-current", "pipeline-2", "hash-of-the-other-run", true)
+				createRetainedJob("pipeline-1-current", "pipeline-1", "hash-of-the-run", true, v1alpha1.WorkflowActionConfigure)
+				createRetainedJob("pipeline-2-current", "pipeline-2", "hash-of-the-other-run", true, v1alpha1.WorkflowActionConfigure)
 
-				Expect(workflow.MigrateWorkflowStatus(opts, configureKey)).To(BeTrue())
+				Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeTrue())
 
 				for _, pipeline := range pipelinesUnderKey(parentObject, configureKey) {
 					Expect(pipeline).NotTo(HaveKey("hash"))
@@ -239,13 +252,59 @@ var _ = Describe("Workflow status migration", func() {
 						},
 					},
 				})
-				createRetainedJob("pipeline-1-current", "pipeline-1", "hash-of-the-run", true)
+				createRetainedJob("pipeline-1-current", "pipeline-1", "hash-of-the-run", true, v1alpha1.WorkflowActionConfigure)
 
-				Expect(workflow.MigrateWorkflowStatus(opts, configureKey)).To(BeTrue())
+				Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeTrue())
 
 				Expect(pipelinesUnderKey(parentObject, configureKey)).To(ConsistOf(
 					HaveKeyWithValue("hash", "hash-already-recorded"),
 				))
+			})
+
+			// F3 (ADV-C3) — pipeline names are unique per workflow action, not
+			// across them, and both lanes' Jobs carry the same kratix.io/hash for
+			// the same object. A delete entry that lifts the configure Job's hash
+			// reads as complete at the current definition, so the delete pipeline
+			// is skipped and the finalizer comes off with nothing deprovisioned.
+			It("never lifts a hash from a Job of the other workflow action", func() {
+				setFlatWorkflowsStatus(parentObject, map[string]any{
+					"pipelines": []any{
+						map[string]any{"name": "main", "phase": v1alpha1.WorkflowPhaseSucceeded},
+					},
+				})
+				createRetainedJob("main-configure", "main", "hash-of-the-configure-run", true, v1alpha1.WorkflowActionConfigure)
+
+				Expect(workflow.MigrateWorkflowStatus(opts, deleteKey, v1alpha1.WorkflowActionDelete)).To(BeTrue())
+
+				By("migrating the delete entry with no hash, so the delete pipeline still runs", func() {
+					Expect(pipelinesUnderKey(parentObject, deleteKey)).To(ConsistOf(Not(HaveKey("hash"))))
+				})
+
+				By("still lifting the hash for the configure lane's own entry", func() {
+					setFlatWorkflowsStatus(parentObject, map[string]any{
+						"pipelines": []any{
+							map[string]any{"name": "main", "phase": v1alpha1.WorkflowPhaseSucceeded},
+						},
+					})
+					Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeTrue())
+					Expect(pipelinesUnderKey(parentObject, configureKey)).To(ConsistOf(
+						HaveKeyWithValue("hash", "hash-of-the-configure-run")))
+				})
+			})
+
+			It("lifts the delete lane's hash off the delete lane's own retained Job", func() {
+				setFlatWorkflowsStatus(parentObject, map[string]any{
+					"pipelines": []any{
+						map[string]any{"name": "main", "phase": v1alpha1.WorkflowPhaseSucceeded},
+					},
+				})
+				createRetainedJob("main-configure", "main", "hash-of-the-configure-run", true, v1alpha1.WorkflowActionConfigure)
+				createRetainedJob("main-delete", "main", "hash-of-the-delete-run", true, v1alpha1.WorkflowActionDelete)
+
+				Expect(workflow.MigrateWorkflowStatus(opts, deleteKey, v1alpha1.WorkflowActionDelete)).To(BeTrue())
+
+				Expect(pipelinesUnderKey(parentObject, deleteKey)).To(ConsistOf(
+					HaveKeyWithValue("hash", "hash-of-the-delete-run")))
 			})
 
 			It("fails the reconciliation when the retained Jobs cannot be listed", func() {
@@ -260,7 +319,7 @@ var _ = Describe("Workflow status migration", func() {
 				})
 				failingOpts := workflow.NewOpts(ctx, failingClient, eventRecorder, logger, parentObject, nil, "promise", 5, namespace)
 
-				changed, err := workflow.MigrateWorkflowStatus(failingOpts, configureKey)
+				changed, err := workflow.MigrateWorkflowStatus(failingOpts, configureKey, v1alpha1.WorkflowActionConfigure)
 				Expect(err).To(MatchError(listErr))
 				Expect(changed).To(BeFalse())
 
@@ -323,7 +382,7 @@ var _ = Describe("Workflow status migration", func() {
 				},
 				"lastSuccessfulConfigureWorkflowTime": "2026-01-01T00:00:00Z",
 			})
-			createRetainedJob("pipeline-1-current", "pipeline-1", "hash-of-the-run", true)
+			createRetainedJob("pipeline-1-current", "pipeline-1", "hash-of-the-run", true, v1alpha1.WorkflowActionConfigure)
 
 			opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, resources, "promise", 5, namespace)
 			passiveRequeue, err := workflow.ReconcileConfigure(opts)
@@ -441,7 +500,7 @@ func fetchPromise(name string) *unstructured.Unstructured {
 
 // createRetainedJob creates a Job carrying the labels the engine looks Jobs up
 // by today, so the hash lift can find it.
-func createRetainedJob(name, pipelineName, hash string, succeeded bool) {
+func createRetainedJob(name, pipelineName, hash string, succeeded bool, action v1alpha1.Action) {
 	GinkgoHelper()
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -453,6 +512,7 @@ func createRetainedJob(name, pipelineName, hash string, succeeded bool) {
 				v1alpha1.PromiseNameLabel:        "redis",
 				v1alpha1.PipelineNameLabel:       pipelineName,
 				v1alpha1.KratixResourceHashLabel: hash,
+				v1alpha1.WorkflowActionLabel:     string(action),
 			},
 		},
 	}

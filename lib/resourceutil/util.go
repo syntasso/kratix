@@ -407,17 +407,27 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, key str
 	}
 
 	pipeline := workflows[pipelineIndex].(map[string]any)
-	if previousPhase, ok := pipeline["phase"].(string); ok && previousPhase == status {
+	previousPhase, _ := pipeline["phase"].(string)
+	previousHash, _ := pipeline["hash"].(string)
+	jobHash := job.GetLabels()[v1alpha1.KratixResourceHashLabel]
+
+	// Both have to match to skip the write. The hash is what says which
+	// definition the recorded phase belongs to, so skipping on the phase alone
+	// left an entry that already read Succeeded (or Failed) pinned to a
+	// definition nothing ran: the entry could never settle, the caller wrote a
+	// byte-identical object, and no watch event came back to try again. The
+	// Failed half of that also rewrote its condition on every pass, which did
+	// change the object, and so re-triggered itself for ever.
+	if previousPhase == status && previousHash == jobHash {
 		return nil
 	}
-	if previousPhase, ok := pipeline["phase"].(string); ok &&
-		previousPhase == v1alpha1.WorkflowPhaseSuspended && status != v1alpha1.WorkflowPhaseSuspended {
+	if previousPhase == v1alpha1.WorkflowPhaseSuspended && status != v1alpha1.WorkflowPhaseSuspended {
 		delete(pipeline, "message")
 	}
 
 	pipeline["phase"] = status
 	pipeline["lastTransitionTime"] = metav1.Now().Format(time.RFC3339)
-	pipeline["hash"] = job.GetLabels()[v1alpha1.KratixResourceHashLabel]
+	pipeline["hash"] = jobHash
 	workflows[pipelineIndex] = pipeline
 	return unstructured.SetNestedSlice(rr.Object, workflows, pipelinesPath(key)...)
 }

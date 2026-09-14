@@ -93,6 +93,96 @@ var _ = Describe("Workflow progression", func() {
 		Expect(listJobs(namespace)).To(BeEmpty())
 	})
 
+	Describe("the delete lane", func() {
+		var deleteResources []v1alpha1.PipelineJobResources
+
+		newDeleteOpts := func() workflow.Opts {
+			return workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, parent, deleteResources, "promise", 5, namespace)
+		}
+
+		BeforeEach(func() {
+			deleteResources = deletePipelineResources(promise, pipelines[:1])
+		})
+
+		// Pins the hash comparison on the delete lane's completion arm. A
+		// recorded run of an older definition is not this definition's run, and
+		// treating it as one takes the finalizer off with the current delete
+		// pipeline never having executed.
+		It("re-runs the delete pipeline when its recorded run is of an older definition", func() {
+			writeLedger(parent, deleteKey, succeededEntry(deleteResources[0], "a-hash-from-an-older-definition"))
+
+			passiveRequeue, err := workflow.ReconcileDelete(newDeleteOpts())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(passiveRequeue).To(BeTrue())
+			Expect(jobNames()).To(ContainElement(deleteResources[0].Job.Name))
+		})
+
+		// Pins the resetAll on the delete lane's manual-reconciliation arm. A
+		// re-run by hand is a fresh run: the attempts and retry deadline of the
+		// run it replaces would otherwise be read as this run's.
+		It("clears the retry bookkeeping when the delete pipeline is re-run by hand", func() {
+			writeLedger(parent, deleteKey, map[string]any{
+				"name":        deleteResources[0].Name,
+				"phase":       v1alpha1.WorkflowPhaseSuspended,
+				"message":     "waiting for approval",
+				"attempts":    int64(3),
+				"nextRetryAt": time.Now().UTC().Add(-time.Hour).Format(time.RFC3339),
+			})
+			parent.SetLabels(map[string]string{resourceutil.ManualReconciliationLabel: "true"})
+			Expect(fakeK8sClient.Update(ctx, parent)).To(Succeed())
+
+			passiveRequeue, err := workflow.ReconcileDelete(newDeleteOpts())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(passiveRequeue).To(BeTrue())
+
+			Expect(storedLedger(parent, deleteKey)).To(ConsistOf(SatisfyAll(
+				HaveKeyWithValue("name", deleteResources[0].Name),
+				HaveKeyWithValue("phase", v1alpha1.WorkflowPhaseRunning),
+				Not(HaveKey("attempts")),
+				Not(HaveKey("nextRetryAt")),
+			)))
+		})
+
+		Describe("for a caller that owns the parent object's status", func() {
+			// Pins the ephemeral ledger on the delete lane. Such a caller's
+			// status is not the engine's to read: progression comes from the
+			// Jobs, and reading the stored ledger instead lets a status the
+			// caller wrote — or never migrated — decide that the delete
+			// pipeline has already run.
+			It("runs the delete pipeline from the Jobs alone, whatever the stored ledger says", func() {
+				writeLedger(parent, deleteKey, settledEntry(deleteResources[0]))
+				ledgerBefore := storedLedger(parent, deleteKey)
+
+				opts := newDeleteOpts()
+				opts.SkipConditions = true
+
+				passiveRequeue, err := workflow.ReconcileDelete(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(passiveRequeue).To(BeTrue())
+				Expect(jobNames()).To(ContainElement(deleteResources[0].Job.Name))
+				Expect(storedLedger(parent, deleteKey)).To(Equal(ledgerBefore))
+			})
+
+			// Pins the migration guard on the delete lane. The migration is a
+			// status write, and it is the caller's status.
+			It("never migrates the status it does not own", func() {
+				persistFlatWorkflowStatus(parent, map[string]any{
+					"pipelines": []any{
+						map[string]any{"name": deleteResources[0].Name, "phase": v1alpha1.WorkflowPhaseSucceeded},
+					},
+				})
+				statusBefore := storedStatus(parent)
+
+				opts := newDeleteOpts()
+				opts.SkipConditions = true
+
+				_, err := workflow.ReconcileDelete(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(storedStatus(parent)).To(Equal(statusBefore))
+			})
+		})
+	})
+
 	// Assertion 1.
 	It("runs only the pipeline the ledger has not recorded, not the whole workflow", func() {
 		writeLedger(parent, configureKey,
@@ -153,6 +243,36 @@ var _ = Describe("Workflow progression", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(passiveRequeue).To(BeTrue())
 		Expect(listJobs(namespace)).To(HaveLen(1))
+	})
+
+	// F1 (ADV-C1) — the workflow-wide inflight guard. Assertion 3 above only
+	// covers a second Job for the *same* pipeline; the walk stops at the first
+	// unsettled pipeline, which on a second spec edit is one the running Job
+	// does not belong to.
+	It("does not start a second Job while another pipeline of the workflow is still running", func() {
+		writeLedger(parent, configureKey,
+			succeededEntry(resources[0], "a-hash-from-an-older-definition"),
+			runningEntry(resources[1]),
+		)
+		outdated := copyJob(resources[1].Job, "outdated")
+		outdated.Labels[v1alpha1.KratixResourceHashLabel] = "a-hash-from-an-older-definition"
+		createJob(outdated, jobRunning)
+
+		By("waiting while the other pipeline's Job runs", func() {
+			passiveRequeue, err := workflow.ReconcileConfigure(newOpts())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(passiveRequeue).To(BeTrue())
+			Expect(jobNames()).To(ConsistOf(outdated.Name))
+		})
+
+		By("restarting from the first pipeline once that Job has finished", func() {
+			markRunningJobAsComplete(outdated.Name)
+
+			passiveRequeue, err := workflow.ReconcileConfigure(newOpts())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(passiveRequeue).To(BeTrue())
+			Expect(jobNames()).To(ContainElement(resources[0].Job.Name))
+		})
 	})
 
 	// Assertion 4.
@@ -240,6 +360,72 @@ var _ = Describe("Workflow progression", func() {
 		})
 	})
 
+	// F6 (UPG-I-3 / ADV-I3) — the silent stall. The only writer of the entry's
+	// hash bailed out whenever the phase it was asked to write was the phase
+	// already there, so a Succeeded entry recorded against a definition nobody
+	// ran could never be corrected: the mark wrote a byte-identical object, no
+	// watch event followed, and the workflow sat at that pipeline for ever.
+	It("corrects a Succeeded entry recorded against a definition its Job never ran", func() {
+		writeLedger(parent, configureKey,
+			succeededEntry(resources[0], "a-hash-nothing-ran"),
+			pendingEntry(resources[1]),
+		)
+		createJob(resources[0].Job, jobSucceeded)
+		opts := newOpts()
+
+		By("re-recording the hash off the Job that actually ran", func() {
+			passiveRequeue, err := workflow.ReconcileConfigure(opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(passiveRequeue).To(BeTrue())
+			Expect(storedLedger(parent, configureKey)).To(HaveExactElements(
+				SatisfyAll(
+					HaveKeyWithValue("name", "pipeline-1"),
+					HaveKeyWithValue("phase", v1alpha1.WorkflowPhaseSucceeded),
+					HaveKeyWithValue("hash", resources[0].Job.GetLabels()[v1alpha1.KratixResourceHashLabel]),
+				),
+				HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
+			))
+		})
+
+		By("advancing to the next pipeline rather than stalling on this one", func() {
+			passiveRequeue, err := workflow.ReconcileConfigure(opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(passiveRequeue).To(BeTrue())
+			Expect(jobNames()).To(ContainElement(resources[1].Job.Name))
+		})
+	})
+
+	// F6 — the hot-loop twin. A Failed entry whose hash the mark refused to
+	// update never reached the "this definition already failed" halt, so every
+	// reconcile rewrote the condition with a fresh transition time, re-triggered
+	// its own watch, and emitted another Warning.
+	It("records a failure once, then holds without rewriting the status or repeating the event", func() {
+		writeLedger(parent, configureKey,
+			map[string]any{"name": "pipeline-1", "phase": v1alpha1.WorkflowPhaseFailed, "hash": "a-hash-nothing-ran"},
+			pendingEntry(resources[1]),
+		)
+		createJob(resources[0].Job, jobFailed)
+		opts := newOpts()
+
+		passiveRequeue, err := workflow.ReconcileConfigure(opts)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(passiveRequeue).To(BeTrue())
+		settled := storedParent(parent)
+
+		By("changing nothing at all on the reconciliations after the failure is recorded", func() {
+			for range 2 {
+				passiveRequeue, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(passiveRequeue).To(BeTrue())
+				Expect(storedParent(parent)).To(Equal(settled))
+			}
+		})
+
+		By("emitting exactly one failure event for the one failure", func() {
+			Expect(countEvents(eventRecorder, resourceutil.ConfigureWorkflowCompletedFailedReason)).To(Equal(1))
+		})
+	})
+
 	Describe("a caller that owns the parent object's status", func() {
 		// Assertion 7a — the whole ephemeral-ledger path. A controller that
 		// embeds the workflow engine gets its progression from the Jobs alone,
@@ -258,6 +444,113 @@ var _ = Describe("Workflow progression", func() {
 
 			Expect(listJobs(namespace)).To(HaveLen(2))
 			Expect(storedParent(parent)).To(Equal(before))
+		})
+
+		// F2 (ADV-C2 / UPG-I-1) — the ephemeral ledger read a failed Job as
+		// "nothing has run yet", so the walk took the Pending arm and created a
+		// fresh Job on every reconcile, for ever, and never pruned the pile it
+		// was building.
+		It("halts on a failed Job instead of starting the pipeline again, and still prunes the Job pile", func() {
+			older := copyJob(resources[0].Job, "older")
+			createJob(older, jobFailed)
+			createJob(resources[0].Job, jobFailed)
+
+			opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, parent, resources, "promise", 1, namespace)
+			opts.SkipConditions = true
+
+			passiveRequeue, err := workflow.ReconcileConfigure(opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(passiveRequeue).To(BeTrue())
+
+			By("starting no pipeline", func() {
+				Expect(countEvents(eventRecorder, "PipelineStarted")).To(Equal(0))
+			})
+
+			By("pruning the failed run's Jobs down to numberOfJobsToKeep", func() {
+				Expect(jobNames()).To(ConsistOf(resources[0].Job.Name))
+			})
+		})
+
+		// F2 — the other half of the ephemeral ledger's evidence test: a Job
+		// that is still running proves nothing, and reading it as a success
+		// walks straight past a pipeline that has not finished.
+		It("waits for a running Job rather than reporting the workflow complete", func() {
+			singlePromise, singlePipelines := progressionPromise("pipeline-1")
+			singleResources, singleParent := setupTest(singlePromise, singlePipelines)
+			createJob(singleResources[0].Job, jobRunning)
+
+			opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, singleParent, singleResources, "promise", 5, namespace)
+			opts.SkipConditions = true
+
+			passiveRequeue, err := workflow.ReconcileConfigure(opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(passiveRequeue).To(BeTrue())
+			Expect(countEvents(eventRecorder, "PipelineStarted")).To(Equal(0))
+		})
+
+		// F7 (ADV-I2) — the label flows were behind the SkipConditions fork, so
+		// for a controller that embeds the engine a manual reconciliation did
+		// nothing at all: the running Job was not suspended, the pipeline was
+		// not re-run, and the label was never removed, so it stuck on the
+		// object for ever.
+		It("honours the manual-reconciliation label without touching the status", func() {
+			writeLedger(parent, configureKey, settledEntry(resources[0]), settledEntry(resources[1]))
+			createJob(resources[0].Job, jobRunning)
+			parent.SetLabels(map[string]string{resourceutil.ManualReconciliationLabel: "true"})
+			Expect(fakeK8sClient.Update(ctx, parent)).To(Succeed())
+
+			opts := newOpts()
+			opts.SkipConditions = true
+			ledgerBefore := storedLedger(parent, configureKey)
+			statusBefore := storedStatus(parent)
+
+			By("suspending the Job that is running", func() {
+				passiveRequeue, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(passiveRequeue).To(BeTrue())
+
+				job := &batchv1.Job{}
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resources[0].Job.Name, Namespace: namespace}, job)).To(Succeed())
+				Expect(job.Spec.Suspend).To(HaveValue(BeTrue()))
+			})
+
+			markJobAsSuspended(resources[0].Job.Name)
+
+			By("re-running the workflow and taking the label off once the Job has stopped", func() {
+				passiveRequeue, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(passiveRequeue).To(BeTrue())
+				Expect(countEvents(eventRecorder, "PipelineStarted")).To(Equal(1))
+
+				Expect(storedParent(parent).GetLabels()).NotTo(HaveKey(resourceutil.ManualReconciliationLabel))
+			})
+
+			By("leaving every byte of the status the caller owns alone", func() {
+				Expect(storedStatus(parent)).To(Equal(statusBefore))
+				Expect(parent.Object["status"]).To(Equal(statusBefore))
+				Expect(storedLedger(parent, configureKey)).To(Equal(ledgerBefore))
+			})
+		})
+
+		// Pins the range check on the suspended pipeline index. The engine
+		// neither seeds nor prunes the ledger of a caller that owns its status,
+		// so the entry the index points at may not be a pipeline of this
+		// workflow at all — and indexing the workflow's pipelines with it takes
+		// the whole controller down with an out-of-range panic.
+		It("ignores a suspended entry that is past the end of the workflow", func() {
+			writeLedger(parent, configureKey,
+				pendingEntry(resources[0]),
+				pendingEntry(resources[1]),
+				map[string]any{"name": "a-pipeline-of-theirs", "phase": v1alpha1.WorkflowPhaseSuspended},
+			)
+
+			opts := newOpts()
+			opts.SkipConditions = true
+
+			passiveRequeue, err := workflow.ReconcileConfigure(opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(passiveRequeue).To(BeTrue())
+			Expect(jobNames()).To(ContainElement(resources[0].Job.Name))
 		})
 
 		// Assertion 7b — the documented one-time re-sync at upgrade. Jobs
@@ -486,6 +779,140 @@ var _ = Describe("Workflow progression", func() {
 		Expect(listJobs(namespace)).To(ConsistOf(HaveField("Name", resources[0].Job.Name)))
 	})
 
+	// Pins nextWorkflowStep's empty-phase disjunct. An entry that records no
+	// phase records no run, so the pipeline runs: adopting a Job for it would
+	// settle a pipeline against a run the ledger cannot account for.
+	It("runs a pipeline whose entry records no phase at all", func() {
+		writeLedger(parent, configureKey,
+			map[string]any{"name": "pipeline-1"},
+			pendingEntry(resources[1]),
+		)
+		createJob(resources[0].Job, jobSucceeded)
+
+		passiveRequeue, err := workflow.ReconcileConfigure(newOpts())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(passiveRequeue).To(BeTrue())
+
+		Expect(countEvents(eventRecorder, "PipelineStarted")).To(Equal(1))
+		Expect(storedLedger(parent, configureKey)).To(ContainElement(SatisfyAll(
+			HaveKeyWithValue("name", "pipeline-1"),
+			HaveKeyWithValue("phase", v1alpha1.WorkflowPhaseRunning),
+		)))
+	})
+
+	// Pins seedAndPruneLedger's out-of-order detection. The ledger is what
+	// people read to see how far the workflow got, so it is stored in the order
+	// the workflow runs its pipelines, not the order the entries happen to
+	// arrive in after a reorder.
+	It("puts a reordered ledger back into the workflow's own order before running anything", func() {
+		writeLedger(parent, configureKey, pendingEntry(resources[1]), pendingEntry(resources[0]))
+
+		passiveRequeue, err := workflow.ReconcileConfigure(newOpts())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(passiveRequeue).To(BeTrue())
+
+		Expect(storedLedger(parent, configureKey)).To(HaveExactElements(
+			HaveKeyWithValue("name", "pipeline-1"),
+			HaveKeyWithValue("name", "pipeline-2"),
+		))
+		Expect(jobNames()).To(BeEmpty())
+	})
+
+	Describe("a pipeline resumed after its suspension is lifted", func() {
+		BeforeEach(func() {
+			writeLedger(parent, configureKey,
+				settledEntry(resources[0]),
+				map[string]any{
+					"name":        "pipeline-2",
+					"phase":       v1alpha1.WorkflowPhaseSuspended,
+					"message":     "waiting for approval",
+					"attempts":    int64(3),
+					"nextRetryAt": time.Now().UTC().Add(-time.Hour).Format(time.RFC3339),
+				},
+			)
+		})
+
+		// Pins the resume path's resetNone. The retry bookkeeping lives on the
+		// entry being resumed, and resetting the ledger wholesale throws away
+		// both it and every other pipeline's recorded run.
+		It("resumes in place, keeping its retry bookkeeping and the entries around it", func() {
+			passiveRequeue, err := workflow.ReconcileConfigure(newOpts())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(passiveRequeue).To(BeTrue())
+
+			Expect(storedLedger(parent, configureKey)).To(HaveExactElements(
+				SatisfyAll(
+					HaveKeyWithValue("name", "pipeline-1"),
+					HaveKeyWithValue("phase", v1alpha1.WorkflowPhaseSucceeded),
+				),
+				SatisfyAll(
+					HaveKeyWithValue("name", "pipeline-2"),
+					HaveKeyWithValue("phase", v1alpha1.WorkflowPhaseRunning),
+					HaveKeyWithValue("attempts", int64(3)),
+				),
+			))
+			Expect(jobNames()).To(ContainElement(resources[1].Job.Name))
+		})
+
+		// Pins the wait on the resume path. A suspension lifted while the
+		// pipeline's Job is still running must not start a second one.
+		It("waits when a Job of the workflow is still running", func() {
+			createJob(resources[1].Job, jobRunning)
+
+			passiveRequeue, err := workflow.ReconcileConfigure(newOpts())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(passiveRequeue).To(BeTrue())
+
+			Expect(countEvents(eventRecorder, "PipelineStarted")).To(Equal(0))
+			Expect(storedLedger(parent, configureKey)).To(ContainElement(SatisfyAll(
+				HaveKeyWithValue("name", "pipeline-2"),
+				HaveKeyWithValue("phase", v1alpha1.WorkflowPhaseSuspended),
+			)))
+		})
+
+		// Pins the cleanup on the resume path: a resumed workflow returns
+		// before the walk's completion branch, so this is the only pass that
+		// can prune what earlier runs left behind.
+		It("prunes the Works of pipelines the workflow no longer has", func() {
+			stale := &v1alpha1.Work{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "work-of-a-removed-pipeline",
+					Namespace: namespace,
+					Labels: resourceutil.GetWorkLabels(promise.GetName(), "", "",
+						"a-pipeline-the-workflow-no-longer-has", v1alpha1.WorkTypePromise),
+				},
+			}
+			Expect(fakeK8sClient.Create(ctx, stale)).To(Succeed())
+
+			_, err := workflow.ReconcileConfigure(newOpts())
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+				Name: stale.Name, Namespace: stale.Namespace,
+			}, &v1alpha1.Work{})).To(MatchError(ContainSubstring("not found")))
+		})
+	})
+
+	// Pins resetPipelinesAfter's three no-op guards together: it unwinds only
+	// the entries *after* the pipeline being run, leaves the ones already
+	// Pending alone, and writes nothing when it changed nothing. A needless
+	// status write here is a watch event, and a watch event on this path is
+	// another reconcile that writes again.
+	It("writes no status at all when re-running a pipeline leaves the rest of the ledger alone", func() {
+		writeLedger(parent, configureKey, runningEntry(resources[0]), pendingEntry(resources[1]))
+		resourceutil.SetStatus(parent, logger, "message", "Pending")
+		resourceutil.MarkReconciledPending(parent, "WorkflowPending")
+		Expect(fakeK8sClient.Status().Update(ctx, parent)).To(Succeed())
+		before := storedParent(parent)
+
+		passiveRequeue, err := workflow.ReconcileConfigure(newOpts())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(passiveRequeue).To(BeTrue())
+
+		Expect(jobNames()).To(ContainElement(resources[0].Job.Name))
+		Expect(storedParent(parent)).To(Equal(before))
+	})
+
 	// Assertion 15 — an entry can go missing (an editor, a partial status
 	// write, a pipeline added to the workflow), and the marks the engine makes
 	// fail hard with "no pipeline found for job" when it does.
@@ -629,6 +1056,26 @@ func storedLedger(parent *unstructured.Unstructured, key string) []any {
 	return entries
 }
 
+// jobNames lists the Jobs by name alone: an assertion on the Jobs themselves
+// prints a whole PodSpec per Job when it fails, which buries what went wrong.
+func jobNames() []string {
+	GinkgoHelper()
+	names := []string{}
+	for _, job := range listJobs(namespace) {
+		names = append(names, job.Name)
+	}
+	return names
+}
+
+// storedStatus is the parent object's whole status as the API server holds it.
+// A caller that owns the status is entitled to have none of it written, and
+// comparing the status alone keeps the label writes the engine does make —
+// metadata, not status — out of the assertion.
+func storedStatus(parent *unstructured.Unstructured) any {
+	GinkgoHelper()
+	return storedParent(parent).Object["status"]
+}
+
 func settledEntry(resource v1alpha1.PipelineJobResources) map[string]any {
 	return succeededEntry(resource, resource.Job.GetLabels()[v1alpha1.KratixResourceHashLabel])
 }
@@ -701,6 +1148,19 @@ func createJob(job *batchv1.Job, outcome jobOutcome) {
 	case jobFailed:
 		markJobAsFailed(job.Name)
 	}
+}
+
+// markRunningJobAsComplete is what the Job controller does when a Job that had
+// an active Pod finishes: the Complete condition alone leaves status.active at
+// 1, which still reads as running.
+func markRunningJobAsComplete(name string) {
+	GinkgoHelper()
+	job := &batchv1.Job{}
+	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, job)).To(Succeed())
+	job.Status.Active = 0
+	job.Status.Succeeded = 1
+	job.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: v1.ConditionTrue}}
+	Expect(fakeK8sClient.Status().Update(ctx, job)).To(Succeed())
 }
 
 // markJobAsSuspended is what the Job controller does once spec.suspend takes

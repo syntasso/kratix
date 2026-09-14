@@ -509,15 +509,43 @@ func (r *PromiseReconciler) setPromiseUnavailableStatusConditions(
 	return r.Client.Status().Update(ctx, promise)
 }
 
-func resetPromiseWorkflowPipelinesToPending(promise *v1alpha1.Promise) {
-	configure := promise.Status.Kratix.Workflows.Get(configureWorkflowStatusKey)
-	configure.SuspendedGeneration = 0
-	for i := range configure.Pipelines {
-		configure.Pipelines[i].Phase = v1alpha1.WorkflowPhasePending
-		configure.Pipelines[i].Message = ""
-		configure.Pipelines[i].LastTransitionTime = metav1.Now()
+// resetPromiseWorkflowPipelinesToPending unwinds the ledger of the workflow
+// under key so it runs again from its first pipeline. The suspended generation
+// goes with it: leaving it behind makes the next reconcile read the Promise as
+// still suspended at a generation it has already moved past.
+func resetPromiseWorkflowPipelinesToPending(promise *v1alpha1.Promise, key string) {
+	workflowStatus := promiseWorkflowStatus(promise, key)
+	workflowStatus.SuspendedGeneration = 0
+	for i := range workflowStatus.Pipelines {
+		workflowStatus.Pipelines[i].Phase = v1alpha1.WorkflowPhasePending
+		workflowStatus.Pipelines[i].Message = ""
+		workflowStatus.Pipelines[i].LastTransitionTime = metav1.Now()
 	}
-	promise.Status.Kratix.Workflows.Set(configureWorkflowStatusKey, configure)
+	// Written back explicitly: Get returns a copy, so without this the cleared
+	// suspended generation is discarded and the Promise reads as suspended for
+	// ever at the generation it was suspended on.
+	promise.Status.Kratix.Workflows.Set(key, workflowStatus)
+}
+
+// promiseWorkflowStatus returns the workflow status under key, falling back to
+// the pre-keyed flat layout when the object has not been migrated yet.
+//
+// The fallback is transitional. A Promise suspended before the upgrade decodes
+// its whole flat workflow status into LegacyRaw, so Get(key) is the zero value;
+// only the engine migrates it, and the suspended branch returns before the
+// engine is ever reached. Without this the retry deadline and the suspended
+// generation are both invisible: no requeue is scheduled, no watch event
+// follows, and even a spec change cannot un-suspend the Promise. Remove it when
+// the flat layout can no longer be encountered.
+func promiseWorkflowStatus(promise *v1alpha1.Promise, key string) v1alpha1.WorkflowStatus {
+	workflowStatus := promise.Status.Kratix.Workflows.Get(key)
+	if len(workflowStatus.Pipelines) > 0 || workflowStatus.SuspendedGeneration != 0 {
+		return workflowStatus
+	}
+	if legacy := promise.Status.Kratix.Workflows.Legacy(); legacy != nil {
+		return *legacy
+	}
+	return workflowStatus
 }
 
 func (r *PromiseReconciler) generateConditions(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
@@ -1011,7 +1039,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		promise.Labels[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
-	suspendedGeneration := promise.Status.Kratix.Workflows.Get(configureWorkflowStatusKey).SuspendedGeneration
+	suspendedGeneration := promiseWorkflowStatus(promise, configureWorkflowStatusKey).SuspendedGeneration
 	promiseSpecChanged := suspendedGeneration != 0 && promise.GetGeneration() > suspendedGeneration
 
 	if restarted, err := r.restartOnReconciliationInterval(o.ctx, o.logger, promise, completedCond, forcePipelineRun); restarted || err != nil {
@@ -1031,7 +1059,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	}
 
 	if shouldRequeue, result, suspendErr := r.reconcileSuspendedWorkflow(o, promise,
-		promiseSpecChanged); shouldRequeue || result != nil || suspendErr != nil {
+		configureWorkflowStatusKey, promiseSpecChanged); shouldRequeue || result != nil || suspendErr != nil {
 
 		return shouldRequeue, result, suspendErr
 	}
@@ -1061,9 +1089,15 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	return false, nil, nil
 }
 
+// reconcileSuspendedWorkflow handles a Promise whose workflow is suspended. key
+// says which lane is suspended: the delete lane suspends itself under
+// status.kratix.workflows.delete, and reading it at the configure key found no
+// retry to schedule, so a suspended delete workflow never resumed and the
+// delete finalizer was never removed.
 func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 	o opts,
 	promise *v1alpha1.Promise,
+	key string,
 	promiseSpecChanged bool,
 ) (bool, *ctrl.Result, error) {
 	var result *ctrl.Result
@@ -1085,7 +1119,7 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 		if err := r.Client.Get(o.ctx, client.ObjectKeyFromObject(promise), updatedPromise); err != nil {
 			return true, result, err
 		}
-		resetPromiseWorkflowPipelinesToPending(updatedPromise)
+		resetPromiseWorkflowPipelinesToPending(updatedPromise, key)
 		return true, result, r.Client.Status().Update(o.ctx, updatedPromise)
 	}
 
@@ -1093,7 +1127,7 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 	logging.Info(r.Log, msg)
 	r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, workflowSuspendedReason, workflowSuspendedReason, "%s", msg)
 
-	retryAtTime, err := nextRetryAt(*promise)
+	retryAtTime, err := nextRetryAt(*promise, key)
 	if err != nil {
 		return true, result, err
 	}
@@ -1589,7 +1623,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 }
 
 func (r *PromiseReconciler) handleSuspendedDeleteWorkflow(o opts, promise *v1alpha1.Promise) (bool, ctrl.Result, error) {
-	shouldRequeue, result, err := r.reconcileSuspendedWorkflow(o, promise, false)
+	shouldRequeue, result, err := r.reconcileSuspendedWorkflow(o, promise, deleteWorkflowStatusKey, false)
 	if !shouldRequeue && result == nil && err == nil {
 		return false, ctrl.Result{}, nil
 	}
@@ -2269,10 +2303,10 @@ func promiseWorkflowCompletedWithFailure(completedCond *metav1.Condition) bool {
 		completedCond.Reason == resourceutil.ConfigureWorkflowCompletedFailedReason
 }
 
-func nextRetryAt(promise v1alpha1.Promise) (time.Time, error) {
+func nextRetryAt(promise v1alpha1.Promise, key string) (time.Time, error) {
 	var retryTime time.Time
 	var err error
-	for _, pipeline := range promise.Status.Kratix.Workflows.Get(configureWorkflowStatusKey).Pipelines {
+	for _, pipeline := range promiseWorkflowStatus(&promise, key).Pipelines {
 		if pipeline.Phase == v1alpha1.WorkflowPhaseSuspended && pipeline.NextRetryAt != "" {
 			retryTime, err = time.Parse(time.RFC3339, pipeline.NextRetryAt)
 			if err != nil {

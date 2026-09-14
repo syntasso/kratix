@@ -151,6 +151,32 @@ var _ = Describe("UpdateStatus", func() {
 				Expect(storedForeignEntryJSON()).To(Equal(foreignEntryJSON))
 			})
 
+			// The key is the workflow action as the pipeline factory hands it to
+			// this container. Writing it verbatim would file the entry under a
+			// key of its own — "Configure" beside "configure" — where the engine
+			// that reads the ledger never looks.
+			It("keys by the workflow action whatever case it arrives in", func() {
+				params.WorkflowAction = v1alpha1.Action("Configure")
+				newClient(newObject(map[string]any{
+					"configure": map[string]any{
+						"pipelines": []any{
+							map[string]any{"name": "pipeline-b", "phase": "Running"},
+						},
+					},
+				}))
+
+				Expect(UpdateStatus(ctx, baseDir, params, objectClient())).To(Succeed())
+
+				Expect(storedWorkflows()).NotTo(HaveKey("Configure"))
+				pipelines, found, err := unstructured.NestedSlice(storedWorkflows(), "configure", "pipelines")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeTrue(), "no pipelines stored under workflow key \"configure\"")
+				Expect(pipelines).To(ContainElement(SatisfyAll(
+					HaveKeyWithValue("name", "pipeline-b"),
+					HaveKeyWithValue("phase", "Suspended"),
+				)))
+			})
+
 			It("suspends the pipeline under the delete workflow on a delete run", func() {
 				params.WorkflowAction = v1alpha1.WorkflowActionDelete
 				newClient(newObject(map[string]any{

@@ -42,14 +42,10 @@ func flatWorkflowsPath(field string) []string {
 // the flat layout after the migration has already run, and the keyed layout is
 // the truth from then on. Running the migration twice therefore reports no change
 // the second time.
-func migrateWorkflowStatus(opts Opts, key string) (bool, error) {
-	if opts.parentObject == nil {
-		return false, nil
-	}
-
+func migrateWorkflowStatus(opts Opts, key string, action v1alpha1.Action) (bool, error) {
 	changed := false
 
-	pipelinesMoved, err := migrateFlatPipelines(opts, key)
+	pipelinesMoved, err := migrateFlatPipelines(opts, key, action)
 	if pipelinesMoved {
 		changed = true
 	}
@@ -92,7 +88,7 @@ func migrateWorkflowStatus(opts Opts, key string) (bool, error) {
 // on the way. The entries are moved verbatim and in order — the migration never
 // invents an entry for a pipeline the old ledger did not know about, and never
 // re-orders the ones it did.
-func migrateFlatPipelines(opts Opts, key string) (bool, error) {
+func migrateFlatPipelines(opts Opts, key string, action v1alpha1.Action) (bool, error) {
 	obj := opts.parentObject
 
 	flatPipelines, found, err := unstructured.NestedSlice(obj.Object, flatWorkflowsPath(flatPipelinesField)...)
@@ -110,7 +106,7 @@ func migrateFlatPipelines(opts Opts, key string) (bool, error) {
 	}
 
 	if !keyedFound {
-		if err = liftPipelineHashes(opts, flatPipelines); err != nil {
+		if err = liftPipelineHashes(opts, action, flatPipelines); err != nil {
 			return false, err
 		}
 		if err = unstructured.SetNestedSlice(obj.Object, flatPipelines, keyedPath...); err != nil {
@@ -184,7 +180,7 @@ func removeLegacyStatusCounters(obj *unstructured.Unstructured) bool {
 // not finish, so pinning it to a hash would suppress the re-run it still needs.
 // An entry whose Job has already been cleaned up keeps no hash and re-runs once;
 // that is cheaper than guessing a hash the pipeline may not have run with.
-func liftPipelineHashes(opts Opts, pipelines []any) error {
+func liftPipelineHashes(opts Opts, action v1alpha1.Action, pipelines []any) error {
 	for _, entry := range pipelines {
 		pipeline, ok := entry.(map[string]any)
 		if !ok {
@@ -201,7 +197,7 @@ func liftPipelineHashes(opts Opts, pipelines []any) error {
 			continue
 		}
 
-		hash, err := hashOfMostRecentSucceededJob(opts, name)
+		hash, err := hashOfMostRecentSucceededJob(opts, action, name)
 		if err != nil {
 			return err
 		}
@@ -215,13 +211,21 @@ func liftPipelineHashes(opts Opts, pipelines []any) error {
 // hashOfMostRecentSucceededJob returns the kratix.io/hash of the newest retained
 // Job that succeeded for pipelineName, or "" when there is none.
 //
+// It looks only at Jobs of the workflow action being migrated. Pipeline names
+// are unique per (workflow type, workflow action), not across actions, so a
+// Promise may legally give its resource.delete pipeline the same name as a
+// resource.configure one — and both lanes' Jobs carry the same kratix.io/hash
+// for the same object. Without the action in the selector the delete entry
+// lifts the configure Job's hash, reads as already complete at the current
+// definition, and the delete pipeline is skipped while the finalizer comes off.
+//
 // It looks only at Jobs carrying the current labels. Jobs from before the
 // kratix.io/work-* labels were renamed are deliberately not consulted: a cluster
 // old enough to still have them is old enough that the run they describe is no
 // longer the one the entry claims. Those entries migrate without a hash and
 // re-run once.
-func hashOfMostRecentSucceededJob(opts Opts, pipelineName string) (string, error) {
-	jobLabels := labelsForJobs(opts)
+func hashOfMostRecentSucceededJob(opts Opts, action v1alpha1.Action, pipelineName string) (string, error) {
+	jobLabels := labelsForWorkflowJobs(opts, action)
 	jobLabels[v1alpha1.PipelineNameLabel] = pipelineName
 
 	jobs, err := getJobsWithLabels(opts, jobLabels, opts.namespace)

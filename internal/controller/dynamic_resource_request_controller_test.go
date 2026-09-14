@@ -344,7 +344,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						"phase":       "Suspended",
 						"nextRetryAt": time.Now().UTC().Add(-time.Hour).Format(time.RFC3339),
 					},
-				}, "status", "kratix", "workflows", configureKey, "pipelines")).To(Succeed())
+				}, "status", "kratix", "workflows", deleteKey, "pipelines")).To(Succeed())
 				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
 				controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
@@ -376,7 +376,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						"phase":   "Suspended",
 						"message": "waiting for approval before deleting",
 					},
-				}, "status", "kratix", "workflows", configureKey, "pipelines")).To(Succeed())
+				}, "status", "kratix", "workflows", deleteKey, "pipelines")).To(Succeed())
 				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
 				controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
@@ -393,6 +393,31 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(condition).NotTo(BeNil())
 				Expect(condition.Status).To(Equal(v1.ConditionFalse))
 				Expect(condition.Reason).To(Equal(resourceutil.DeleteWorkflowSuspendedReason))
+			})
+
+			// F5 (UPG-I-2) — the suspended-delete handler reuses the configure
+			// lane's handler, and its manual-reconcile arm reset "the" pipeline
+			// status: with the configure key hard-coded it replaced the configure
+			// ledger with the delete workflow's pipelines (here: none at all) on
+			// an object that may well outlive the delete attempt.
+			It("resets the delete lane, not the configure ledger, when it is manually reconciled", func() {
+				seedResourceConfigureWorkflowPipelines(resReq, "first-pipeline")
+
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				resourceLabels := resReq.GetLabels()
+				resourceLabels[resourceutil.ManualReconciliationLabel] = "true"
+				resReq.SetLabels(resourceLabels)
+				Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+				_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				configurePipelines, found, err := unstructured.NestedSlice(resReq.Object,
+					"status", "kratix", "workflows", configureKey, "pipelines")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeTrue(), "the configure ledger was removed by the delete lane")
+				Expect(configurePipelines).To(ConsistOf(HaveKeyWithValue("name", "first-pipeline")))
 			})
 
 			It("also sets the Reconciled condition to Suspended", func() {
@@ -1578,6 +1603,52 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(reconciled).NotTo(BeNil())
 				Expect(reconciled.Status).To(Equal(v1.ConditionUnknown))
 				Expect(reconciled.Reason).To(Equal("Unpaused"))
+			})
+		})
+
+		// F4 (UPG-C-1) — a resource suspended before the upgrade carries the
+		// pre-keyed flat ledger. The migration lives inside the engine and the
+		// suspended branch returns before the engine is ever called, so reading
+		// only the keyed path made the retry invisible: no RequeueAfter, no
+		// watch event, and a spec change could not un-suspend it either,
+		// because suspendedGeneration read 0.
+		When("it was suspended before the workflow status was keyed by workflow", func() {
+			BeforeEach(func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				pipelines, found, err := unstructured.NestedSlice(resReq.Object,
+					"status", "kratix", "workflows", configureKey, "pipelines")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeTrue())
+				pipeline := pipelines[0].(map[string]any)
+				pipeline["nextRetryAt"] = time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+				pipelines[0] = pipeline
+
+				unstructured.RemoveNestedField(resReq.Object, "status", "kratix", "workflows", configureKey)
+				Expect(unstructured.SetNestedSlice(resReq.Object, pipelines,
+					"status", "kratix", "workflows", "pipelines")).To(Succeed())
+				Expect(unstructured.SetNestedField(resReq.Object, int64(1),
+					"status", "kratix", "workflows", "suspendedGeneration")).To(Succeed())
+				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+			})
+
+			It("schedules the retry the flat ledger recorded", func() {
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).NotTo(BeZero())
+			})
+
+			It("still runs the workflow from the start when the spec changes while it is suspended", func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				resReq.SetGeneration(2)
+				Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				Expect(resReq.GetLabels()).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+				Expect(resReq.GetLabels()).To(HaveKeyWithValue(resourceutil.WorkflowRunFromStartLabel, "true"))
 			})
 		})
 
