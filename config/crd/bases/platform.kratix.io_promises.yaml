@@ -257,37 +257,12 @@ spec:
                       if installed via one
                     type: string
                   workflows:
-                    description: Status of the Workflow execution
-                    properties:
-                      pipelines:
-                        description: Status of the Pipeline execution
-                        items:
-                          properties:
-                            attempts:
-                              format: int64
-                              type: integer
-                            lastTransitionTime:
-                              description: Last transition time of the workflow
-                              format: date-time
-                              type: string
-                            message:
-                              description: Message from the suspended pipeline
-                              type: string
-                            name:
-                              description: Name of the workflow
-                              type: string
-                            nextRetryAt:
-                              type: string
-                            phase:
-                              description: Phase of the workflow
-                              type: string
-                          type: object
-                        type: array
-                      suspendedGeneration:
-                        description: Generation at which the workflow was suspended
-                        format: int64
-                        type: integer
+                    description: |-
+                      Status of the Workflow execution, keyed by workflow. Kratix's own workflows
+                      are keyed by workflow action ("configure", "delete"); controllers that embed
+                      the workflow engine use their own key.
                     type: object
+                    x-kubernetes-preserve-unknown-fields: true
                 type: object
               lastAvailableTime:
                 description: Timestamp of when this Promise was last in an Available

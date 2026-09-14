@@ -28,7 +28,11 @@ const (
 	removeAllWorkflowJobsFinalizer = v1alpha1.KratixPrefix + "workflows-cleanup"
 	runDeleteWorkflowsFinalizer    = v1alpha1.KratixPrefix + "delete-workflows"
 	promiseLogKey                  = "promise"
-	resourceRequestLogKey          = "resourceRequest"
+	// The status.kratix.workflows keys Kratix's own workflows store their
+	// pipeline statuses under.
+	configureWorkflowStatusKey = string(v1alpha1.WorkflowActionConfigure)
+	deleteWorkflowStatusKey    = string(v1alpha1.WorkflowActionDelete)
+	resourceRequestLogKey      = "resourceRequest"
 	// DefaultReconciliationInterval is the fallback reconciliation interval for re-running
 	// workflows, used when neither the resolved PromiseRevision nor the live Promise spec
 	// declares its own reconciliationInterval.

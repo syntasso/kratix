@@ -181,8 +181,14 @@ type KratixPromiseStatus struct {
 	// Timestamp of when this Promise was last in an Available state
 	LastAvailableTime *metav1.Time `json:"lastAvailableTime,omitempty"`
 
-	// Status of the Workflow execution
-	Workflows WorkflowStatus `json:"workflows,omitempty"`
+	// Status of the Workflow execution, keyed by workflow. Kratix's own workflows
+	// are keyed by workflow action ("configure", "delete"); controllers that embed
+	// the workflow engine use their own key.
+	// +optional
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:validation:Type=object
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Workflows WorkflowsStatus `json:"workflows,omitempty"`
 }
 
 type WorkflowStatus struct {
@@ -191,6 +197,9 @@ type WorkflowStatus struct {
 
 	// Generation at which the workflow was suspended
 	SuspendedGeneration int64 `json:"suspendedGeneration,omitempty"`
+
+	// Timestamp of the last successful completion of this workflow
+	LastSuccessfulTime string `json:"lastSuccessfulTime,omitempty"`
 }
 
 type WorkflowPipelineStatus struct {
@@ -206,6 +215,10 @@ type WorkflowPipelineStatus struct {
 	NextRetryAt string `json:"nextRetryAt,omitempty"`
 
 	Attempts int64 `json:"attempts,omitempty"`
+
+	// Hash of the inputs the last run of this pipeline saw (the kratix.io/hash
+	// Job label). A Succeeded entry carrying any other hash is re-run.
+	Hash string `json:"hash,omitempty"`
 
 	// Last transition time of the workflow
 	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty"`
@@ -528,10 +541,21 @@ const (
 	WorkflowPhaseSuspended = "Suspended"
 )
 
+// ClearPipelineExecutionStatus removes the workflow status Kratix core owns — the
+// "configure" and "delete" keys, plus any pre-keyed flat layout still stored.
+// Keys a controller that embeds the workflow engine wrote are left alone.
 func (p *Promise) ClearPipelineExecutionStatus() bool {
-	changed := len(p.Status.Kratix.Workflows.Pipelines) != 0
+	workflows := p.Status.Kratix.Workflows
+	changed := false
 
-	p.Status.Kratix.Workflows.Pipelines = nil
+	for _, action := range []Action{WorkflowActionConfigure, WorkflowActionDelete} {
+		key := string(action)
+		if status, found := workflows[key]; found {
+			changed = changed || len(status.Pipelines) != 0
+			delete(workflows, key)
+		}
+	}
+
 	return changed
 }
 

@@ -64,7 +64,9 @@ var _ = Describe("Core Tests", Ordered, func() {
 
 		It("should deliver xaas to users", func() {
 			var originalPromiseConfigMapTimestamp1 string
-			pipelinesExecutionStatusPath := ".status.kratix.workflows.pipelines"
+			// The pipeline statuses are keyed by workflow action; these specs only
+			// assert on the configure lane.
+			pipelinesExecutionStatusPath := ".status.kratix.workflows.configure.pipelines"
 			By("successfully installing a Promise", func() {
 				Expect(platform.Kubectl("apply", "-f", "assets/promise.yaml")).To(ContainSubstring("testbundle created"))
 
@@ -195,7 +197,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 							var parsedOutput [][]v1alpha1.WorkflowPipelineStatus // jsonpath-as-json returns a nested array of the target objects
 							jsonOutput := platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath-as-json={%s}`, pipelinesExecutionStatusPath))...)
 							json.Unmarshal([]byte(jsonOutput), &parsedOutput)
-							// TODO: remove after releasing: only assert if '.kratix.workflows.pipelines' is set
+							// TODO: remove after releasing: only assert if '.kratix.workflows.configure.pipelines' is set
 							if len(parsedOutput) != 0 {
 								g.Expect(parsedOutput).To(HaveLen(1))
 								workflowPipelines := parsedOutput[0]
@@ -256,14 +258,17 @@ var _ = Describe("Core Tests", Ordered, func() {
 						)
 
 						// TODO: remove after releasing: for downgrade tests, we don't have the .status.kratix.workflows field, so we return true if it's not present.
+						// The parent .status.kratix.workflows field is unchanged by the keyed layout; only what sits under it moved.
 						if platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows}`)...) == "" {
 							return true
 						}
 
 						// If it is present, it should be set to the time the workflow finished with the right reason.
-						lastSuccessful := platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows.lastSuccessfulConfigureWorkflowTime}`)...)
+						// The same time is also still written to the legacy top-level
+						// .status.lastSuccessfulConfigureWorkflowTime, which interval scheduling reads.
+						lastSuccessful := platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows.configure.lastSuccessfulTime}`)...)
 						return transitionTime == lastSuccessful
-					}, timeout, interval).Should(BeTrue(), "lastTransitionTime should be equal to kratix.workflows.lastSuccessfulConfigureWorkflowTime")
+					}, timeout, interval).Should(BeTrue(), "lastTransitionTime should be equal to kratix.workflows.configure.lastSuccessfulTime")
 
 					worksSucceededCondition := `.status.conditions[?(@.type=="WorksSucceeded")]`
 					reconciledCondition := `.status.conditions[?(@.type=="Reconciled")]`

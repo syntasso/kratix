@@ -222,6 +222,41 @@ var _ = Describe("Pipeline", func() {
 			}
 		})
 
+		Describe("the job's kratix.io/hash label", func() {
+			BeforeEach(func() {
+				factory.CRDPlural = "promises"
+				factory.WorkflowType = v1alpha1.WorkflowTypePromise
+				factory.WorkflowAction = v1alpha1.WorkflowActionConfigure
+			})
+
+			jobHash := func() string {
+				resources, err := factory.Resources(nil)
+				ExpectWithOffset(1, err).ToNot(HaveOccurred())
+				return resources.Job.GetLabels()[v1alpha1.KratixResourceHashLabel]
+			}
+
+			It("is the bare request hash when the pipeline carries no pipeline-hash label", func() {
+				Expect(pipeline.GetLabels()).NotTo(HaveKey(v1alpha1.KratixPipelineHashLabel))
+
+				Expect(jobHash()).To(Equal(promiseHash(promise)))
+			})
+
+			It("folds the pipeline hash into the request hash when the pipeline carries one", func() {
+				pipeline.Labels[v1alpha1.KratixPipelineHashLabel] = "pipeline-hash-v1"
+
+				Expect(jobHash()).To(Equal(combinedHash(promiseHash(promise), "pipeline-hash-v1")))
+				Expect(jobHash()).NotTo(Equal(promiseHash(promise)))
+			})
+
+			It("changes when the pipeline hash changes, so the changed pipeline gets a new job", func() {
+				pipeline.Labels[v1alpha1.KratixPipelineHashLabel] = "pipeline-hash-v1"
+				first := jobHash()
+
+				pipeline.Labels[v1alpha1.KratixPipelineHashLabel] = "pipeline-hash-v2"
+				Expect(jobHash()).NotTo(Equal(first))
+			})
+		})
+
 		Describe("Resources()", func() {
 			When("generating for promise workflows", func() {
 				BeforeEach(func() {
