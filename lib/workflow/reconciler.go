@@ -81,6 +81,15 @@ func ReconcileDelete(opts Opts) (bool, error) {
 		return false, nil
 	}
 
+	if !opts.SkipConditions {
+		if changed, err := migrateWorkflowStatus(opts, opts.statusKey(v1alpha1.WorkflowActionDelete)); err != nil || changed {
+			if changed && err == nil {
+				err = opts.client.Status().Update(opts.ctx, opts.parentObject)
+			}
+			return changed, err
+		}
+	}
+
 	if len(opts.Resources) > 1 {
 		logging.Warn(opts.logger, "multiple delete pipelines found; only the first will be used")
 	}
@@ -202,6 +211,15 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 	if len(opts.Resources) == 0 {
 		logging.Debug(opts.logger, "no pipeline resources to reconcile")
 		return false, nil
+	}
+
+	if !opts.SkipConditions {
+		if changed, err := migrateWorkflowStatus(opts, opts.statusKey(v1alpha1.WorkflowActionConfigure)); err != nil || changed {
+			if changed && err == nil {
+				err = opts.client.Status().Update(opts.ctx, opts.parentObject)
+			}
+			return changed, err
+		}
 	}
 
 	state, err := determineWorkflowState(opts)
