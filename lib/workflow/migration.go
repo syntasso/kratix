@@ -1,8 +1,6 @@
 package workflow
 
 import (
-	"fmt"
-
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/resourceutil"
@@ -37,36 +35,24 @@ func flatWorkflowsPath(field string) []string {
 // retained Jobs when they still exist. Returns true when it changed the object;
 // the caller writes the status and requeues before doing anything else.
 //
-// Every move merges rather than overwrites, because a half-upgraded writer can
-// recreate the flat layout after the migration has already run.
+// Only a client error stops it. A flat value that does not read at its declared
+// type is left where it is and the entry migrates without it — the workflow then
+// runs once more, where an error would leave the object on the old layout for
+// ever.
 func migrateWorkflowStatus(opts Opts, key string, action v1alpha1.Action) (bool, error) {
-	changed := false
-
-	pipelinesMoved, err := migrateFlatPipelines(opts, key, action)
-	if pipelinesMoved {
-		changed = true
-	}
+	changed, err := migrateFlatPipelines(opts, key, action)
 	if err != nil {
-		return changed, err
+		return false, err
 	}
 
-	suspendedGenerationMoved, err := migrateFlatField(opts.parentObject, nestedInt64,
-		flatSuspendedGenerationField, resourceutil.WorkflowsPath(key, flatSuspendedGenerationField))
-	if suspendedGenerationMoved {
+	if migrateFlatField[int64](opts.parentObject, flatSuspendedGenerationField,
+		resourceutil.WorkflowsPath(key, flatSuspendedGenerationField)) {
 		changed = true
-	}
-	if err != nil {
-		return changed, err
 	}
 
-	lastSuccessfulTimeMoved, err := migrateFlatField(opts.parentObject, nestedString,
-		flatLastSuccessfulTimeField,
-		resourceutil.WorkflowsPath(string(v1alpha1.WorkflowActionConfigure), keyedLastSuccessfulTimeField))
-	if lastSuccessfulTimeMoved {
+	if migrateFlatField[string](opts.parentObject, flatLastSuccessfulTimeField,
+		resourceutil.WorkflowsPath(string(v1alpha1.WorkflowActionConfigure), keyedLastSuccessfulTimeField)) {
 		changed = true
-	}
-	if err != nil {
-		return changed, err
 	}
 
 	if removeLegacyStatusCounters(opts.parentObject) {
@@ -87,24 +73,15 @@ func migrateFlatPipelines(opts Opts, key string, action v1alpha1.Action) (bool, 
 	obj := opts.parentObject
 
 	flatPipelines, found, err := unstructured.NestedSlice(obj.Object, flatWorkflowsPath(flatPipelinesField)...)
-	if err != nil {
-		return false, fmt.Errorf("reading the pre-keyed workflow pipeline status: %w", err)
-	}
-	if !found {
-		return false, nil
+	if !found || err != nil {
+		return false, nil //nolint:nilerr // a value that is not a list of entries is treated as absent, not as a reconcile failure.
 	}
 
-	keyedPath := resourceutil.WorkflowsPath(key, flatPipelinesField)
-	_, keyedFound, err := unstructured.NestedFieldNoCopy(obj.Object, keyedPath...)
-	if err != nil {
-		return false, fmt.Errorf("reading the keyed workflow pipeline status: %w", err)
-	}
-
-	if !keyedFound {
-		if err = liftPipelineHashes(opts, action, flatPipelines); err != nil {
+	if keyedPath := resourceutil.WorkflowsPath(key, flatPipelinesField); !keyedValueExists(obj, keyedPath) {
+		if err := liftPipelineHashes(opts, action, flatPipelines); err != nil {
 			return false, err
 		}
-		if err = unstructured.SetNestedSlice(obj.Object, flatPipelines, keyedPath...); err != nil {
+		if err := unstructured.SetNestedSlice(obj.Object, flatPipelines, keyedPath...); err != nil {
 			return false, err
 		}
 	}
@@ -113,45 +90,36 @@ func migrateFlatPipelines(opts Opts, key string, action v1alpha1.Action) (bool, 
 	return true, nil
 }
 
-// nestedReader reads one flat field at its declared type, so a status field of
-// the wrong type returns an error instead of panicking in the deep copy.
-type nestedReader func(obj map[string]any, fields ...string) (any, bool, error)
-
-func nestedInt64(obj map[string]any, fields ...string) (any, bool, error) {
-	value, found, err := unstructured.NestedInt64(obj, fields...)
-	return value, found, err
-}
-
-func nestedString(obj map[string]any, fields ...string) (any, bool, error) {
-	value, found, err := unstructured.NestedString(obj, fields...)
-	return value, found, err
-}
-
-// migrateFlatField moves one scalar flat field to keyedPath, then removes it.
-// The flat field is removed even when the keyed one already holds a value, so
-// the stale copy cannot be read back as if it were current.
-func migrateFlatField(obj *unstructured.Unstructured, read nestedReader, flatField string, keyedPath []string) (bool, error) {
-	value, found, err := read(obj.Object, flatWorkflowsPath(flatField)...)
-	if err != nil {
-		return false, fmt.Errorf("reading the pre-keyed workflow status field %q: %w", flatField, err)
-	}
+// migrateFlatField moves one scalar flat field to keyedPath. The flat copy goes
+// even when the keyed one already holds a value, so the stale copy cannot be
+// read back as if it were current.
+func migrateFlatField[T int64 | string](obj *unstructured.Unstructured, flatField string, keyedPath []string) bool {
+	raw, found, _ := unstructured.NestedFieldNoCopy(obj.Object, flatWorkflowsPath(flatField)...)
 	if !found {
-		return false, nil
+		return false
 	}
 
-	_, keyedFound, err := unstructured.NestedFieldNoCopy(obj.Object, keyedPath...)
-	if err != nil {
-		return false, fmt.Errorf("reading the keyed workflow status field %q: %w", flatField, err)
+	value, readsAtItsType := raw.(T)
+	if !readsAtItsType {
+		return false
 	}
 
-	if !keyedFound {
-		if err = unstructured.SetNestedField(obj.Object, value, keyedPath...); err != nil {
-			return false, err
+	if !keyedValueExists(obj, keyedPath) {
+		if err := unstructured.SetNestedField(obj.Object, value, keyedPath...); err != nil {
+			return false
 		}
 	}
 
 	unstructured.RemoveNestedField(obj.Object, flatWorkflowsPath(flatField)...)
-	return true, nil
+	return true
+}
+
+// keyedValueExists reports whether the keyed layout already holds this field. An
+// unreadable keyed node counts as holding one: the flat copy is discarded rather
+// than written over something the migration cannot see.
+func keyedValueExists(obj *unstructured.Unstructured, keyedPath []string) bool {
+	_, found, err := unstructured.NestedFieldNoCopy(obj.Object, keyedPath...)
+	return found || err != nil
 }
 
 func removeLegacyStatusCounters(obj *unstructured.Unstructured) bool {

@@ -37,9 +37,6 @@ type Opts struct {
 	eventRecorder      events.EventRecorder
 	namespace          string
 
-	// Set by other controllers that use the Workflow engine
-	SkipConditions bool
-
 	// WorkflowKey is the key under status.kratix.workflows that this workflow's
 	// pipeline statuses are stored at. Leave it empty and Kratix's own keys are
 	// used, one per workflow action. A controller that embeds the workflow
@@ -115,13 +112,11 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	}
 	deleteKey := opts.statusKey(v1alpha1.WorkflowActionDelete)
 
-	if !opts.SkipConditions {
-		if changed, err := migrateWorkflowStatus(opts, deleteKey, v1alpha1.WorkflowActionDelete); err != nil || changed {
-			if changed && err == nil {
-				err = opts.client.Status().Update(opts.ctx, opts.parentObject)
-			}
-			return changed, err
+	if changed, err := migrateWorkflowStatus(opts, deleteKey, v1alpha1.WorkflowActionDelete); err != nil || changed {
+		if changed && err == nil {
+			err = opts.client.Status().Update(opts.ctx, opts.parentObject)
 		}
+		return changed, err
 	}
 
 	if len(opts.Resources) > 1 {
@@ -159,7 +154,7 @@ func ReconcileDelete(opts Opts) (bool, error) {
 		return createDeletePipelineWhenConfigureIdle(opts, deleteKey, pipeline, resetAll)
 	}
 
-	statuses, err := deletePipelineStatuses(opts, deleteKey, evidence)
+	statuses, err := deletePipelineStatuses(opts, deleteKey)
 	if err != nil {
 		return false, err
 	}
@@ -190,11 +185,6 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	case isFailed(job):
 		return false, ErrDeletePipelineFailed
 	default:
-		// A status write here lands on the pipeline statuses a caller that owns
-		// this object's status is progressing through.
-		if opts.SkipConditions {
-			return false, nil
-		}
 		if err = resourceutil.MarkCurrentPipelineAsSucceeded(opts.parentObject, deleteKey, opts.logger, job); err != nil {
 			return false, err
 		}
@@ -207,11 +197,7 @@ func ReconcileDelete(opts Opts) (bool, error) {
 
 // deletePipelineStatuses reads the delete workflow's pipeline statuses, seeding
 // the single entry on the object — but not persisting it — when there is none.
-func deletePipelineStatuses(opts Opts, key string, evidence map[string]*batchv1.Job) (pipelineStatuses, error) {
-	if opts.SkipConditions {
-		return ephemeralPipelineStatuses(opts, evidence), nil
-	}
-
+func deletePipelineStatuses(opts Opts, key string) (pipelineStatuses, error) {
 	entries, _, err := resourceutil.GetPipelineStatuses(opts.parentObject, key)
 	if err != nil {
 		return pipelineStatuses{}, err
@@ -255,18 +241,16 @@ func createDeletePipeline(opts Opts, key string, reset statusReset) (passiveRequ
 			return false, err
 		}
 	}
-	if !opts.SkipConditions {
-		if reset == resetAll {
-			if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, key, opts.Resources); err != nil {
-				return false, err
-			}
-		}
-		if err = resourceutil.MarkCurrentPipelineAsRunning(opts.parentObject, key, opts.logger, pipeline.Job); err != nil {
+	if reset == resetAll {
+		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, key, opts.Resources); err != nil {
 			return false, err
 		}
-		if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
-			return false, err
-		}
+	}
+	if err = resourceutil.MarkCurrentPipelineAsRunning(opts.parentObject, key, opts.logger, pipeline.Job); err != nil {
+		return false, err
+	}
+	if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+		return false, err
 	}
 	//TODO retrieve error information from applyResources to return to the caller
 	applyResources(opts, append(pipeline.GetObjects(), pipeline.Job)...)
@@ -353,9 +337,6 @@ type workflowStep struct {
 	kind  stepKind
 	index int
 	job   *batchv1.Job
-	// failedHalt marks the stepWait that a Failed-at-the-current-definition
-	// entry produces, as opposed to waiting on a Job that is still running.
-	failedHalt bool
 }
 
 // ReconcileConfigure reconciles configure workflows.
@@ -381,13 +362,11 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 	}
 	configureKey := opts.statusKey(v1alpha1.WorkflowActionConfigure)
 
-	if !opts.SkipConditions {
-		if changed, err := migrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure); err != nil || changed {
-			if changed && err == nil {
-				err = opts.client.Status().Update(opts.ctx, opts.parentObject)
-			}
-			return changed, err
+	if changed, err := migrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure); err != nil || changed {
+		if changed && err == nil {
+			err = opts.client.Status().Update(opts.ctx, opts.parentObject)
 		}
+		return changed, err
 	}
 
 	evidence, err := jobEvidence(opts, v1alpha1.WorkflowActionConfigure)
@@ -395,19 +374,16 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 		return false, err
 	}
 
-	statuses := ephemeralPipelineStatuses(opts, evidence)
-	if !opts.SkipConditions {
-		var changed bool
-		if statuses, changed, err = seedAndPrunePipelineStatuses(opts, configureKey); err != nil {
+	statuses, changed, err := seedAndPrunePipelineStatuses(opts, configureKey)
+	if err != nil {
+		return false, err
+	}
+	if changed {
+		if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+			logging.Error(opts.logger, err, "failed to update parent object status")
 			return false, err
 		}
-		if changed {
-			if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
-				logging.Error(opts.logger, err, "failed to update parent object status")
-				return false, err
-			}
-			return true, nil
-		}
+		return true, nil
 	}
 
 	if requeue, handled, err := reconcileWorkflowLabels(opts, configureKey, evidence); handled {
@@ -495,7 +471,7 @@ func nextWorkflowStep(opts Opts, statuses pipelineStatuses, evidence map[string]
 
 		if phase == v1alpha1.WorkflowPhaseFailed && statuses.hash(pipeline.Name) == desired {
 			logging.Debug(opts.logger, "pipeline failed at the current definition; waiting for a re-run to be requested", "pipeline", pipeline.Name)
-			return workflowStep{kind: stepWait, index: i, failedHalt: true}
+			return workflowStep{kind: stepWait, index: i}
 		}
 
 		job := evidence[pipeline.Name]
@@ -546,19 +522,9 @@ func runWorkflowStep(opts Opts, key string, statuses pipelineStatuses, evidence 
 		return false, cleanup(opts, opts.namespace)
 
 	case stepWait:
-		// A caller that owns the status never reaches recordPipelineFailure,
-		// so this is the only prune a workflow that keeps failing ever gets.
-		if step.failedHalt && opts.SkipConditions {
-			return true, cleanupJobs(opts, opts.namespace)
-		}
 		return true, nil
 
 	case stepRecordSuccess:
-		// A status write here lands on the pipeline statuses a caller that owns
-		// this object's status is progressing through.
-		if opts.SkipConditions {
-			return true, nil
-		}
 		if err = resourceutil.MarkCurrentPipelineAsSucceeded(opts.parentObject, key, opts.logger, step.job); err != nil {
 			logging.Error(opts.logger, err, "failed to mark pipeline as succeeded")
 			return false, err
@@ -581,19 +547,15 @@ func recordPipelineFailure(opts Opts, key string, step workflowStep) (bool, erro
 	pipeline := opts.Resources[step.index]
 	logging.Debug(opts.logger, "job failed", "job", step.job.Name, "pipeline", pipeline.Name)
 
-	// Kratix's conditions and pipeline statuses must not be written onto an
-	// object whose status belongs to the caller.
-	if !opts.SkipConditions {
-		resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
-		resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
-		if err := resourceutil.MarkCurrentPipelineAsFailed(opts.parentObject, key, opts.logger, step.job); err != nil {
-			logging.Error(opts.logger, err, "failed to mark pipeline as failed")
-			return false, err
-		}
-		if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
-			logging.Error(opts.logger, err, "failed to update parent object status")
-			return false, err
-		}
+	resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
+	resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
+	if err := resourceutil.MarkCurrentPipelineAsFailed(opts.parentObject, key, opts.logger, step.job); err != nil {
+		logging.Error(opts.logger, err, "failed to mark pipeline as failed")
+		return false, err
+	}
+	if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+		logging.Error(opts.logger, err, "failed to update parent object status")
+		return false, err
 	}
 
 	opts.eventRecorder.Eventf(opts.parentObject, nil, v1.EventTypeWarning, resourceutil.ConfigureWorkflowCompletedFailedReason, resourceutil.ConfigureWorkflowCompletedFailedReason, "A %s/configure Pipeline has failed: %s", opts.workflowType, pipeline.Name)
@@ -653,25 +615,6 @@ func sameName(raw any, name string) bool {
 	}
 	stored, _ := entry["name"].(string)
 	return stored == name
-}
-
-// ephemeralPipelineStatuses builds the pipeline statuses in memory from Job
-// evidence alone, for callers that own the parent object's status lifecycle
-// (SkipConditions), so the walk decides without a single status read or write.
-func ephemeralPipelineStatuses(opts Opts, evidence map[string]*batchv1.Job) pipelineStatuses {
-	entries := make([]any, 0, len(opts.Resources))
-	for _, pipeline := range opts.Resources {
-		entry := map[string]any{"name": pipeline.Name, "phase": v1alpha1.WorkflowPhasePending}
-		if job := evidence[pipeline.Name]; jobIsForPipeline(pipeline, job) && !isRunning(job) {
-			entry["phase"] = v1alpha1.WorkflowPhaseSucceeded
-			if isFailed(job) {
-				entry["phase"] = v1alpha1.WorkflowPhaseFailed
-			}
-			entry["hash"] = job.GetLabels()[v1alpha1.KratixResourceHashLabel]
-		}
-		entries = append(entries, entry)
-	}
-	return newPipelineStatuses(entries)
 }
 
 // jobEvidence lists this workflow's Jobs once and indexes the most recent one
@@ -959,19 +902,17 @@ func createConfigurePipeline(opts Opts, key string, index int, reset statusReset
 	}
 
 	statusesChanged := false
-	if !opts.SkipConditions {
-		switch reset {
-		case resetAll:
-			if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, key, opts.Resources); err != nil {
-				return false, err
-			}
-			statusesChanged = true
-		case resetFollowing:
-			if statusesChanged, err = resetPipelinesAfter(opts, key, index); err != nil {
-				return false, err
-			}
-		case resetNone:
+	switch reset {
+	case resetAll:
+		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, key, opts.Resources); err != nil {
+			return false, err
 		}
+		statusesChanged = true
+	case resetFollowing:
+		if statusesChanged, err = resetPipelinesAfter(opts, key, index); err != nil {
+			return false, err
+		}
+	case resetNone:
 	}
 
 	if err = setPipelineStartingStatus(opts, key, index, resources.Job, statusesChanged); err != nil {
@@ -1008,10 +949,6 @@ func removeLabel(opts Opts, labelKey string) error {
 }
 
 func setPipelineStartingStatus(opts Opts, key string, pipelineIndex int, job *batchv1.Job, updated bool) error {
-	if opts.SkipConditions {
-		return nil
-	}
-
 	obj := opts.parentObject
 
 	currentMessage := resourceutil.GetStatus(obj, "message")

@@ -1,119 +1,32 @@
 package v1alpha1
 
-import (
-	"bytes"
-	"encoding/json"
-)
+import "encoding/json"
 
 // WorkflowsStatus holds workflow execution status keyed by workflow: Kratix's own
 // workflows use the workflow action as the key ("configure", "delete"); controllers
-// that embed the workflow engine use their own key. It decodes the pre-keyed flat
-// layout ({pipelines: [...]}) too, and re-emits it verbatim until the workflow
-// engine migrates the object.
+// that embed the workflow engine use their own key.
 //
-// +kubebuilder:object:generate=false
-//
-//nolint:recvcheck // json.Marshaler has to sit on the value for a Promise marshalled by value to emit this; the mutators need the pointer.
-type WorkflowsStatus struct {
-	Actions map[string]WorkflowStatus `json:"-"`
-	// LegacyRaw carries a stored flat-layout value byte-for-byte across typed
-	// decode/encode round-trips so the engine's migration — not a lossy typed
-	// write — performs the layout move. Never set by new code.
-	LegacyRaw []byte `json:"-"`
-}
+//nolint:recvcheck // the generated deepcopy takes the value; the decoder and Set take the pointer.
+type WorkflowsStatus map[string]WorkflowStatus
 
-// UnmarshalJSON decodes the keyed layout into Actions. Anything that is not a
-// map of workflow statuses is the pre-keyed flat layout, whose "pipelines" key
-// holds an array where a WorkflowStatus is expected; without this fallback the
-// typed decode of every stored Promise fails and the Promise informer cache
-// never populates on upgrade.
+// UnmarshalJSON leaves the map empty for a value that is not a map of workflow
+// statuses. The pre-keyed flat layout ({pipelines: [...]}) is one — and without
+// tolerating it the typed decode of every stored Promise fails and the Promise
+// informer cache never populates on upgrade.
 func (w *WorkflowsStatus) UnmarshalJSON(data []byte) error {
-	w.Actions = nil
-	w.LegacyRaw = nil
-
-	trimmed := bytes.TrimSpace(data)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) || bytes.Equal(trimmed, []byte("{}")) {
-		return nil
+	statuses := map[string]WorkflowStatus{}
+	if err := json.Unmarshal(data, &statuses); err != nil {
+		*w = nil
+		return nil //nolint:nilerr // the pre-keyed flat layout is not a decode failure; it carries no keyed status to read.
 	}
-
-	actions := map[string]WorkflowStatus{}
-	if err := json.Unmarshal(trimmed, &actions); err != nil {
-		w.LegacyRaw = bytes.Clone(trimmed)
-		return nil //nolint:nilerr // not a decode failure: this is the pre-keyed flat layout, kept verbatim for the engine to migrate.
-	}
-
-	w.Actions = actions
+	*w = statuses
 	return nil
-}
-
-// MarshalJSON emits the keyed layout, or the stored flat layout verbatim when
-// this object has not been migrated yet.
-func (w WorkflowsStatus) MarshalJSON() ([]byte, error) {
-	if w.Actions != nil {
-		return json.Marshal(w.Actions)
-	}
-	if len(w.LegacyRaw) > 0 {
-		return bytes.Clone(w.LegacyRaw), nil
-	}
-	return []byte("{}"), nil
-}
-
-// IsZero drives the `omitzero` json tag on the Workflows field, so an object
-// with no workflow status writes no `workflows` key at all.
-func (w WorkflowsStatus) IsZero() bool {
-	return len(w.Actions) == 0 && len(w.LegacyRaw) == 0
-}
-
-// Legacy decodes a stored pre-keyed (flat) workflow status, or returns nil when
-// there is none: one workflow's worth of status for the whole object.
-//
-// Removing it while pre-keyed objects still exist wedges every object suspended
-// at upgrade — the suspended branch of both controllers returns before the
-// engine that would migrate it ever runs.
-func (w WorkflowsStatus) Legacy() *WorkflowStatus {
-	if len(w.LegacyRaw) == 0 {
-		return nil
-	}
-	legacy := &WorkflowStatus{}
-	if err := json.Unmarshal(w.LegacyRaw, legacy); err != nil {
-		return nil
-	}
-	return legacy
-}
-
-// Get returns the status stored under key, or the zero WorkflowStatus when the
-// key is absent.
-func (w WorkflowsStatus) Get(key string) WorkflowStatus {
-	return w.Actions[key]
 }
 
 // Set stores status under key, allocating the map on first write.
 func (w *WorkflowsStatus) Set(key string, status WorkflowStatus) {
-	if w.Actions == nil {
-		w.Actions = map[string]WorkflowStatus{}
+	if *w == nil {
+		*w = WorkflowsStatus{}
 	}
-	w.Actions[key] = status
-}
-
-// DeepCopyInto is hand-written: controller-gen cannot generate for this type
-// because its wire shape is produced by MarshalJSON rather than by its fields.
-func (w *WorkflowsStatus) DeepCopyInto(out *WorkflowsStatus) {
-	*out = *w
-	if w.Actions != nil {
-		out.Actions = make(map[string]WorkflowStatus, len(w.Actions))
-		for key, status := range w.Actions {
-			out.Actions[key] = *status.DeepCopy()
-		}
-	}
-	out.LegacyRaw = bytes.Clone(w.LegacyRaw)
-}
-
-// DeepCopy copies the receiver, creating a new WorkflowsStatus.
-func (w *WorkflowsStatus) DeepCopy() *WorkflowsStatus {
-	if w == nil {
-		return nil
-	}
-	out := new(WorkflowsStatus)
-	w.DeepCopyInto(out)
-	return out
+	(*w)[key] = status
 }

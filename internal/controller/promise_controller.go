@@ -514,31 +514,16 @@ func (r *PromiseReconciler) setPromiseUnavailableStatusConditions(
 // generation goes with them, or the next reconcile reads the Promise as still
 // suspended at a generation it has already moved past.
 func resetPromiseWorkflowPipelinesToPending(promise *v1alpha1.Promise, key string) {
-	workflowStatus := promiseWorkflowStatus(promise, key)
+	workflowStatus := promise.Status.Kratix.Workflows[key]
 	workflowStatus.SuspendedGeneration = 0
 	for i := range workflowStatus.Pipelines {
 		workflowStatus.Pipelines[i].Phase = v1alpha1.WorkflowPhasePending
 		workflowStatus.Pipelines[i].Message = ""
 		workflowStatus.Pipelines[i].LastTransitionTime = metav1.Now()
 	}
-	// Get returns a copy: without writing it back the cleared suspended
+	// A map read returns a copy: without writing it back the cleared suspended
 	// generation is discarded and the Promise stays suspended for ever.
 	promise.Status.Kratix.Workflows.Set(key, workflowStatus)
-}
-
-// promiseWorkflowStatus returns the workflow status under key, falling back to
-// the pre-keyed flat layout when the object has not been migrated yet. Drop the
-// fallback while pre-keyed objects still exist and a Promise suspended at
-// upgrade has no visible retry deadline, so nothing can un-suspend it.
-func promiseWorkflowStatus(promise *v1alpha1.Promise, key string) v1alpha1.WorkflowStatus {
-	workflowStatus := promise.Status.Kratix.Workflows.Get(key)
-	if len(workflowStatus.Pipelines) > 0 || workflowStatus.SuspendedGeneration != 0 {
-		return workflowStatus
-	}
-	if legacy := promise.Status.Kratix.Workflows.Legacy(); legacy != nil {
-		return *legacy
-	}
-	return workflowStatus
 }
 
 func (r *PromiseReconciler) generateConditions(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
@@ -1032,7 +1017,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		promise.Labels[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
-	suspendedGeneration := promiseWorkflowStatus(promise, configureWorkflowStatusKey).SuspendedGeneration
+	suspendedGeneration := promise.Status.Kratix.Workflows[configureWorkflowStatusKey].SuspendedGeneration
 	promiseSpecChanged := suspendedGeneration != 0 && promise.GetGeneration() > suspendedGeneration
 
 	if restarted, err := r.restartOnReconciliationInterval(o.ctx, o.logger, promise, completedCond, forcePipelineRun); restarted || err != nil {
@@ -2292,7 +2277,7 @@ func promiseWorkflowCompletedWithFailure(completedCond *metav1.Condition) bool {
 func nextRetryAt(promise v1alpha1.Promise, key string) (time.Time, error) {
 	var retryTime time.Time
 	var err error
-	for _, pipeline := range promiseWorkflowStatus(&promise, key).Pipelines {
+	for _, pipeline := range promise.Status.Kratix.Workflows[key].Pipelines {
 		if pipeline.Phase == v1alpha1.WorkflowPhaseSuspended && pipeline.NextRetryAt != "" {
 			retryTime, err = time.Parse(time.RFC3339, pipeline.NextRetryAt)
 			if err != nil {

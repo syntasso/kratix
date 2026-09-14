@@ -260,8 +260,7 @@ spec:
                     description: |-
                       Status of the Workflow execution, keyed by workflow. Kratix's own workflows
                       are keyed by workflow action ("configure", "delete"); controllers that embed
-                      the workflow engine use their own key. Promises stored before keying carry
-                      the pre-keyed flat layout here until the workflow engine migrates them.
+                      the workflow engine use their own key.
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 type: object

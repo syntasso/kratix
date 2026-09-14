@@ -183,12 +183,12 @@ type KratixPromiseStatus struct {
 
 	// Status of the Workflow execution, keyed by workflow. Kratix's own workflows
 	// are keyed by workflow action ("configure", "delete"); controllers that embed
-	// the workflow engine use their own key. Promises stored before keying carry
-	// the pre-keyed flat layout here until the workflow engine migrates them.
+	// the workflow engine use their own key.
 	// +optional
+	// +kubebuilder:validation:Schemaless
 	// +kubebuilder:validation:Type=object
 	// +kubebuilder:pruning:PreserveUnknownFields
-	Workflows WorkflowsStatus `json:"workflows,omitzero"`
+	Workflows WorkflowsStatus `json:"workflows,omitempty"`
 }
 
 type WorkflowStatus struct {
@@ -545,15 +545,14 @@ const (
 // "configure" and "delete" keys, plus any pre-keyed flat layout still stored.
 // Keys a controller that embeds the workflow engine wrote are left alone.
 func (p *Promise) ClearPipelineExecutionStatus() bool {
-	workflows := &p.Status.Kratix.Workflows
-	changed := len(workflows.LegacyRaw) != 0
-	workflows.LegacyRaw = nil
+	workflows := p.Status.Kratix.Workflows
+	changed := false
 
 	for _, action := range []Action{WorkflowActionConfigure, WorkflowActionDelete} {
 		key := string(action)
-		if status, found := workflows.Actions[key]; found {
+		if status, found := workflows[key]; found {
 			changed = changed || len(status.Pipelines) != 0
-			delete(workflows.Actions, key)
+			delete(workflows, key)
 		}
 	}
 

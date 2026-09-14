@@ -173,6 +173,20 @@ var _ = Describe("Workflow status migration", func() {
 			})
 		})
 
+		It("migrates the entries without a flat value that cannot be read at its type", func() {
+			setFlatWorkflowsStatus(parentObject, map[string]any{
+				"pipelines":           []any{map[string]any{"name": "pipeline-1", "phase": v1alpha1.WorkflowPhasePending}},
+				"suspendedGeneration": "not-a-generation",
+			})
+
+			changed, err := workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeTrue())
+
+			Expect(pipelinesUnderKey(parentObject, configureKey)).To(ConsistOf(HaveKeyWithValue("name", "pipeline-1")))
+			Expect(resourceutil.GetKratixWorkflowsInt64Status(parentObject, configureKey, "suspendedGeneration")).To(BeZero())
+		})
+
 		It("reports no change for an object that was never on the flat layout", func() {
 			Expect(resourceutil.ResetPipelineStatusToPending(parentObject, configureKey, nil)).To(Succeed())
 
@@ -367,7 +381,7 @@ var _ = Describe("Workflow status migration", func() {
 		})
 
 		It("migrates, persists and requeues before running any pipeline", func() {
-			persistFlatWorkflowStatus(uPromise, map[string]any{
+			setFlatWorkflowsStatus(uPromise, map[string]any{
 				"pipelines": []any{
 					map[string]any{"name": "pipeline-1", "phase": v1alpha1.WorkflowPhaseSucceeded},
 				},
@@ -398,35 +412,8 @@ var _ = Describe("Workflow status migration", func() {
 			})
 		})
 
-		It("leaves the status alone when the caller owns the object's status lifecycle", func() {
-			persistFlatWorkflowStatus(uPromise, map[string]any{
-				"pipelines": []any{
-					map[string]any{"name": "pipeline-1", "phase": v1alpha1.WorkflowPhaseSucceeded},
-				},
-			})
-
-			opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, resources, "promise", 5, namespace)
-			opts.SkipConditions = true
-			_, err := workflow.ReconcileConfigure(opts)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("not touching the object the engine was handed", func() {
-				flat, found := flatWorkflowsField(uPromise, "pipelines")
-				Expect(found).To(BeTrue())
-				Expect(flat).To(ConsistOf(HaveKeyWithValue("name", "pipeline-1")))
-			})
-
-			By("not writing keyed entries to the API either", func() {
-				stored := fetchPromise(promise.GetName())
-				_, keyed, err := unstructured.NestedFieldNoCopy(stored.Object,
-					"status", "kratix", "workflows", configureKey)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(keyed).To(BeFalse())
-			})
-		})
-
 		It("migrates a mid-delete object's pipeline statuses under the delete key", func() {
-			persistFlatWorkflowStatus(uPromise, map[string]any{
+			setFlatWorkflowsStatus(uPromise, map[string]any{
 				"pipelines": []any{
 					map[string]any{"name": "pipeline-1", "phase": v1alpha1.WorkflowPhaseSuspended},
 				},
@@ -465,12 +452,6 @@ func setFlatWorkflowsStatus(obj *unstructured.Unstructured, flat map[string]any)
 		existing[field] = value
 	}
 	Expect(unstructured.SetNestedMap(obj.Object, existing, "status", "kratix", "workflows")).To(Succeed())
-}
-
-func persistFlatWorkflowStatus(obj *unstructured.Unstructured, flat map[string]any) {
-	GinkgoHelper()
-	setFlatWorkflowsStatus(obj, flat)
-	Expect(fakeK8sClient.Status().Update(ctx, obj)).To(Succeed())
 }
 
 func flatWorkflowsField(obj *unstructured.Unstructured, field string) (any, bool) {

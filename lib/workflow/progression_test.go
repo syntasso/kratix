@@ -128,37 +128,6 @@ var _ = Describe("Workflow progression", func() {
 			)))
 		})
 
-		Describe("for a caller that owns the parent object's status", func() {
-			It("runs the delete pipeline from the Jobs alone, whatever the stored status says", func() {
-				writePipelineStatuses(parent, deleteKey, settledEntry(deleteResources[0]))
-				statusesBefore := storedPipelineStatuses(parent, deleteKey)
-
-				opts := newDeleteOpts()
-				opts.SkipConditions = true
-
-				passiveRequeue, err := workflow.ReconcileDelete(opts)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(passiveRequeue).To(BeTrue())
-				Expect(jobNames()).To(ContainElement(deleteResources[0].Job.Name))
-				Expect(storedPipelineStatuses(parent, deleteKey)).To(Equal(statusesBefore))
-			})
-
-			It("never migrates the status it does not own", func() {
-				persistFlatWorkflowStatus(parent, map[string]any{
-					"pipelines": []any{
-						map[string]any{"name": deleteResources[0].Name, "phase": v1alpha1.WorkflowPhaseSucceeded},
-					},
-				})
-				statusBefore := storedStatus(parent)
-
-				opts := newDeleteOpts()
-				opts.SkipConditions = true
-
-				_, err := workflow.ReconcileDelete(opts)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(storedStatus(parent)).To(Equal(statusBefore))
-			})
-		})
 	})
 
 	It("runs only the pipeline whose status records no run, not the whole workflow", func() {
@@ -370,138 +339,58 @@ var _ = Describe("Workflow progression", func() {
 		})
 	})
 
-	Describe("a caller that owns the parent object's status", func() {
-		It("progresses from the retained Jobs alone, without touching the status", func() {
-			createJob(resources[0].Job, jobSucceeded)
-			createJob(resources[1].Job, jobSucceeded)
+	It("drops a suspended entry that names no pipeline of this workflow, then runs its own", func() {
+		writePipelineStatuses(parent, configureKey,
+			pendingEntry(resources[0]),
+			pendingEntry(resources[1]),
+			map[string]any{"name": "a-pipeline-of-theirs", "phase": v1alpha1.WorkflowPhaseSuspended},
+		)
+		opts := newOpts()
 
-			opts := newOpts()
-			opts.SkipConditions = true
-
-			before := storedParent(parent)
-			passiveRequeue, err := workflow.ReconcileConfigure(opts)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(passiveRequeue).To(BeFalse())
-
-			Expect(listJobs(namespace)).To(HaveLen(2))
-			Expect(storedParent(parent)).To(Equal(before))
-		})
-
-		It("halts on a failed Job instead of starting the pipeline again, and still prunes the Job pile", func() {
-			older := copyJob(resources[0].Job, "older")
-			createJob(older, jobFailed)
-			createJob(resources[0].Job, jobFailed)
-
-			opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, parent, resources, "promise", 1, namespace)
-			opts.SkipConditions = true
-
+		By("pruning the entry the workflow has no pipeline for", func() {
 			passiveRequeue, err := workflow.ReconcileConfigure(opts)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(passiveRequeue).To(BeTrue())
 
-			By("starting no pipeline", func() {
-				Expect(countEvents(eventRecorder, "PipelineStarted")).To(Equal(0))
-			})
-
-			By("pruning the failed run's Jobs down to numberOfJobsToKeep", func() {
-				Expect(jobNames()).To(ConsistOf(resources[0].Job.Name))
-			})
+			Expect(storedPipelineStatuses(parent, configureKey)).To(HaveExactElements(
+				HaveKeyWithValue("name", "pipeline-1"),
+				HaveKeyWithValue("name", "pipeline-2"),
+			))
+			Expect(jobNames()).To(BeEmpty())
 		})
 
-		It("waits for a running Job rather than reporting the workflow complete", func() {
-			singlePromise, singlePipelines := progressionPromise("pipeline-1")
-			singleResources, singleParent := setupTest(singlePromise, singlePipelines)
-			createJob(singleResources[0].Job, jobRunning)
-
-			opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, singleParent, singleResources, "promise", 5, namespace)
-			opts.SkipConditions = true
-
-			passiveRequeue, err := workflow.ReconcileConfigure(opts)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(passiveRequeue).To(BeTrue())
-			Expect(countEvents(eventRecorder, "PipelineStarted")).To(Equal(0))
-		})
-
-		It("honours the manual-reconciliation label without touching the status", func() {
-			writePipelineStatuses(parent, configureKey, settledEntry(resources[0]), settledEntry(resources[1]))
-			createJob(resources[0].Job, jobRunning)
-			parent.SetLabels(map[string]string{resourceutil.ManualReconciliationLabel: "true"})
-			Expect(fakeK8sClient.Update(ctx, parent)).To(Succeed())
-
-			opts := newOpts()
-			opts.SkipConditions = true
-			statusesBefore := storedPipelineStatuses(parent, configureKey)
-			statusBefore := storedStatus(parent)
-
-			By("suspending the Job that is running", func() {
-				passiveRequeue, err := workflow.ReconcileConfigure(opts)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(passiveRequeue).To(BeTrue())
-
-				job := &batchv1.Job{}
-				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resources[0].Job.Name, Namespace: namespace}, job)).To(Succeed())
-				Expect(job.Spec.Suspend).To(HaveValue(BeTrue()))
-			})
-
-			markJobAsSuspended(resources[0].Job.Name)
-
-			By("re-running the workflow and taking the label off once the Job has stopped", func() {
-				passiveRequeue, err := workflow.ReconcileConfigure(opts)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(passiveRequeue).To(BeTrue())
-				Expect(countEvents(eventRecorder, "PipelineStarted")).To(Equal(1))
-
-				Expect(storedParent(parent).GetLabels()).NotTo(HaveKey(resourceutil.ManualReconciliationLabel))
-			})
-
-			By("leaving every byte of the status the caller owns alone", func() {
-				Expect(storedStatus(parent)).To(Equal(statusBefore))
-				Expect(parent.Object["status"]).To(Equal(statusBefore))
-				Expect(storedPipelineStatuses(parent, configureKey)).To(Equal(statusesBefore))
-			})
-		})
-
-		It("ignores a suspended entry that is past the end of the workflow", func() {
-			writePipelineStatuses(parent, configureKey,
-				pendingEntry(resources[0]),
-				pendingEntry(resources[1]),
-				map[string]any{"name": "a-pipeline-of-theirs", "phase": v1alpha1.WorkflowPhaseSuspended},
-			)
-
-			opts := newOpts()
-			opts.SkipConditions = true
-
+		By("running its own first pipeline rather than waiting on the suspension", func() {
 			passiveRequeue, err := workflow.ReconcileConfigure(opts)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(passiveRequeue).To(BeTrue())
 			Expect(jobNames()).To(ContainElement(resources[0].Job.Name))
 		})
+	})
 
-		It("re-runs once against a Job retained from before the pipeline hash was folded in", func() {
-			preFoldPromise, preFoldPipelines := progressionPromise("pipeline-1")
-			preFoldResources, _ := setupTest(preFoldPromise, preFoldPipelines)
+	It("re-runs once against a Job retained from before the pipeline hash was folded in", func() {
+		preFoldPromise, preFoldPipelines := progressionPromise("pipeline-1")
+		preFoldResources, _ := setupTest(preFoldPromise, preFoldPipelines)
 
-			foldedPipelines := []v1alpha1.Pipeline{*preFoldPipelines[0].DeepCopy()}
-			foldedPipelines[0].SetLabels(map[string]string{v1alpha1.KratixPipelineHashLabel: "pipeline-hash-v1"})
-			foldedResources, foldedParent := setupTest(preFoldPromise, foldedPipelines)
+		foldedPipelines := []v1alpha1.Pipeline{*preFoldPipelines[0].DeepCopy()}
+		foldedPipelines[0].SetLabels(map[string]string{v1alpha1.KratixPipelineHashLabel: "pipeline-hash-v1"})
+		foldedResources, foldedParent := setupTest(preFoldPromise, foldedPipelines)
 
-			retained := preFoldResources[0].Job.DeepCopy()
-			retained.Labels[v1alpha1.KratixPipelineHashLabel] = "pipeline-hash-v1"
-			Expect(retained.Labels[v1alpha1.KratixResourceHashLabel]).
-				NotTo(Equal(foldedResources[0].Job.GetLabels()[v1alpha1.KratixResourceHashLabel]),
-					"the fixture is only meaningful while the folded hash differs from the bare one")
-			createJob(retained, jobSucceeded)
+		retained := preFoldResources[0].Job.DeepCopy()
+		retained.Labels[v1alpha1.KratixPipelineHashLabel] = "pipeline-hash-v1"
+		preFoldHash := retained.Labels[v1alpha1.KratixResourceHashLabel]
+		Expect(preFoldHash).
+			NotTo(Equal(foldedResources[0].Job.GetLabels()[v1alpha1.KratixResourceHashLabel]),
+				"the fixture is only meaningful while the folded hash differs from the bare one")
+		createJob(retained, jobSucceeded)
+		writePipelineStatuses(foldedParent, configureKey, succeededEntry(preFoldResources[0], preFoldHash))
 
-			opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, foldedParent, foldedResources, "promise", 5, namespace)
-			opts.SkipConditions = true
+		opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, foldedParent, foldedResources, "promise", 5, namespace)
+		passiveRequeue, err := workflow.ReconcileConfigure(opts)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(passiveRequeue).To(BeTrue())
 
-			passiveRequeue, err := workflow.ReconcileConfigure(opts)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(passiveRequeue).To(BeTrue())
-
-			Expect(listJobs(namespace)).To(HaveLen(2))
-			Expect(listJobs(namespace)).To(ContainElement(HaveField("Name", foldedResources[0].Job.Name)))
-		})
+		Expect(listJobs(namespace)).To(HaveLen(2))
+		Expect(listJobs(namespace)).To(ContainElement(HaveField("Name", foldedResources[0].Job.Name)))
 	})
 
 	It("never prunes a Job that is still running, however old it is", func() {
@@ -926,14 +815,6 @@ func jobNames() []string {
 		names = append(names, job.Name)
 	}
 	return names
-}
-
-// storedStatus is the parent object's whole status as the API server holds it.
-// Status alone, so the label writes the engine does make stay out of the
-// assertion that a caller's status was left untouched.
-func storedStatus(parent *unstructured.Unstructured) any {
-	GinkgoHelper()
-	return storedParent(parent).Object["status"]
 }
 
 func settledEntry(resource v1alpha1.PipelineJobResources) map[string]any {
