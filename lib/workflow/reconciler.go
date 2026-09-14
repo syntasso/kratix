@@ -226,13 +226,6 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 		logging.Error(opts.logger, err, "failed to list jobs")
 		return nil, err
 	}
-	allLegacyJobs, err := getJobsWithLabels(opts, legacyLabelsForJobs(opts), opts.namespace)
-	if err != nil {
-		logging.Error(opts.logger, err, "failed to list jobs")
-		return nil, err
-	}
-	allJobs = append(allJobs, allLegacyJobs...)
-
 	state := &workflowState{
 		manualReconcile:      isManualReconciliation(opts.parentObject.GetLabels()),
 		suspendedPipelineIdx: -1,
@@ -448,20 +441,6 @@ func labelsForJobs(opts Opts) map[string]string {
 			// only set resource request namespace label when workflow running in different namespace from the resource requests
 			l[v1alpha1.ResourceNamespaceLabel] = opts.parentObject.GetNamespace()
 		}
-	}
-	l[v1alpha1.PromiseNameLabel] = promiseName
-	return l
-}
-
-// TODO: this part will be deprecated when we stop using the legacy labels
-func legacyLabelsForJobs(opts Opts) map[string]string {
-	l := map[string]string{
-		v1alpha1.WorkTypeLabel: opts.workflowType,
-	}
-	promiseName := opts.parentObject.GetName()
-	if opts.workflowType == v1alpha1.WorkTypeResource {
-		promiseName = opts.parentObject.GetLabels()[v1alpha1.PromiseNameLabel]
-		l[v1alpha1.ResourceNameLabel] = opts.parentObject.GetName()
 	}
 	l[v1alpha1.PromiseNameLabel] = promiseName
 	return l
