@@ -754,8 +754,8 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 		return false, nil, nil
 	}
 
-	resourceSpecChanged := resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration") != 0 &&
-		rr.GetGeneration() > resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration")
+	suspendedGeneration := resourceutil.GetKratixWorkflowsInt64Status(rr, configureWorkflowStatusKey, "suspendedGeneration")
+	resourceSpecChanged := suspendedGeneration != 0 && rr.GetGeneration() > suspendedGeneration
 
 	if isManualReconcile(rr) || resourceSpecChanged {
 		if resourceSpecChanged {
@@ -777,7 +777,7 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(rr), updatedRR); err != nil {
 			return true, nil, err
 		}
-		if err := resourceutil.ResetPipelineStatusToPending(updatedRR, pipelineResources); err != nil {
+		if err := resourceutil.ResetPipelineStatusToPending(updatedRR, configureWorkflowStatusKey, pipelineResources); err != nil {
 			return true, nil, err
 		}
 		return true, nil, r.Client.Status().Update(ctx, updatedRR)
@@ -1159,19 +1159,20 @@ func removeWorkflowCounters(rr *unstructured.Unstructured) bool {
 }
 
 func ensureRRKratixWorkflowStatusIsSetup(rr *unstructured.Unstructured, pipelines []v1alpha1.PipelineJobResources) (bool, error) {
-	existingPipelines, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
+	existingPipelines, found, err := unstructured.NestedSlice(rr.Object,
+		"status", "kratix", "workflows", configureWorkflowStatusKey, "pipelines")
 	if err != nil {
 		return false, err
 	}
 
 	if !found || len(existingPipelines) != len(pipelines) {
-		return true, resourceutil.ResetPipelineStatusToPending(rr, pipelines)
+		return true, resourceutil.ResetPipelineStatusToPending(rr, configureWorkflowStatusKey, pipelines)
 	}
 
 	for i, pipeline := range pipelines {
 		pipelineStatus, ok := existingPipelines[i].(map[string]any)
 		if !ok || pipelineStatus["name"] != pipeline.Name {
-			return true, resourceutil.ResetPipelineStatusToPending(rr, pipelines)
+			return true, resourceutil.ResetPipelineStatusToPending(rr, configureWorkflowStatusKey, pipelines)
 		}
 	}
 
@@ -1750,7 +1751,7 @@ func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 ) bool {
 	lastTransitionTime := workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339)
 	lastSuccessfulLegacy := resourceutil.GetStatus(rr, "lastSuccessfulConfigureWorkflowTime")
-	lastSuccessfulKratix := resourceutil.GetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime")
+	lastSuccessfulKratix := resourceutil.GetKratixWorkflowsStatus(rr, configureWorkflowStatusKey, "lastSuccessfulTime")
 
 	return lastTransitionTime != lastSuccessfulLegacy || lastTransitionTime != lastSuccessfulKratix
 }
@@ -1758,14 +1759,14 @@ func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts) error {
 	lastTransitionTime := workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339)
 	resourceutil.SetStatus(rr, opts.logger, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime)
-	if err := resourceutil.SetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime); err != nil {
+	if err := resourceutil.SetKratixWorkflowsStatus(rr, configureWorkflowStatusKey, "lastSuccessfulTime", lastTransitionTime); err != nil {
 		return err
 	}
 	return opts.client.Status().Update(opts.ctx, rr)
 }
 
 func nextRetryAtForResource(rr *unstructured.Unstructured) (time.Time, error) {
-	pipelines, err := resourceutil.GetResourceRequestStatusPipelines(rr)
+	pipelines, err := resourceutil.GetResourceRequestStatusPipelines(rr, configureWorkflowStatusKey)
 	if err != nil {
 		return time.Time{}, err
 	}

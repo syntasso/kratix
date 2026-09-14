@@ -9,7 +9,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
-	"github.com/syntasso/kratix/lib/hash"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -207,27 +206,6 @@ func SortJobsByCreationDateTime(jobs []batchv1.Job, desc bool) []batchv1.Job {
 	return jobs
 }
 
-func PipelineWithDesiredSpecExists(logger logr.Logger, obj *unstructured.Unstructured, jobs []batchv1.Job) (*batchv1.Job, error) {
-	if len(jobs) == 0 {
-		return nil, nil
-	}
-
-	jobs = SortJobsByCreationDateTime(jobs, true)
-	mostRecentJob := jobs[len(jobs)-1]
-
-	mostRecentHash := mostRecentJob.GetLabels()[v1alpha1.KratixResourceHashLabel]
-	currentRequestHash, err := hash.ComputeHashForResource(obj)
-	if err != nil {
-		logging.Warn(logger, "cannot determine if the request is an update; requeueing", "reason", err.Error())
-		return nil, err
-	}
-
-	if mostRecentHash == currentRequestHash {
-		return &mostRecentJob, nil
-	}
-	return nil, nil
-}
-
 func IsThereAPipelineRunning(logger logr.Logger, jobs []batchv1.Job) bool {
 	if len(jobs) == 0 {
 		return false
@@ -261,26 +239,6 @@ func hasCondition(job batchv1.Job, conditionType batchv1.JobConditionType, condi
 		}
 	}
 	return false
-}
-
-// If a job has no active pods we can suspend it
-func SuspendablePipelines(logger logr.Logger, jobs []batchv1.Job) []batchv1.Job {
-	if len(jobs) == 0 {
-		return nil
-	}
-
-	jobsToSuspend := []batchv1.Job{}
-	for _, job := range jobs {
-		if job.Spec.Suspend != nil && *job.Spec.Suspend {
-			continue
-		}
-
-		if job.Status.Active == 0 {
-			jobsToSuspend = append(jobsToSuspend, job)
-		}
-	}
-
-	return jobsToSuspend
 }
 
 // SetStatus takes in key value pairs in the statuses argument.
@@ -339,10 +297,22 @@ func GetStatus(rr *unstructured.Unstructured, key string) string {
 	return nestedMap[key].(string)
 }
 
-// CountPipelinesInPhase returns how many workflow pipelines are in the given
-// phase, or -1 when the pipeline status has not been initialised yet.
-func CountPipelinesInPhase(obj *unstructured.Unstructured, phase string) int64 {
-	pipelines, found, err := unstructured.NestedSlice(obj.Object, "status", "kratix", "workflows", "pipelines")
+// workflowsPath returns the status path of a field under the workflow stored at
+// key. Keying is what stops one workflow's status reset overwriting another's
+// pipeline ledger: before it, running the delete workflow wiped the configure
+// workflow's entries.
+func workflowsPath(key string, fields ...string) []string {
+	return append([]string{"status", "kratix", "workflows", key}, fields...)
+}
+
+func pipelinesPath(key string) []string {
+	return workflowsPath(key, "pipelines")
+}
+
+// CountPipelinesInPhase returns how many of key's workflow pipelines are in the
+// given phase, or -1 when the pipeline status has not been initialised yet.
+func CountPipelinesInPhase(obj *unstructured.Unstructured, key, phase string) int64 {
+	pipelines, found, err := unstructured.NestedSlice(obj.Object, pipelinesPath(key)...)
 	if err != nil || !found {
 		return -1
 	}
@@ -361,25 +331,26 @@ func CountPipelinesInPhase(obj *unstructured.Unstructured, phase string) int64 {
 	return count
 }
 
-// HasPipelineInPhase reports whether any workflow pipeline is in the given phase.
-func HasPipelineInPhase(obj *unstructured.Unstructured, phase string) bool {
-	return CountPipelinesInPhase(obj, phase) > 0
+// HasPipelineInPhase reports whether any of key's workflow pipelines is in the
+// given phase.
+func HasPipelineInPhase(obj *unstructured.Unstructured, key, phase string) bool {
+	return CountPipelinesInPhase(obj, key, phase) > 0
 }
 
-func MarkCurrentPipelineAsSucceeded(rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) error {
-	return MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseSucceeded, rr, logger, job)
+func MarkCurrentPipelineAsSucceeded(rr *unstructured.Unstructured, key string, logger logr.Logger, job *batchv1.Job) error {
+	return MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseSucceeded, rr, key, logger, job)
 }
 
-func MarkCurrentPipelineAsFailed(rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) error {
-	return MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseFailed, rr, logger, job)
+func MarkCurrentPipelineAsFailed(rr *unstructured.Unstructured, key string, logger logr.Logger, job *batchv1.Job) error {
+	return MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseFailed, rr, key, logger, job)
 }
 
-func MarkCurrentPipelineAsRunning(rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) error {
-	return MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseRunning, rr, logger, job)
+func MarkCurrentPipelineAsRunning(rr *unstructured.Unstructured, key string, logger logr.Logger, job *batchv1.Job) error {
+	return MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseRunning, rr, key, logger, job)
 }
 
-func GetCurrentPipelinePhase(rr *unstructured.Unstructured, job *batchv1.Job) string {
-	workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
+func GetCurrentPipelinePhase(rr *unstructured.Unstructured, key string, job *batchv1.Job) string {
+	workflows, found, err := unstructured.NestedSlice(rr.Object, pipelinesPath(key)...)
 	if err != nil || !found {
 		return ""
 	}
@@ -397,8 +368,8 @@ func GetCurrentPipelinePhase(rr *unstructured.Unstructured, job *batchv1.Job) st
 	return ""
 }
 
-func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) error {
-	workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
+func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, key string, logger logr.Logger, job *batchv1.Job) error {
+	workflows, found, err := unstructured.NestedSlice(rr.Object, pipelinesPath(key)...)
 	if err != nil {
 		logging.Warn(logger, "failed to get workflow pipeline status", "error", err)
 		return err
@@ -434,14 +405,15 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger 
 
 	pipeline["phase"] = status
 	pipeline["lastTransitionTime"] = metav1.Now().Format(time.RFC3339)
+	pipeline["hash"] = job.GetLabels()[v1alpha1.KratixResourceHashLabel]
 	workflows[pipelineIndex] = pipeline
-	return unstructured.SetNestedSlice(rr.Object, workflows, "status", "kratix", "workflows", "pipelines")
+	return unstructured.SetNestedSlice(rr.Object, workflows, pipelinesPath(key)...)
 }
 
-// MarkPipelinesAsSucceeded marks the first count pipelines as succeeded, so the
-// status catches up with pipeline completions no reconciliation ever observed.
-func MarkPipelinesAsSucceeded(obj *unstructured.Unstructured, count int64) error {
-	pipelines, found, err := unstructured.NestedSlice(obj.Object, "status", "kratix", "workflows", "pipelines")
+// MarkPipelinesAsSucceeded marks the first count pipelines of key as succeeded,
+// so the status catches up with pipeline completions no reconciliation ever observed.
+func MarkPipelinesAsSucceeded(obj *unstructured.Unstructured, key string, count int64) error {
+	pipelines, found, err := unstructured.NestedSlice(obj.Object, pipelinesPath(key)...)
 	if err != nil || !found {
 		return err
 	}
@@ -463,10 +435,10 @@ func MarkPipelinesAsSucceeded(obj *unstructured.Unstructured, count int64) error
 		pipelines[i] = pipeline
 	}
 
-	return unstructured.SetNestedSlice(obj.Object, pipelines, "status", "kratix", "workflows", "pipelines")
+	return unstructured.SetNestedSlice(obj.Object, pipelines, pipelinesPath(key)...)
 }
 
-func ResetPipelineStatusToPending(obj *unstructured.Unstructured, pipelines []v1alpha1.PipelineJobResources) error {
+func ResetPipelineStatusToPending(obj *unstructured.Unstructured, key string, pipelines []v1alpha1.PipelineJobResources) error {
 	if obj.Object["status"] == nil {
 		obj.Object["status"] = map[string]any{}
 	}
@@ -480,12 +452,12 @@ func ResetPipelineStatusToPending(obj *unstructured.Unstructured, pipelines []v1
 		})
 	}
 
-	unstructured.RemoveNestedField(obj.Object, "status", "kratix", "workflows", "suspendedGeneration")
-	return unstructured.SetNestedSlice(obj.Object, workflows, "status", "kratix", "workflows", "pipelines")
+	unstructured.RemoveNestedField(obj.Object, workflowsPath(key, "suspendedGeneration")...)
+	return unstructured.SetNestedSlice(obj.Object, workflows, pipelinesPath(key)...)
 }
 
-func GetSuspendedPipelineIndex(obj *unstructured.Unstructured) (int, error) {
-	workflows, found, err := unstructured.NestedSlice(obj.Object, "status", "kratix", "workflows", "pipelines")
+func GetSuspendedPipelineIndex(obj *unstructured.Unstructured, key string) (int, error) {
+	workflows, found, err := unstructured.NestedSlice(obj.Object, pipelinesPath(key)...)
 	if err != nil || !found {
 		return -1, err
 	}
@@ -566,32 +538,32 @@ func IsPromiseMarkedAsUnavailable(obj *unstructured.Unstructured) bool {
 	return condition.Status == v1.ConditionFalse
 }
 
-func SetKratixWorkflowsStatus(rr *unstructured.Unstructured, key, value string) error {
-	return unstructured.SetNestedField(rr.Object, value, "status", "kratix", "workflows", key)
+func SetKratixWorkflowsStatus(rr *unstructured.Unstructured, key, field, value string) error {
+	return unstructured.SetNestedField(rr.Object, value, workflowsPath(key, field)...)
 }
 
-func SetKratixWorkflowsInt64Status(rr *unstructured.Unstructured, key string, value int64) error {
-	return unstructured.SetNestedField(rr.Object, value, "status", "kratix", "workflows", key)
+func SetKratixWorkflowsInt64Status(rr *unstructured.Unstructured, key, field string, value int64) error {
+	return unstructured.SetNestedField(rr.Object, value, workflowsPath(key, field)...)
 }
 
-func GetKratixWorkflowsStatus(rr *unstructured.Unstructured, key string) string {
-	value, found, err := unstructured.NestedString(rr.Object, "status", "kratix", "workflows", key)
+func GetKratixWorkflowsStatus(rr *unstructured.Unstructured, key, field string) string {
+	value, found, err := unstructured.NestedString(rr.Object, workflowsPath(key, field)...)
 	if err != nil || !found {
 		return ""
 	}
 	return value
 }
 
-func GetKratixWorkflowsInt64Status(rr *unstructured.Unstructured, key string) int64 {
-	value, found, err := unstructured.NestedInt64(rr.Object, "status", "kratix", "workflows", key)
+func GetKratixWorkflowsInt64Status(rr *unstructured.Unstructured, key, field string) int64 {
+	value, found, err := unstructured.NestedInt64(rr.Object, workflowsPath(key, field)...)
 	if err != nil || !found {
 		return 0
 	}
 	return value
 }
 
-func GetResourceRequestStatusPipelines(rr *unstructured.Unstructured) (updatedPipelines []map[string]any, err error) {
-	pipelines, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
+func GetResourceRequestStatusPipelines(rr *unstructured.Unstructured, key string) (updatedPipelines []map[string]any, err error) {
+	pipelines, found, err := unstructured.NestedSlice(rr.Object, pipelinesPath(key)...)
 	if !found || err != nil {
 		return updatedPipelines, fmt.Errorf("error fetching workflow pipelines for resource %s/%s from status", rr.GetName(), rr.GetKind())
 	}

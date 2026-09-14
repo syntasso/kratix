@@ -177,7 +177,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			By("setting the lastSuccessfulConfigureWorkflowTime in the resource status", func() {
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-				configuredWorkflowTime := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+				configuredWorkflowTime := resourceutil.GetKratixWorkflowsStatus(resReq, configureKey, "lastSuccessfulTime")
 				lastSuccessfulConfigureWorkflowTime, err := time.Parse(time.RFC3339, configuredWorkflowTime)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(lastSuccessfulConfigureWorkflowTime).To(BeTemporally(">", startTime))
@@ -344,7 +344,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						"phase":       "Suspended",
 						"nextRetryAt": time.Now().UTC().Add(-time.Hour).Format(time.RFC3339),
 					},
-				}, "status", "kratix", "workflows", "pipelines")).To(Succeed())
+				}, "status", "kratix", "workflows", configureKey, "pipelines")).To(Succeed())
 				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
 				controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
@@ -376,7 +376,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						"phase":   "Suspended",
 						"message": "waiting for approval before deleting",
 					},
-				}, "status", "kratix", "workflows", "pipelines")).To(Succeed())
+				}, "status", "kratix", "workflows", configureKey, "pipelines")).To(Succeed())
 				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
 				controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
@@ -719,7 +719,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(result).To(Equal(ctrl.Result{}))
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
-					status := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					status := resourceutil.GetKratixWorkflowsStatus(resReq, configureKey, "lastSuccessfulTime")
 					Expect(status).To(BeEmpty())
 				})
 
@@ -732,7 +732,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
-					lastSuccessfulConfigureWorkflowTime := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					lastSuccessfulConfigureWorkflowTime := resourceutil.GetKratixWorkflowsStatus(resReq, configureKey, "lastSuccessfulTime")
 					Expect(lastSuccessfulConfigureWorkflowTime).To(Equal(lastTransitionTime.Format(time.RFC3339)))
 				})
 			})
@@ -749,7 +749,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				})
 
 				It("remains the same when the workflow fails", func() {
-					before := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					before := resourceutil.GetKratixWorkflowsStatus(resReq, configureKey, "lastSuccessfulTime")
 					Expect(before).NotTo(BeEmpty())
 
 					setConfigureWorkflowStatus(resReq, v1.ConditionFalse, time.Now())
@@ -759,13 +759,13 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(result).To(Equal(ctrl.Result{}))
 
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-					after := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					after := resourceutil.GetKratixWorkflowsStatus(resReq, configureKey, "lastSuccessfulTime")
 					Expect(after).NotTo(BeEmpty())
 					Expect(before).To(Equal(after))
 				})
 
 				It("remains the same when the condition is True but not for the right Reason", func() {
-					before := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					before := resourceutil.GetKratixWorkflowsStatus(resReq, configureKey, "lastSuccessfulTime")
 					Expect(before).NotTo(BeEmpty())
 					resourceutil.SetCondition(resReq, &clusterv1.Condition{
 						Type:               resourceutil.ConfigureWorkflowCompletedCondition,
@@ -781,13 +781,13 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(result).To(Equal(ctrl.Result{}))
 
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-					after := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					after := resourceutil.GetKratixWorkflowsStatus(resReq, configureKey, "lastSuccessfulTime")
 					Expect(after).NotTo(BeEmpty())
 					Expect(before).To(Equal(after))
 				})
 
 				It("is updated when the workflow finishes successfully at a later time", func() {
-					before := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					before := resourceutil.GetKratixWorkflowsStatus(resReq, configureKey, "lastSuccessfulTime")
 					Expect(before).NotTo(BeEmpty())
 
 					expectedAfter := time.Now()
@@ -798,7 +798,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
-					actualAfter := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					actualAfter := resourceutil.GetKratixWorkflowsStatus(resReq, configureKey, "lastSuccessfulTime")
 					Expect(actualAfter).NotTo(BeEmpty())
 					Expect(actualAfter).To(Equal(expectedAfter.Format(time.RFC3339)))
 				})
@@ -1193,7 +1193,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
-					pipelines, _, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
+					pipelines, _, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", configureKey, "pipelines")
 					Expect(err).NotTo(HaveOccurred())
 					Expect(pipelines).To(BeEmpty())
 				})
@@ -1225,7 +1225,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-				workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
+				workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", configureKey, "pipelines")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(found).To(BeTrue())
 				Expect(workflows).To(HaveLen(1))
@@ -1443,7 +1443,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-			workflows, _, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
+			workflows, _, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", configureKey, "pipelines")
 			Expect(err).NotTo(HaveOccurred())
 
 			firstPipeline := workflows[0].(map[string]any)
@@ -1451,8 +1451,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			firstPipeline["message"] = "waiting for approval"
 			workflows[0] = firstPipeline
 
-			Expect(unstructured.SetNestedSlice(resReq.Object, workflows, "status", "kratix", "workflows", "pipelines")).To(Succeed())
-			Expect(resourceutil.SetKratixWorkflowsInt64Status(resReq, "suspendedGeneration", 1)).To(Succeed())
+			Expect(unstructured.SetNestedSlice(resReq.Object, workflows, "status", "kratix", "workflows", configureKey, "pipelines")).To(Succeed())
+			Expect(resourceutil.SetKratixWorkflowsInt64Status(resReq, configureKey, "suspendedGeneration", 1)).To(Succeed())
 			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 		})
 
@@ -1511,7 +1511,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendedLabel]).To(BeEmpty())
 			Expect(resReq.GetLabels()[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
-			workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
+			workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", configureKey, "pipelines")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(found).To(BeTrue())
 			Expect(workflows[0]).To(SatisfyAll(
@@ -1531,7 +1531,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendedLabel]).To(BeEmpty())
 			Expect(resReq.GetLabels()[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
-			workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
+			workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", configureKey, "pipelines")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(found).To(BeTrue())
 			Expect(workflows[0]).To(SatisfyAll(
@@ -1572,7 +1572,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		When("the workflow is being retried", func() {
 			It("schedules a reconciliation after the nextRetryAt in the request status", func() {
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-				workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
+				workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", configureKey, "pipelines")
 				Expect(found).To(BeTrue())
 				Expect(err).ToNot(HaveOccurred())
 
@@ -1581,7 +1581,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				workflow["nextRetryAt"] = time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
 				workflows[0] = workflow
 
-				Expect(unstructured.SetNestedSlice(resReq.Object, workflows, "status", "kratix", "workflows", "pipelines")).To(Succeed())
+				Expect(unstructured.SetNestedSlice(resReq.Object, workflows, "status", "kratix", "workflows", configureKey, "pipelines")).To(Succeed())
 				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
 				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
@@ -1591,7 +1591,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			It("removes the workflow suspended label when the nextRetryAt time is reached", func() {
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-				workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
+				workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", configureKey, "pipelines")
 				Expect(found).To(BeTrue())
 				Expect(err).ToNot(HaveOccurred())
 
@@ -1599,7 +1599,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				workflow["nextRetryAt"] = time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
 				workflows[0] = workflow
 
-				Expect(unstructured.SetNestedSlice(resReq.Object, workflows, "status", "kratix", "workflows", "pipelines")).To(Succeed())
+				Expect(unstructured.SetNestedSlice(resReq.Object, workflows, "status", "kratix", "workflows", configureKey, "pipelines")).To(Succeed())
 				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
 				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})

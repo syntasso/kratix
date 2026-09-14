@@ -1,8 +1,6 @@
 package resourceutil_test
 
 import (
-	"time"
-
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -11,7 +9,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/resourceutil"
@@ -46,103 +43,6 @@ var _ = Describe("Conditions", func() {
 		var err error
 		originalHash, err = hash.ComputeHashForResource(rr)
 		Expect(err).NotTo(HaveOccurred())
-	})
-
-	Describe("PipelineExists", func() {
-		It("returns false if there are no pipeline jobs", func() {
-			Expect(resourceutil.PipelineWithDesiredSpecExists(logger, nil, nil)).To(BeNil())
-			Expect(resourceutil.PipelineWithDesiredSpecExists(logger, nil, []batchv1.Job{})).To(BeNil())
-		})
-
-		It("returns true if there's a job matching the request spec hash", func() {
-			jobs := []batchv1.Job{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						CreationTimestamp: metav1.Now(),
-						Labels: map[string]string{
-							"kratix.io/hash": originalHash,
-						},
-						Name: "expected",
-					},
-					Status: completedStatus,
-				},
-			}
-
-			returnedJob, err := resourceutil.PipelineWithDesiredSpecExists(logger, rr, jobs)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(returnedJob).NotTo(BeNil())
-			Expect(returnedJob.GetName()).To(Equal("expected"))
-		})
-
-		It("returns false if there's no job matching the request spec hash", func() {
-			rr.Object["spec"] = map[string]interface{}{
-				"foo": "another-value",
-			}
-
-			jobs := []batchv1.Job{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						CreationTimestamp: metav1.Now(),
-						Labels: map[string]string{
-							"kratix.io/hash": originalHash,
-						},
-					},
-					Status: completedStatus,
-				},
-			}
-
-			Expect(resourceutil.PipelineWithDesiredSpecExists(logger, rr, jobs)).To(BeNil())
-		})
-
-		It("only compares hashes of the most recent job", func() {
-			markWorkflowAsCompleted(rr)
-			jobs := []batchv1.Job{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						CreationTimestamp: metav1.NewTime(time.Now().Add(-3 * time.Hour)),
-						Labels: map[string]string{
-							"kratix.io/hash": "some-old-hash",
-						},
-					},
-					Status: completedStatus,
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
-						Labels: map[string]string{
-							"kratix.io/hash": originalHash,
-						},
-						Name: "expected",
-					},
-					Status: completedStatus,
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						CreationTimestamp: metav1.NewTime(time.Now().Add(-2 * time.Hour)),
-						Labels: map[string]string{
-							"kratix.io/hash": "some-older-hash",
-						},
-					},
-					Status: completedStatus,
-				},
-			}
-
-			returnedJob, err := resourceutil.PipelineWithDesiredSpecExists(logger, rr, jobs)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(returnedJob).NotTo(BeNil())
-			Expect(returnedJob.GetName()).To(Equal("expected"))
-
-			jobs = append(jobs, batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					CreationTimestamp: metav1.Now(),
-					Labels: map[string]string{
-						"kratix.io/hash": "some-newer-hash",
-					},
-				},
-			})
-
-			Expect(resourceutil.PipelineWithDesiredSpecExists(logger, rr, jobs)).To(BeNil())
-		})
 	})
 
 	Describe("IsThereAPipelineRunning", func() {
@@ -277,53 +177,6 @@ var _ = Describe("Conditions", func() {
 		})
 	})
 
-	Describe("PipelinesToSuspend", func() {
-		It("returns empty if there are no jobs", func() {
-			Expect(resourceutil.SuspendablePipelines(logger, nil)).To(BeEmpty())
-		})
-
-		It("returns any jobs that aren't suspended and have no active pods", func() {
-			trueBool := true
-			jobs := []batchv1.Job{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						CreationTimestamp: metav1.Now(),
-						Labels: map[string]string{
-							"kratix.io/hash": originalHash,
-						},
-						Name: "unactive-but-suspended",
-					},
-					Status: batchv1.JobStatus{
-						Active: 0,
-					},
-					Spec: batchv1.JobSpec{
-						Suspend: &trueBool,
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						CreationTimestamp: metav1.Now(),
-						Labels: map[string]string{
-							"kratix.io/hash": originalHash,
-						},
-						Name: "unactive",
-					},
-					Status: batchv1.JobStatus{
-						Conditions: []batchv1.JobCondition{
-							{
-								Type:   batchv1.JobFailed,
-								Status: v1.ConditionTrue,
-							},
-						},
-						Active: 0,
-					},
-				},
-			}
-			Expect(resourceutil.SuspendablePipelines(logger, jobs)).To(HaveLen(1))
-			Expect(resourceutil.SuspendablePipelines(logger, jobs)[0].GetName()).To(Equal("unactive"))
-		})
-	})
-
 	Describe("SetStatus", func() {
 		var rr *unstructured.Unstructured
 
@@ -396,15 +249,25 @@ var _ = Describe("Conditions", func() {
 		})
 
 		It("can set and get status.kratix.workflows fields correctly", func() {
-			err := resourceutil.SetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime", "2026-10-14T16:16:00Z")
+			err := resourceutil.SetKratixWorkflowsStatus(rr, configureKey, "lastSuccessfulTime", "2026-10-14T16:16:00Z")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(resourceutil.GetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime")).
+			Expect(resourceutil.GetKratixWorkflowsStatus(rr, configureKey, "lastSuccessfulTime")).
 				To(Equal("2026-10-14T16:16:00Z"))
+		})
+
+		It("stores each workflow's fields under its own key", func() {
+			Expect(resourceutil.SetKratixWorkflowsStatus(rr, configureKey, "lastSuccessfulTime", "2026-10-14T16:16:00Z")).To(Succeed())
+			Expect(resourceutil.SetKratixWorkflowsStatus(rr, deleteKey, "lastSuccessfulTime", "2026-11-15T09:00:00Z")).To(Succeed())
+
+			Expect(resourceutil.GetKratixWorkflowsStatus(rr, configureKey, "lastSuccessfulTime")).
+				To(Equal("2026-10-14T16:16:00Z"))
+			Expect(resourceutil.GetKratixWorkflowsStatus(rr, deleteKey, "lastSuccessfulTime")).
+				To(Equal("2026-11-15T09:00:00Z"))
 		})
 
 		Context("GetKratixWorkflowsStatus", func() {
 			It("returns empty string for missing keys", func() {
-				Expect(resourceutil.GetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime")).To(BeEmpty())
+				Expect(resourceutil.GetKratixWorkflowsStatus(rr, configureKey, "lastSuccessfulTime")).To(BeEmpty())
 			})
 		})
 
@@ -418,10 +281,12 @@ var _ = Describe("Conditions", func() {
 				rr.Object["status"] = map[string]interface{}{
 					"kratix": map[string]interface{}{
 						"workflows": map[string]interface{}{
-							"pipelines": []interface{}{
-								map[string]interface{}{
-									"name":  "first-pipeline",
-									"phase": v1alpha1.WorkflowPhasePending,
+							configureKey: map[string]interface{}{
+								"pipelines": []interface{}{
+									map[string]interface{}{
+										"name":  "first-pipeline",
+										"phase": v1alpha1.WorkflowPhasePending,
+									},
 								},
 							},
 						},
@@ -437,19 +302,18 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "job-1",
 						Labels: map[string]string{
-							v1alpha1.PipelineNameLabel: "first-pipeline",
+							v1alpha1.PipelineNameLabel:       "first-pipeline",
+							v1alpha1.KratixResourceHashLabel: "hash-of-the-run",
 						},
 					},
 				}
 			})
 
 			It("marks the current pipeline as succeeded for a resource request", func() {
-				err := resourceutil.MarkCurrentPipelineAsSucceeded(rr, logger, job)
+				err := resourceutil.MarkCurrentPipelineAsSucceeded(rr, configureKey, logger, job)
 				Expect(err).NotTo(HaveOccurred())
 
-				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
-				Expect(err).NotTo(HaveOccurred())
-				Expect(found).To(BeTrue())
+				workflows := pipelinesUnderKey(rr, configureKey)
 				Expect(workflows).To(HaveLen(1))
 
 				pipeline := workflows[0].(map[string]interface{})
@@ -457,13 +321,18 @@ var _ = Describe("Conditions", func() {
 				Expect(pipeline["lastTransitionTime"]).NotTo(BeNil())
 			})
 
+			It("records the hash the job ran with on the pipeline it transitions", func() {
+				Expect(resourceutil.MarkCurrentPipelineAsSucceeded(rr, configureKey, logger, job)).To(Succeed())
+
+				pipeline := pipelinesUnderKey(rr, configureKey)[0].(map[string]interface{})
+				Expect(pipeline).To(HaveKeyWithValue("hash", "hash-of-the-run"))
+			})
+
 			It("marks the current pipeline with an explicit phase for a resource request", func() {
-				err := resourceutil.MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseFailed, rr, logger, job)
+				err := resourceutil.MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseFailed, rr, configureKey, logger, job)
 				Expect(err).NotTo(HaveOccurred())
 
-				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
-				Expect(err).NotTo(HaveOccurred())
-				Expect(found).To(BeTrue())
+				workflows := pipelinesUnderKey(rr, configureKey)
 				Expect(workflows).To(HaveLen(1))
 
 				pipeline := workflows[0].(map[string]interface{})
@@ -475,17 +344,17 @@ var _ = Describe("Conditions", func() {
 				rr.Object["status"] = map[string]any{
 					"kratix": map[string]any{
 						"workflows": map[string]any{
-							"suspendedGeneration": int64(2),
+							configureKey: map[string]any{
+								"suspendedGeneration": int64(2),
+							},
 						},
 					},
 				}
 
-				err := resourceutil.ResetPipelineStatusToPending(rr, pipelines)
+				err := resourceutil.ResetPipelineStatusToPending(rr, configureKey, pipelines)
 				Expect(err).NotTo(HaveOccurred())
 
-				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
-				Expect(err).NotTo(HaveOccurred())
-				Expect(found).To(BeTrue())
+				workflows := pipelinesUnderKey(rr, configureKey)
 				Expect(workflows).To(HaveLen(2))
 				Expect(workflows[0]).To(SatisfyAll(
 					HaveKeyWithValue("name", "first-pipeline"),
@@ -497,24 +366,35 @@ var _ = Describe("Conditions", func() {
 					HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
 					HaveKeyWithValue("lastTransitionTime", Not(BeNil())),
 				))
-				_, found, err = unstructured.NestedInt64(rr.Object, "status", "kratix", "workflows", "suspendedGeneration")
+				_, found, err := unstructured.NestedInt64(rr.Object, "status", "kratix", "workflows", configureKey, "suspendedGeneration")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(found).To(BeFalse())
+			})
+
+			It("resets only the pipelines of the workflow it is given", func() {
+				Expect(resourceutil.ResetPipelineStatusToPending(rr, deleteKey, pipelines)).To(Succeed())
+
+				Expect(pipelinesUnderKey(rr, deleteKey)).To(HaveLen(2))
+				Expect(pipelinesUnderKey(rr, configureKey)).To(ConsistOf(
+					HaveKeyWithValue("name", "first-pipeline"),
+				))
 			})
 
 			It("finds the index of a pipeline with the requested phase", func() {
 				rr.Object["status"] = map[string]any{
 					"kratix": map[string]any{
 						"workflows": map[string]any{
-							"pipelines": []any{
-								map[string]any{"name": "first-pipeline", "phase": v1alpha1.WorkflowPhaseSucceeded},
-								map[string]any{"name": "second-pipeline", "phase": "Suspended"},
+							configureKey: map[string]any{
+								"pipelines": []any{
+									map[string]any{"name": "first-pipeline", "phase": v1alpha1.WorkflowPhaseSucceeded},
+									map[string]any{"name": "second-pipeline", "phase": "Suspended"},
+								},
 							},
 						},
 					},
 				}
 
-				index, err := resourceutil.GetSuspendedPipelineIndex(rr)
+				index, err := resourceutil.GetSuspendedPipelineIndex(rr, configureKey)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(index).To(Equal(1))
 			})
@@ -597,20 +477,26 @@ var _ = Describe("Conditions", func() {
 		})
 
 		It("can set and get int64 fields under status.kratix.workflows", func() {
-			err := resourceutil.SetKratixWorkflowsInt64Status(rr, "suspendedGeneration", 7)
+			err := resourceutil.SetKratixWorkflowsInt64Status(rr, configureKey, "suspendedGeneration", 7)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration")).To(Equal(int64(7)))
+			Expect(resourceutil.GetKratixWorkflowsInt64Status(rr, configureKey, "suspendedGeneration")).To(Equal(int64(7)))
+			Expect(resourceutil.GetKratixWorkflowsInt64Status(rr, deleteKey, "suspendedGeneration")).To(BeZero())
 		})
 	})
 })
 
-func markWorkflowAsCompleted(obj *unstructured.Unstructured) {
-	resourceutil.SetCondition(obj, &clusterv1.Condition{
-		Type:               resourceutil.ConfigureWorkflowCompletedCondition,
-		Status:             v1.ConditionTrue,
-		Message:            "Pipelines completed",
-		Reason:             "PipelinesExecutedSuccessfully",
-		LastTransitionTime: metav1.NewTime(time.Now()),
-	})
+const (
+	configureKey = string(v1alpha1.WorkflowActionConfigure)
+	deleteKey    = string(v1alpha1.WorkflowActionDelete)
+)
+
+// pipelinesUnderKey fails rather than returning an empty slice when the key
+// holds no pipelines, so an assertion that a key was left alone cannot pass by
+// the whole workflow having disappeared.
+func pipelinesUnderKey(obj *unstructured.Unstructured, key string) []any {
+	pipelines, found, err := unstructured.NestedSlice(obj.Object, "status", "kratix", "workflows", key, "pipelines")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	ExpectWithOffset(1, found).To(BeTrue(), "no pipelines stored under workflow key %q", key)
+	return pipelines
 }

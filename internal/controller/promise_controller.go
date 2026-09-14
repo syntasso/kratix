@@ -38,6 +38,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
+	"github.com/syntasso/kratix/internal/ptr"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
 	"go.opentelemetry.io/otel/attribute"
@@ -509,12 +510,14 @@ func (r *PromiseReconciler) setPromiseUnavailableStatusConditions(
 }
 
 func resetPromiseWorkflowPipelinesToPending(promise *v1alpha1.Promise) {
-	promise.Status.Kratix.Workflows.SuspendedGeneration = 0
-	for i := range promise.Status.Kratix.Workflows.Pipelines {
-		promise.Status.Kratix.Workflows.Pipelines[i].Phase = v1alpha1.WorkflowPhasePending
-		promise.Status.Kratix.Workflows.Pipelines[i].Message = ""
-		promise.Status.Kratix.Workflows.Pipelines[i].LastTransitionTime = metav1.Now()
+	configure := promise.Status.Kratix.Workflows.Get(configureWorkflowStatusKey)
+	configure.SuspendedGeneration = 0
+	for i := range configure.Pipelines {
+		configure.Pipelines[i].Phase = v1alpha1.WorkflowPhasePending
+		configure.Pipelines[i].Message = ""
+		configure.Pipelines[i].LastTransitionTime = metav1.Now()
 	}
+	promise.Status.Kratix.Workflows.Set(configureWorkflowStatusKey, configure)
 }
 
 func (r *PromiseReconciler) generateConditions(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
@@ -1012,7 +1015,8 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		promise.Labels[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
-	promiseSpecChanged := promise.Status.Kratix.Workflows.SuspendedGeneration != 0 && promise.GetGeneration() > promise.Status.Kratix.Workflows.SuspendedGeneration
+	suspendedGeneration := promise.Status.Kratix.Workflows.Get(configureWorkflowStatusKey).SuspendedGeneration
+	promiseSpecChanged := suspendedGeneration != 0 && promise.GetGeneration() > suspendedGeneration
 
 	if restarted, err := r.restartOnReconciliationInterval(o.ctx, o.logger, promise, completedCond, forcePipelineRun); restarted || err != nil {
 		return restarted, nil, err
@@ -1121,12 +1125,13 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 
 // Either its not set, or its changed, either number of pipelines has changed, or names have changed
 func (r *PromiseReconciler) ensureKratixWorkflowStatusIsSetup(promise *v1alpha1.Promise) (bool, error) {
-	if len(promise.Status.Kratix.Workflows.Pipelines) != len(promise.Spec.Workflows.Promise.Configure) {
+	existingPipelines := promise.Status.Kratix.Workflows.Get(configureWorkflowStatusKey).Pipelines
+	if len(existingPipelines) != len(promise.Spec.Workflows.Promise.Configure) {
 		setNewPipelineStatus(promise)
 		return true, r.Client.Status().Update(context.Background(), promise)
 	}
 
-	for i, pipelineStatus := range promise.Status.Kratix.Workflows.Pipelines {
+	for i, pipelineStatus := range existingPipelines {
 		if pipelineStatus.Name != promise.Spec.Workflows.Promise.Configure[i].GetName() {
 			setNewPipelineStatus(promise)
 			return true, r.Client.Status().Update(context.Background(), promise)
@@ -1145,7 +1150,9 @@ func setNewPipelineStatus(promise *v1alpha1.Promise) {
 			LastTransitionTime: metav1.NewTime(time.Now()),
 		})
 	}
-	promise.Status.Kratix.Workflows.Pipelines = workflowPipelinesStatus
+	configure := promise.Status.Kratix.Workflows.Get(configureWorkflowStatusKey)
+	configure.Pipelines = workflowPipelinesStatus
+	promise.Status.Kratix.Workflows.Set(configureWorkflowStatusKey, configure)
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.GroupVersionKind) error {
@@ -2081,47 +2088,22 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 				"kratix": {
 					Type: "object",
 					Properties: map[string]apiextensionsv1.JSONSchemaProps{
+						// The workflow status is keyed by workflow — Kratix's own
+						// workflows by action ("configure", "delete"), controllers
+						// that embed the workflow engine by their own key — and each
+						// keyed value holds {pipelines: [{name, phase, message,
+						// nextRetryAt, attempts, hash, lastTransitionTime}],
+						// suspendedGeneration, lastSuccessfulTime}. Declaring those
+						// properties instead of preserving unknown fields would make
+						// the API server prune every key it does not know: both the
+						// new keyed entries and the pre-keyed flat ledger a
+						// pre-migration resource still carries, which any unrelated
+						// status write would then destroy before the workflow engine
+						// can lift each pipeline's hash out of it — re-running every
+						// pipeline of every resource on upgrade.
 						"workflows": {
-							Type: "object",
-							Properties: map[string]apiextensionsv1.JSONSchemaProps{
-								"lastSuccessfulConfigureWorkflowTime": {
-									Type: "string",
-								},
-								"pipelines": {
-									Type: "array",
-									Items: &apiextensionsv1.JSONSchemaPropsOrArray{
-										Schema: &apiextensionsv1.JSONSchemaProps{
-											Type: "object",
-											Properties: map[string]apiextensionsv1.JSONSchemaProps{
-												"name": {
-													Type: "string",
-												},
-												"phase": {
-													Type: "string",
-												},
-												"message": {
-													Type: "string",
-												},
-												"nextRetryAt": {
-													Type: "string",
-												},
-												"attempts": {
-													Type:   "integer",
-													Format: "int64",
-												},
-												"lastTransitionTime": {
-													Type:   "string",
-													Format: "datetime",
-												},
-											},
-										},
-									},
-								},
-								"suspendedGeneration": {
-									Type:   "integer",
-									Format: "int64",
-								},
-							},
+							Type:                   "object",
+							XPreserveUnknownFields: ptr.To(true),
 						},
 					},
 				},
@@ -2326,7 +2308,7 @@ func promiseWorkflowCompletedWithFailure(completedCond *metav1.Condition) bool {
 func nextRetryAt(promise v1alpha1.Promise) (time.Time, error) {
 	var retryTime time.Time
 	var err error
-	for _, pipeline := range promise.Status.Kratix.Workflows.Pipelines {
+	for _, pipeline := range promise.Status.Kratix.Workflows.Get(configureWorkflowStatusKey).Pipelines {
 		if pipeline.Phase == v1alpha1.WorkflowPhaseSuspended && pipeline.NextRetryAt != "" {
 			retryTime, err = time.Parse(time.RFC3339, pipeline.NextRetryAt)
 			if err != nil {

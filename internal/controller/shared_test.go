@@ -20,6 +20,8 @@ import (
 )
 
 const (
+	configureKey = string(v1alpha1.WorkflowActionConfigure)
+
 	promisePath                    = "assets/redis-simple-promise.yaml"
 	promiseWithWorkflowPath        = "assets/promise-with-workflow.yaml"
 	promiseWithDeleteWorkflowPath  = "assets/promise-with-delete-workflow.yaml"

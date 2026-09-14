@@ -44,6 +44,14 @@ func (o *Opts) SetParentObject(parentObj *unstructured.Unstructured) {
 	o.parentObject = parentObj
 }
 
+// statusKey is the key under status.kratix.workflows that this reconciliation's
+// pipeline status is stored at. Kratix's own workflows key by workflow action,
+// so the configure and delete lanes keep separate ledgers instead of each reset
+// wiping the other's entries.
+func (o *Opts) statusKey(action v1alpha1.Action) string {
+	return string(action)
+}
+
 var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
 var ErrDeletePipelineFailed = fmt.Errorf("delete Pipeline Failed")
 
@@ -126,7 +134,7 @@ func ReconcileDelete(opts Opts) (bool, error) {
 			logging.Info(opts.logger, "delete pipeline completed but workflow is suspended; waiting")
 			return true, nil
 		}
-		suspendedIdx, err := resourceutil.GetSuspendedPipelineIndex(opts.parentObject)
+		suspendedIdx, err := resourceutil.GetSuspendedPipelineIndex(opts.parentObject, opts.statusKey(v1alpha1.WorkflowActionDelete))
 		if err != nil {
 			return false, err
 		}
@@ -154,12 +162,13 @@ func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources, res
 			return false, err
 		}
 	}
+	deleteKey := opts.statusKey(v1alpha1.WorkflowActionDelete)
 	if resetStatus {
-		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.Resources); err != nil {
+		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, deleteKey, opts.Resources); err != nil {
 			return false, err
 		}
 	}
-	if err = resourceutil.MarkCurrentPipelineAsRunning(opts.parentObject, opts.logger, pipeline.Job); err != nil {
+	if err = resourceutil.MarkCurrentPipelineAsRunning(opts.parentObject, deleteKey, opts.logger, pipeline.Job); err != nil {
 		return false, err
 	}
 	if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
@@ -239,7 +248,7 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 	}
 	state.restartFromStart = isWorkflowRestart(opts.parentObject.GetLabels())
 
-	state.suspendedPipelineIdx, err = resourceutil.GetSuspendedPipelineIndex(opts.parentObject)
+	state.suspendedPipelineIdx, err = resourceutil.GetSuspendedPipelineIndex(opts.parentObject, opts.statusKey(v1alpha1.WorkflowActionConfigure))
 	if err != nil {
 		return nil, err
 	}
@@ -294,12 +303,14 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 }
 
 func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bool, err error) {
+	configureKey := opts.statusKey(v1alpha1.WorkflowActionConfigure)
+
 	//this is -1 if the pipeline status has not been initialised yet
-	succeededPipelines := resourceutil.CountPipelinesInPhase(opts.parentObject, v1alpha1.WorkflowPhaseSucceeded)
+	succeededPipelines := resourceutil.CountPipelinesInPhase(opts.parentObject, configureKey, v1alpha1.WorkflowPhaseSucceeded)
 
 	succeededCountDrifted := succeededPipelines != state.completedCount
 	shouldResetForManualRetry := (state.manualReconcile || state.restartFromStart) &&
-		(succeededPipelines != 0 || resourceutil.HasPipelineInPhase(opts.parentObject, v1alpha1.WorkflowPhaseFailed))
+		(succeededPipelines != 0 || resourceutil.HasPipelineInPhase(opts.parentObject, configureKey, v1alpha1.WorkflowPhaseFailed))
 	pipelinePhaseDrifted := state.desiredPipelineJob != nil && state.desiredPipelinePhase != ""
 
 	if !succeededCountDrifted && !shouldResetForManualRetry && !pipelinePhaseDrifted {
@@ -307,20 +318,20 @@ func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bo
 	}
 
 	if succeededCountDrifted && state.completedCount > 0 {
-		if err = resourceutil.MarkPipelinesAsSucceeded(opts.parentObject, state.completedCount); err != nil {
+		if err = resourceutil.MarkPipelinesAsSucceeded(opts.parentObject, configureKey, state.completedCount); err != nil {
 			logging.Error(opts.logger, err, "failed to mark completed pipelines as succeeded")
 			return false, err
 		}
 	}
 
 	if shouldResetForManualRetry || (succeededCountDrifted && state.completedCount == 0) {
-		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.Resources); err != nil {
+		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, configureKey, opts.Resources); err != nil {
 			return false, err
 		}
 	}
 
 	if pipelinePhaseDrifted {
-		if err = resourceutil.MarkCurrentPipelineAs(state.desiredPipelinePhase, opts.parentObject, opts.logger, state.desiredPipelineJob); err != nil {
+		if err = resourceutil.MarkCurrentPipelineAs(state.desiredPipelinePhase, opts.parentObject, configureKey, opts.logger, state.desiredPipelineJob); err != nil {
 			logging.Error(opts.logger, err, "failed to mark current pipeline as "+state.desiredPipelinePhase)
 			return false, err
 		}
@@ -507,10 +518,8 @@ func jobIsForPipeline(pipeline v1alpha1.PipelineJobResources, job *batchv1.Job) 
 		return false
 	}
 
-	if jobLabels[v1alpha1.KratixPipelineHashLabel] != pipelineLabels[v1alpha1.KratixPipelineHashLabel] {
-		return false
-	}
-
+	// The pipeline hash is folded into KratixResourceHashLabel by the Job
+	// factory, so comparing it here as well would only repeat the check above.
 	return jobLabels[v1alpha1.PipelineNameLabel] == pipelineLabels[v1alpha1.PipelineNameLabel]
 }
 
@@ -725,9 +734,10 @@ func setPipelineStartingStatus(opts Opts, pipelineIndex int, obj *unstructured.U
 		updated = true
 	}
 
-	if resourceutil.GetCurrentPipelinePhase(obj, job) != v1alpha1.WorkflowPhaseRunning {
+	configureKey := opts.statusKey(v1alpha1.WorkflowActionConfigure)
+	if resourceutil.GetCurrentPipelinePhase(obj, configureKey, job) != v1alpha1.WorkflowPhaseRunning {
 		logging.Debug(opts.logger, "marking pipeline phase as Running", "pipelineIndex", pipelineIndex)
-		if err := resourceutil.MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseRunning, obj, opts.logger, job); err != nil {
+		if err := resourceutil.MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseRunning, obj, configureKey, opts.logger, job); err != nil {
 			return err
 		}
 		updated = true

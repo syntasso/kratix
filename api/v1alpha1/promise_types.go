@@ -181,8 +181,14 @@ type KratixPromiseStatus struct {
 	// Timestamp of when this Promise was last in an Available state
 	LastAvailableTime *metav1.Time `json:"lastAvailableTime,omitempty"`
 
-	// Status of the Workflow execution
-	Workflows WorkflowStatus `json:"workflows,omitempty"`
+	// Status of the Workflow execution, keyed by workflow. Kratix's own workflows
+	// are keyed by workflow action ("configure", "delete"); controllers that embed
+	// the workflow engine use their own key. Promises stored before keying carry
+	// the pre-keyed flat layout here until the workflow engine migrates them.
+	// +optional
+	// +kubebuilder:validation:Type=object
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Workflows WorkflowsStatus `json:"workflows,omitzero"`
 }
 
 type WorkflowStatus struct {
@@ -191,6 +197,9 @@ type WorkflowStatus struct {
 
 	// Generation at which the workflow was suspended
 	SuspendedGeneration int64 `json:"suspendedGeneration,omitempty"`
+
+	// Timestamp of the last successful completion of this workflow
+	LastSuccessfulTime string `json:"lastSuccessfulTime,omitempty"`
 }
 
 type WorkflowPipelineStatus struct {
@@ -206,6 +215,11 @@ type WorkflowPipelineStatus struct {
 	NextRetryAt string `json:"nextRetryAt,omitempty"`
 
 	Attempts int64 `json:"attempts,omitempty"`
+
+	// Hash of the inputs the last run of this pipeline saw (the kratix.io/hash
+	// Job label). Progression compares it to the current desired hash: a
+	// Succeeded entry with a different or empty hash is re-run.
+	Hash string `json:"hash,omitempty"`
 
 	// Last transition time of the workflow
 	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty"`
@@ -528,10 +542,23 @@ const (
 	WorkflowPhaseSuspended = "Suspended"
 )
 
+// ClearPipelineExecutionStatus removes the workflow status Kratix core owns —
+// the "configure" and "delete" keys, plus any pre-keyed flat layout still
+// stored. Keys written by controllers that embed the workflow engine are left
+// alone; wiping the whole map would delete status core never wrote.
 func (p *Promise) ClearPipelineExecutionStatus() bool {
-	changed := len(p.Status.Kratix.Workflows.Pipelines) != 0
+	workflows := &p.Status.Kratix.Workflows
+	changed := len(workflows.LegacyRaw) != 0
+	workflows.LegacyRaw = nil
 
-	p.Status.Kratix.Workflows.Pipelines = nil
+	for _, action := range []Action{WorkflowActionConfigure, WorkflowActionDelete} {
+		key := string(action)
+		if status, found := workflows.Actions[key]; found {
+			changed = changed || len(status.Pipelines) != 0
+			delete(workflows.Actions, key)
+		}
+	}
+
 	return changed
 }
 
