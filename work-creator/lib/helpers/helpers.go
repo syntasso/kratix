@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -23,6 +24,7 @@ type Parameters struct {
 	ObjectNamespace string
 	PromiseName     string
 	WorkflowType    v1alpha1.Type
+	WorkflowAction  v1alpha1.Action
 	PipelineName    string
 
 	CRDPlural      string
@@ -43,6 +45,7 @@ func getParametersFromEnv() *Parameters {
 		ClusterScoped:   os.Getenv(v1alpha1.KratixClusterScopedEnvVar) == "true",
 		PromiseName:     os.Getenv(v1alpha1.KratixPromiseNameEnvVar),
 		WorkflowType:    v1alpha1.Type(os.Getenv(v1alpha1.KratixTypeEnvVar)),
+		WorkflowAction:  v1alpha1.Action(os.Getenv(v1alpha1.KratixActionEnvVar)),
 		PipelineName:    os.Getenv(v1alpha1.KratixPipelineNameEnvVar),
 		IsLastPipeline:  os.Getenv("IS_LAST_PIPELINE") == "true",
 		InputDir:        os.Getenv("INPUT_DIR"),
@@ -63,6 +66,14 @@ func getParametersFromEnv() *Parameters {
 	}
 
 	return p
+}
+
+// WorkflowStatusKey is the key this workflow's entry sits under in
+// status.kratix.workflows. For Kratix's own workflows the key is the workflow
+// action, which the pipeline factory hands this container in
+// KRATIX_WORKFLOW_ACTION - so it is exactly "configure" or "delete".
+func (p *Parameters) WorkflowStatusKey() string {
+	return strings.ToLower(string(p.WorkflowAction))
 }
 
 func (p *Parameters) GetPromisePath() string {
