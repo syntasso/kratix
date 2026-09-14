@@ -243,8 +243,21 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	if updated, err := r.ensureConfigureWorkflowStatus(ctx, rr, pipelineResources); updated || err != nil {
-		return ctrl.Result{}, err
+	// The workflow engine seeds and prunes the pipeline ledger itself, but it
+	// never gets the chance when the workflow has no pipelines at all:
+	// ReconcileConfigure returns before it reads any status. Dropping the last
+	// resource.configure pipeline from the Promise would then leave the resource
+	// reporting the pipelines of a workflow that no longer exists, so this one
+	// clear stays with the controller — the Promise controller clears its own the
+	// same way, with ClearPipelineExecutionStatus.
+	if len(pipelineResources) == 0 {
+		cleared, clearErr := clearConfigureWorkflowPipelines(rr)
+		if clearErr != nil {
+			return ctrl.Result{}, clearErr
+		}
+		if cleared {
+			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+		}
 	}
 
 	if passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(ctx, logger, rr,
@@ -722,26 +735,18 @@ func (r *DynamicResourceRequestController) determineResourceBindingVersion(ctx c
 	return LatestVersion, nil
 }
 
-func (r *DynamicResourceRequestController) ensureConfigureWorkflowStatus(
-	ctx context.Context,
-	rr *unstructured.Unstructured,
-	pipelineResources []v1alpha1.PipelineJobResources,
-) (updated bool, err error) {
-	statusChanged := removeWorkflowCounters(rr)
-
-	workflowStatusChanged, err := ensureRRKratixWorkflowStatusIsSetup(rr, pipelineResources)
+// clearConfigureWorkflowPipelines empties the configure workflow's pipeline
+// ledger, reporting whether there was anything there to clear.
+func clearConfigureWorkflowPipelines(rr *unstructured.Unstructured) (bool, error) {
+	existing, found, err := unstructured.NestedSlice(rr.Object,
+		resourceutil.WorkflowsPath(configureWorkflowStatusKey, "pipelines")...)
 	if err != nil {
 		return false, err
 	}
-	if workflowStatusChanged {
-		statusChanged = true
+	if !found || len(existing) == 0 {
+		return false, nil
 	}
-
-	if statusChanged {
-		return true, r.Client.Status().Update(ctx, rr)
-	}
-
-	return false, nil
+	return true, resourceutil.ResetPipelineStatusToPending(rr, configureWorkflowStatusKey, nil)
 }
 
 func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
@@ -1143,40 +1148,6 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, l
 		}
 	}
 	return failed, misplaced, pending, ready, nil
-}
-
-// The resource request status schema preserves unknown fields, so the workflow
-// counters written by older versions of Kratix stay until they are removed here.
-func removeWorkflowCounters(rr *unstructured.Unstructured) bool {
-	removed := false
-	for _, counter := range []string{"workflows", "workflowsSucceeded", "workflowsFailed"} {
-		if _, found, _ := unstructured.NestedFieldNoCopy(rr.Object, "status", counter); found {
-			unstructured.RemoveNestedField(rr.Object, "status", counter)
-			removed = true
-		}
-	}
-	return removed
-}
-
-func ensureRRKratixWorkflowStatusIsSetup(rr *unstructured.Unstructured, pipelines []v1alpha1.PipelineJobResources) (bool, error) {
-	existingPipelines, found, err := unstructured.NestedSlice(rr.Object,
-		"status", "kratix", "workflows", configureWorkflowStatusKey, "pipelines")
-	if err != nil {
-		return false, err
-	}
-
-	if !found || len(existingPipelines) != len(pipelines) {
-		return true, resourceutil.ResetPipelineStatusToPending(rr, configureWorkflowStatusKey, pipelines)
-	}
-
-	for i, pipeline := range pipelines {
-		pipelineStatus, ok := existingPipelines[i].(map[string]any)
-		if !ok || pipelineStatus["name"] != pipeline.Name {
-			return true, resourceutil.ResetPipelineStatusToPending(rr, configureWorkflowStatusKey, pipelines)
-		}
-	}
-
-	return false, nil
 }
 
 func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured) (ctrl.Result, error) {

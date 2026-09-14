@@ -475,10 +475,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
 				setReconcileConfigureWorkflowToReturnFinished()
 				// Reconcile until the reconciliation loop reaches observed generation update
-				// first reconcile will return at updating workflow execution phases to 'pending'
-				result, err = reconciler.Reconcile(ctx, request)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
 				result, err = reconciler.Reconcile(ctx, request)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
@@ -734,6 +730,40 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 					lastSuccessfulConfigureWorkflowTime := resourceutil.GetKratixWorkflowsStatus(resReq, configureKey, "lastSuccessfulTime")
 					Expect(lastSuccessfulConfigureWorkflowTime).To(Equal(lastTransitionTime.Format(time.RFC3339)))
+				})
+
+				// The interval reconcile is scheduled by the branch that finds both
+				// copies of the time already current. The controller writes the
+				// legacy top-level field and the keyed one, and reads both back
+				// before deciding: a reader pointed at the wrong place never agrees
+				// with what was written, so every pass rewrites the status, every
+				// write re-triggers the watch, and the interval requeue is never
+				// returned — the workflow then never re-runs on its interval.
+				It("writes both the legacy and the keyed field, and the next pass rewrites neither", func() {
+					lastTransitionTime := time.Now().Add(-time.Minute)
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue, lastTransitionTime)
+
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					By("recording it in both places", func() {
+						Expect(resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")).
+							To(Equal(lastTransitionTime.Format(time.RFC3339)))
+						Expect(resourceutil.GetKratixWorkflowsStatus(resReq, configureKey, "lastSuccessfulTime")).
+							To(Equal(lastTransitionTime.Format(time.RFC3339)))
+					})
+
+					By("leaving the status untouched and scheduling the interval instead", func() {
+						resourceVersion := resReq.GetResourceVersion()
+
+						result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						Expect(resReq.GetResourceVersion()).To(Equal(resourceVersion))
+					})
 				})
 			})
 
@@ -1188,7 +1218,15 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					createPromiseRevision(fakeK8sClient, promise, "v1.1.0")
 				})
 
+				// The workflow engine seeds and prunes the ledger, but it returns
+				// before reading any status when the workflow has no pipelines, so
+				// this is the one ledger write the controller still owns. The
+				// fixture seeds the ledger the engine left behind while the
+				// workflow still had a pipeline: without it the spec passes on a
+				// resource that never had a ledger at all.
 				It("clears the workflow pipeline status", func() {
+					seedResourceConfigureWorkflowPipelines(resReq, "first-pipeline")
+
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
@@ -1197,66 +1235,15 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(err).NotTo(HaveOccurred())
 					Expect(pipelines).To(BeEmpty())
 				})
-
-				It("removes workflow counters left behind by an older Kratix", func() {
-					resourceutil.SetStatus(resReq, l,
-						"workflows", int64(1),
-						"workflowsSucceeded", int64(1),
-						"workflowsFailed", int64(0),
-					)
-					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
-
-					_, err := t.reconcileUntilCompletion(reconciler, resReq)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-
-					Expect(resReq.Object["status"]).NotTo(SatisfyAny(
-						HaveKey("workflows"),
-						HaveKey("workflowsSucceeded"),
-						HaveKey("workflowsFailed"),
-					))
-				})
 			})
 
-			It("initialises kratix workflow pipelines to pending before workflow reconciliation", func() {
-				request := ctrl.Request{NamespacedName: resReqNameNamespace}
-				result, err := reconciler.Reconcile(ctx, request)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
-
-				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-				workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", configureKey, "pipelines")
-				Expect(err).NotTo(HaveOccurred())
-				Expect(found).To(BeTrue())
-				Expect(workflows).To(HaveLen(1))
-				Expect(workflows[0]).To(SatisfyAll(
-					HaveKeyWithValue("name", "first-pipeline"),
-					HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
-					HaveKeyWithValue("lastTransitionTime", Not(BeEmpty())),
-				))
-			})
-
-			When("the resource request has workflow counters left behind by an older Kratix", func() {
-				It("removes them from the status", func() {
-					resourceutil.SetStatus(resReq, l,
-						"workflows", int64(1),
-						"workflowsSucceeded", int64(0),
-						"workflowsFailed", int64(1),
-					)
-					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
-					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
-
-					_, err := t.reconcileUntilCompletion(reconciler, resReq)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-
-					Expect(resReq.Object["status"]).NotTo(SatisfyAny(
-						HaveKey("workflows"),
-						HaveKey("workflowsSucceeded"),
-						HaveKey("workflowsFailed"),
-					))
-				})
-			})
+			// Seeding the ledger to Pending is the workflow engine's seed-and-prune
+			// step ("prunes ledger entries for pipelines the workflow no longer
+			// has, and seeds the ones it does", lib/workflow/progression_test.go),
+			// and clearing the counters an older Kratix left at the top of .status
+			// is the engine's migration ("removes the legacy status counters",
+			// lib/workflow/migration_test.go). Neither can be asserted from here
+			// any more: this suite stubs the engine out.
 		})
 	})
 
@@ -1442,6 +1429,11 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
 			Expect(err).NotTo(HaveOccurred())
 
+			// The workflow engine seeds the ledger from inside ReconcileConfigure,
+			// and this suite stubs the engine out, so the fixture writes the entry
+			// the engine would have written before the workflow was suspended.
+			seedResourceConfigureWorkflowPipelines(resReq, "first-pipeline")
+
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 			workflows, _, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", configureKey, "pipelines")
 			Expect(err).NotTo(HaveOccurred())
@@ -1454,6 +1446,26 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(unstructured.SetNestedSlice(resReq.Object, workflows, "status", "kratix", "workflows", configureKey, "pipelines")).To(Succeed())
 			Expect(resourceutil.SetKratixWorkflowsInt64Status(resReq, configureKey, "suspendedGeneration", 1)).To(Succeed())
 			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+		})
+
+		// The engine seeds the pipeline ledger from inside ReconcileConfigure, and
+		// a suspended workflow returns long before that, so a resource suspended
+		// from its first reconcile has no ledger at all. Reading that as an error
+		// fails every reconcile of such a resource, and nothing is left that could
+		// ever seed it or take it out of suspension.
+		It("stays suspended when the workflow was suspended before its ledger was seeded", func() {
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			unstructured.RemoveNestedField(resReq.Object, "status", "kratix", "workflows", configureKey, "pipelines")
+			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			reconciled := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+			Expect(reconciled).NotTo(BeNil())
+			Expect(reconciled.Reason).To(Equal("WorkflowSuspended"))
 		})
 
 		It("marks the resource request as suspended", func() {
@@ -2715,4 +2727,27 @@ func getResourceBinding(promiseName string, resource types.NamespacedName) *v1al
 	bindingList := listBindings(promiseName, resource)
 	Expect(bindingList.Items).To(HaveLen(1), "found multiple resource bindings, expecting one")
 	return &bindingList.Items[0]
+}
+
+// seedResourceConfigureWorkflowPipelines writes the all-Pending ledger the
+// workflow engine seeds on its first pass over a workflow. This suite stubs the
+// engine out, so a spec that needs a resource whose workflow Kratix has already
+// started tracking has to persist the ledger itself.
+func seedResourceConfigureWorkflowPipelines(rr *unstructured.Unstructured, names ...string) {
+	GinkgoHelper()
+	Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(rr), rr)).To(Succeed())
+	pipelines := make([]any, 0, len(names))
+	for _, name := range names {
+		pipelines = append(pipelines, map[string]any{
+			"name":               name,
+			"phase":              v1alpha1.WorkflowPhasePending,
+			"lastTransitionTime": time.Now().Format(time.RFC3339),
+		})
+	}
+	if rr.Object["status"] == nil {
+		rr.Object["status"] = map[string]any{}
+	}
+	Expect(unstructured.SetNestedSlice(rr.Object, pipelines,
+		"status", "kratix", "workflows", configureKey, "pipelines")).To(Succeed())
+	Expect(fakeK8sClient.Status().Update(ctx, rr)).To(Succeed())
 }

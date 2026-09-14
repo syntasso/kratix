@@ -998,10 +998,6 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return false, nil, nil
 	}
 
-	if requeue, err := r.ensureKratixWorkflowStatusIsSetup(promise); err != nil || requeue {
-		return requeue, nil, err
-	}
-
 	if promise.Labels == nil {
 		promise.Labels = make(map[string]string)
 	}
@@ -1121,38 +1117,6 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 	}
 
 	return shouldRequeue, result, r.setWorkflowSuspendedStatusCondition(o.ctx, promise)
-}
-
-// Either its not set, or its changed, either number of pipelines has changed, or names have changed
-func (r *PromiseReconciler) ensureKratixWorkflowStatusIsSetup(promise *v1alpha1.Promise) (bool, error) {
-	existingPipelines := promise.Status.Kratix.Workflows.Get(configureWorkflowStatusKey).Pipelines
-	if len(existingPipelines) != len(promise.Spec.Workflows.Promise.Configure) {
-		setNewPipelineStatus(promise)
-		return true, r.Client.Status().Update(context.Background(), promise)
-	}
-
-	for i, pipelineStatus := range existingPipelines {
-		if pipelineStatus.Name != promise.Spec.Workflows.Promise.Configure[i].GetName() {
-			setNewPipelineStatus(promise)
-			return true, r.Client.Status().Update(context.Background(), promise)
-		}
-	}
-
-	return false, nil
-}
-
-func setNewPipelineStatus(promise *v1alpha1.Promise) {
-	workflowPipelinesStatus := []v1alpha1.WorkflowPipelineStatus{}
-	for _, pipeline := range promise.Spec.Workflows.Promise.Configure {
-		workflowPipelinesStatus = append(workflowPipelinesStatus, v1alpha1.WorkflowPipelineStatus{
-			Name:               pipeline.GetName(),
-			Phase:              v1alpha1.WorkflowPhasePending,
-			LastTransitionTime: metav1.NewTime(time.Now()),
-		})
-	}
-	configure := promise.Status.Kratix.Workflows.Get(configureWorkflowStatusKey)
-	configure.Pipelines = workflowPipelinesStatus
-	promise.Status.Kratix.Workflows.Set(configureWorkflowStatusKey, configure)
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.GroupVersionKind) error {

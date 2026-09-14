@@ -2023,6 +2023,8 @@ var _ = Describe("PromiseController", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
+				seedPromiseConfigureWorkflowPipelines(promise, "first-pipeline", "second-pipeline")
+
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 				promise.Labels[v1alpha1.WorkflowSuspendedLabel] = "true"
 				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
@@ -2310,18 +2312,12 @@ var _ = Describe("PromiseController", func() {
 	Describe(".status", func() {
 		Describe(".kratix.workflows.pipelines", func() {
 			BeforeEach(func() {
-				// create promise with multiple workflows
+				// create promise with multiple workflows, and persist the ledger the
+				// workflow engine would have seeded for them: this suite stubs the
+				// engine out, so without it the specs below run against a Promise
+				// that never had a ledger and pass whatever the controller does.
 				promise = createPromise(promiseWithWorkflowPath)
-				setConfigureWorkflowPipelines(promise, []v1alpha1.WorkflowPipelineStatus{
-					{
-						Name:  "first-pipeline",
-						Phase: "Running",
-					},
-					{
-						Name:  "second-pipeline",
-						Phase: "Pending",
-					},
-				})
+				seedPromiseConfigureWorkflowPipelines(promise, "first-pipeline", "second-pipeline")
 			})
 
 			When("promise used to have configure pipelines but no longer does 😭", func() {
@@ -2340,46 +2336,13 @@ var _ = Describe("PromiseController", func() {
 				})
 			})
 
-			When("A pipeline name has changed", func() {
-				BeforeEach(func() {
-					promise.Spec.Workflows.Promise.Configure[0].SetName("new-pipeline-name")
-					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-				})
-
-				It("resets the status", func() {
-					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{autoMarkCRDAsEstablished}})
-					Expect(err).NotTo(HaveOccurred())
-
-					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					Expect(configureWorkflowPipelines(promise)).To(HaveLen(2))
-					Expect(configureWorkflowPipelines(promise)[0].Name).To(Equal("new-pipeline-name"))
-					Expect(configureWorkflowPipelines(promise)[0].Phase).To(Equal("Pending"))
-					Expect(configureWorkflowPipelines(promise)[0].LastTransitionTime).NotTo(BeNil())
-					Expect(configureWorkflowPipelines(promise)[1].Name).To(Equal("second-pipeline"))
-					Expect(configureWorkflowPipelines(promise)[1].Phase).To(Equal("Pending"))
-					Expect(configureWorkflowPipelines(promise)[1].LastTransitionTime).NotTo(BeNil())
-				})
-			})
-
-			When("the number of pipelines has changed", func() {
-				BeforeEach(func() {
-					promise.Spec.Workflows.Promise.Configure = promise.Spec.Workflows.Promise.Configure[:1]
-					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-				})
-
-				It("resets the status", func() {
-					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{autoMarkCRDAsEstablished}})
-					Expect(err).NotTo(HaveOccurred())
-
-					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					Expect(configureWorkflowPipelines(promise)).To(HaveLen(1))
-					Expect(configureWorkflowPipelines(promise)[0].Name).To(Equal("first-pipeline"))
-					Expect(configureWorkflowPipelines(promise)[0].Phase).To(Equal("Pending"))
-					Expect(configureWorkflowPipelines(promise)[0].LastTransitionTime).NotTo(BeNil())
-				})
-			})
+			// Reconciling the ledger with the workflow's pipelines — renamed,
+			// added, removed or reordered — belongs to the workflow engine's
+			// seed-and-prune step, and is covered by "prunes ledger entries for
+			// pipelines the workflow no longer has, and seeds the ones it does" in
+			// lib/workflow/progression_test.go. The Promise controller no longer
+			// writes the ledger at all, so it can no longer be asserted here: this
+			// suite stubs the engine out.
 
 		})
 	})
@@ -3187,6 +3150,25 @@ func aggregateEvents(events <-chan string) string {
 
 func configureWorkflowPipelines(promise *v1alpha1.Promise) []v1alpha1.WorkflowPipelineStatus {
 	return promise.Status.Kratix.Workflows.Get(configureKey).Pipelines
+}
+
+// seedPromiseConfigureWorkflowPipelines writes the all-Pending ledger the
+// workflow engine seeds on its first pass over a workflow. This suite stubs the
+// engine out, so a spec that needs a Promise whose workflow Kratix has already
+// started tracking has to persist the ledger itself.
+func seedPromiseConfigureWorkflowPipelines(promise *v1alpha1.Promise, names ...string) {
+	GinkgoHelper()
+	Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+	pipelines := make([]v1alpha1.WorkflowPipelineStatus, 0, len(names))
+	for _, name := range names {
+		pipelines = append(pipelines, v1alpha1.WorkflowPipelineStatus{
+			Name:               name,
+			Phase:              v1alpha1.WorkflowPhasePending,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		})
+	}
+	setConfigureWorkflowPipelines(promise, pipelines)
+	Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
 }
 
 func setConfigureWorkflowPipelines(promise *v1alpha1.Promise, pipelines []v1alpha1.WorkflowPipelineStatus) {

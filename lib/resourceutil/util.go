@@ -349,12 +349,6 @@ func CountPipelinesInPhase(obj *unstructured.Unstructured, key, phase string) in
 	return count
 }
 
-// HasPipelineInPhase reports whether any of key's workflow pipelines is in the
-// given phase.
-func HasPipelineInPhase(obj *unstructured.Unstructured, key, phase string) bool {
-	return CountPipelinesInPhase(obj, key, phase) > 0
-}
-
 func MarkCurrentPipelineAsSucceeded(rr *unstructured.Unstructured, key string, logger logr.Logger, job *batchv1.Job) error {
 	return MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseSucceeded, rr, key, logger, job)
 }
@@ -554,8 +548,16 @@ func GetKratixWorkflowsInt64Status(rr *unstructured.Unstructured, key, field str
 
 func GetResourceRequestStatusPipelines(rr *unstructured.Unstructured, key string) (updatedPipelines []map[string]any, err error) {
 	pipelines, found, err := unstructured.NestedSlice(rr.Object, pipelinesPath(key)...)
-	if !found || err != nil {
+	if err != nil {
 		return updatedPipelines, fmt.Errorf("error fetching workflow pipelines for resource %s/%s from status", rr.GetName(), rr.GetKind())
+	}
+	// No ledger under this key means the workflow has not been seeded yet, which
+	// is a state and not a failure: the workflow engine writes the ledger from
+	// inside ReconcileConfigure, and a workflow suspended before its first run
+	// never reaches it. Reporting that as an error failed every reconcile of such
+	// a resource, and nothing else would ever seed it.
+	if !found {
+		return nil, nil
 	}
 
 	for _, pipeline := range pipelines {
