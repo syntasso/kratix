@@ -127,10 +127,6 @@ var _ = Describe("PromiseController", func() {
 						Expect(kratixWorkflows.Type).To(Equal("object"))
 
 						By("preserving everything under workflows rather than declaring its shape", func() {
-							// A declared shape here means the API server prunes
-							// every workflow key and pipeline field it does not
-							// know, including the pre-keyed flat ledger that the
-							// migration still has to read the run hashes out of.
 							Expect(kratixWorkflows.XPreserveUnknownFields).ToNot(BeNil(),
 								".status.kratix.workflows must preserve unknown fields. Spec %v", kratixWorkflows)
 							Expect(*kratixWorkflows.XPreserveUnknownFields).To(BeTrue())
@@ -2121,12 +2117,6 @@ var _ = Describe("PromiseController", func() {
 				Expect(configureWorkflowPipelines(promise)[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
 			})
 
-			// F4 (UPG-C-1) — a Promise suspended before the upgrade decodes its
-			// whole flat workflow status into LegacyRaw, so Get("configure")
-			// returns the zero WorkflowStatus. The migration that would move it
-			// lives inside the engine, and the suspended branch returns before
-			// the engine runs: without a fallback the retry is invisible and a
-			// spec change cannot un-suspend the Promise either.
 			When("it was suspended before the workflow status was keyed by workflow", func() {
 				BeforeEach(func() {
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
@@ -2145,7 +2135,7 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
 				})
 
-				It("schedules the retry the flat ledger recorded", func() {
+				It("schedules the retry the flat pipeline status recorded", func() {
 					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result.RequeueAfter).NotTo(BeZero())
@@ -2165,10 +2155,6 @@ var _ = Describe("PromiseController", func() {
 				})
 			})
 
-			// Pins the keyed write-back in the reset. Get returns a copy of the
-			// workflow status, so without storing it again the cleared
-			// suspended generation is thrown away and the next reconcile reads
-			// the Promise as still suspended at a generation it has moved past.
 			It("clears the suspended generation when the spec change resumes it", func() {
 				promise.SetGeneration(2)
 				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
@@ -2375,10 +2361,8 @@ var _ = Describe("PromiseController", func() {
 	Describe(".status", func() {
 		Describe(".kratix.workflows.configure.pipelines", func() {
 			BeforeEach(func() {
-				// create promise with multiple workflows, and persist the ledger the
-				// workflow engine would have seeded for them: this suite stubs the
-				// engine out, so without it the specs below run against a Promise
-				// that never had a ledger and pass whatever the controller does.
+				// Without the seed these specs run against a Promise that never had
+				// pipeline statuses, and pass whatever the controller does.
 				promise = createPromise(promiseWithWorkflowPath)
 				seedPromiseConfigureWorkflowPipelines(promise, "first-pipeline", "second-pipeline")
 			})
@@ -2398,14 +2382,6 @@ var _ = Describe("PromiseController", func() {
 					Expect(configureWorkflowPipelines(promise)).To(BeEmpty())
 				})
 			})
-
-			// Reconciling the ledger with the workflow's pipelines — renamed,
-			// added, removed or reordered — belongs to the workflow engine's
-			// seed-and-prune step, and is covered by "prunes ledger entries for
-			// pipelines the workflow no longer has, and seeds the ones it does" in
-			// lib/workflow/progression_test.go. The Promise controller no longer
-			// writes the ledger at all, so it can no longer be asserted here: this
-			// suite stubs the engine out.
 
 		})
 	})
@@ -3215,10 +3191,9 @@ func configureWorkflowPipelines(promise *v1alpha1.Promise) []v1alpha1.WorkflowPi
 	return promise.Status.Kratix.Workflows.Get(configureKey).Pipelines
 }
 
-// seedPromiseConfigureWorkflowPipelines writes the all-Pending ledger the
-// workflow engine seeds on its first pass over a workflow. This suite stubs the
-// engine out, so a spec that needs a Promise whose workflow Kratix has already
-// started tracking has to persist the ledger itself.
+// seedPromiseConfigureWorkflowPipelines writes the all-Pending pipeline statuses
+// the engine seeds on its first pass. This suite stubs the engine out, so a spec
+// needing a Promise Kratix already tracks has to persist them itself.
 func seedPromiseConfigureWorkflowPipelines(promise *v1alpha1.Promise, names ...string) {
 	GinkgoHelper()
 	Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
@@ -3240,9 +3215,8 @@ func setConfigureWorkflowPipelines(promise *v1alpha1.Promise, pipelines []v1alph
 	promise.Status.Kratix.Workflows.Set(configureKey, configure)
 }
 
-// setDeleteWorkflowPipelines writes the delete workflow's ledger under the
-// delete key, where the in-Job status writer and the engine's delete lane both
-// put it.
+// setDeleteWorkflowPipelines writes the delete workflow's pipeline statuses under
+// the delete key, where the in-Job status writer and the engine both put them.
 func setDeleteWorkflowPipelines(promise *v1alpha1.Promise, pipelines []v1alpha1.WorkflowPipelineStatus) {
 	deleteStatus := promise.Status.Kratix.Workflows.Get(deleteKey)
 	deleteStatus.Pipelines = pipelines

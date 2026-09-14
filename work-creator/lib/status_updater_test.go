@@ -15,11 +15,9 @@ const (
 	configureKey = "configure"
 	deleteKey    = "delete"
 
-	// foreignKey stands for an entry under status.kratix.workflows that this
-	// container never owns: the other action's, or one belonging to a controller
-	// that embeds the workflow engine. Every spec below plants it and asserts it
-	// comes back unchanged, so a write that widens from its own entry to the whole
-	// workflows map is caught rather than passing on the entry it did address.
+	// foreignKey stands for an entry under status.kratix.workflows this container
+	// never owns. Every spec plants it and asserts it comes back unchanged, so a
+	// write that widens to the whole workflows map is caught.
 	foreignKey = "portal-x"
 )
 

@@ -34,12 +34,9 @@ func NonMessageStatusKeys(status map[string]any) []string {
 	return keys
 }
 
-// workflowStatusPath renders the status path one workflow's ledger lives at, so
-// an error can name the workflow whose ledger was missing. status.kratix.workflows
-// holds one entry per workflow, and every read and write below has to stay inside
-// the entry it was given: the neighbouring keys belong to other workflows -
-// Kratix's other action, or a workflow owned by a controller that embeds the
-// workflow engine - and this container is not their writer.
+// workflowStatusPath renders the status path one workflow's entry lives at, so
+// an error can name it. Every read and write below stays inside the entry it was
+// given: the neighbouring keys belong to workflows this container cannot write.
 func workflowStatusPath(workflowKey string, fields ...string) string {
 	return strings.Join(append([]string{"status", "kratix", "workflows", workflowKey}, fields...), ".")
 }

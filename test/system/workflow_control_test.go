@@ -29,7 +29,7 @@ const (
 	retryResourceGate = "workflow-retry-resource-gate"
 	retryDependentCM  = "workflow-retry-test"
 
-	// The pipeline ledger is keyed by workflow action; these are the two keys
+	// The pipeline statuses are keyed by workflow action; these are the two keys
 	// Kratix's own workflows use.
 	configureAction = "configure"
 	deleteAction    = "delete"
@@ -487,15 +487,15 @@ var _ = Describe("Workflow Control", func() {
 	})
 })
 
-// workflowStatusPath is the status path of a workflow's own status. The ledger
-// is keyed by workflow action, so a jsonpath that omits the key matches nothing
-// and every assertion built on it silently passes against an empty string.
+// workflowStatusPath is the status path of a workflow's own status. It is keyed
+// by workflow action, so a jsonpath that omits the key matches nothing and every
+// assertion built on it silently passes against an empty string.
 func workflowStatusPath(action string, fields ...string) string {
 	return strings.Join(append([]string{".status.kratix.workflows." + action}, fields...), ".")
 }
 
-// pipelineFieldJSONPath selects one field of the named pipeline's entry in the
-// ledger of the given workflow action.
+// pipelineFieldJSONPath selects one field of the named pipeline's entry under the
+// given workflow action.
 func pipelineFieldJSONPath(action, pipelineName, field string) string {
 	return fmt.Sprintf(`-o=jsonpath={%s[?(@.name=="%s")].%s}`,
 		workflowStatusPath(action, "pipelines"), pipelineName, field)

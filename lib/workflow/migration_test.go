@@ -45,7 +45,7 @@ var _ = Describe("Workflow status migration", func() {
 			opts = workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, parentObject, nil, "promise", 5, namespace)
 		})
 
-		When("the object carries the flat pipeline ledger", func() {
+		When("the object carries the flat pipeline statuses", func() {
 			BeforeEach(func() {
 				setFlatWorkflowsStatus(parentObject, map[string]any{
 					"pipelines": []any{
@@ -55,7 +55,7 @@ var _ = Describe("Workflow status migration", func() {
 				})
 			})
 
-			It("moves the ledger under the invoking key, entries and order untouched", func() {
+			It("moves them under the invoking key, entries and order untouched", func() {
 				Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeTrue())
 
 				Expect(pipelinesUnderKey(parentObject, configureKey)).To(Equal([]any{
@@ -77,7 +77,7 @@ var _ = Describe("Workflow status migration", func() {
 				Expect(pipelinesUnderKey(parentObject, configureKey)).To(Equal(migrated))
 			})
 
-			It("keeps the keyed ledger when a half-upgraded writer recreates the flat one", func() {
+			It("keeps the keyed entries when a half-upgraded writer recreates the flat ones", func() {
 				Expect(workflow.MigrateWorkflowStatus(opts, configureKey, v1alpha1.WorkflowActionConfigure)).To(BeTrue())
 
 				setFlatWorkflowsStatus(parentObject, map[string]any{
@@ -95,7 +95,7 @@ var _ = Describe("Workflow status migration", func() {
 					}))
 				})
 
-				By("discarding the recreated flat ledger rather than keeping it readable", func() {
+				By("discarding the recreated flat entries rather than keeping them readable", func() {
 					_, found := flatWorkflowsField(parentObject, "pipelines")
 					Expect(found).To(BeFalse())
 				})
@@ -128,10 +128,6 @@ var _ = Describe("Workflow status migration", func() {
 				Expect(resourceutil.GetKratixWorkflowsInt64Status(parentObject, deleteKey, "suspendedGeneration")).
 					To(Equal(int64(42)))
 			})
-			// The flat copy goes whether or not it was the one that won: leaving
-			// it behind means the next reconcile finds it again, reports the
-			// migration as a change again, and writes the status again — for
-			// ever.
 			It("removes the stale flat field even when the keyed one wins, and then settles", func() {
 				Expect(resourceutil.SetKratixWorkflowsInt64Status(parentObject, deleteKey, "suspendedGeneration", 42)).To(Succeed())
 
@@ -261,11 +257,6 @@ var _ = Describe("Workflow status migration", func() {
 				))
 			})
 
-			// F3 (ADV-C3) — pipeline names are unique per workflow action, not
-			// across them, and both lanes' Jobs carry the same kratix.io/hash for
-			// the same object. A delete entry that lifts the configure Job's hash
-			// reads as complete at the current definition, so the delete pipeline
-			// is skipped and the finalizer comes off with nothing deprovisioned.
 			It("never lifts a hash from a Job of the other workflow action", func() {
 				setFlatWorkflowsStatus(parentObject, map[string]any{
 					"pipelines": []any{
@@ -323,7 +314,7 @@ var _ = Describe("Workflow status migration", func() {
 				Expect(err).To(MatchError(listErr))
 				Expect(changed).To(BeFalse())
 
-				By("leaving the flat ledger in place, so the next attempt migrates it whole", func() {
+				By("leaving the flat entries in place, so the next attempt migrates them whole", func() {
 					_, found := flatWorkflowsField(parentObject, "pipelines")
 					Expect(found).To(BeTrue())
 				})
@@ -391,7 +382,7 @@ var _ = Describe("Workflow status migration", func() {
 
 			stored := fetchPromise(promise.GetName())
 
-			By("writing the migrated ledger to the API", func() {
+			By("writing the migrated entries to the API", func() {
 				Expect(pipelinesUnderKey(stored, configureKey)).To(ConsistOf(SatisfyAll(
 					HaveKeyWithValue("name", "pipeline-1"),
 					HaveKeyWithValue("phase", v1alpha1.WorkflowPhaseSucceeded),
@@ -425,7 +416,7 @@ var _ = Describe("Workflow status migration", func() {
 				Expect(flat).To(ConsistOf(HaveKeyWithValue("name", "pipeline-1")))
 			})
 
-			By("not writing a keyed ledger to the API either", func() {
+			By("not writing keyed entries to the API either", func() {
 				stored := fetchPromise(promise.GetName())
 				_, keyed, err := unstructured.NestedFieldNoCopy(stored.Object,
 					"status", "kratix", "workflows", configureKey)
@@ -434,7 +425,7 @@ var _ = Describe("Workflow status migration", func() {
 			})
 		})
 
-		It("migrates a mid-delete object's ledger under the delete key", func() {
+		It("migrates a mid-delete object's pipeline statuses under the delete key", func() {
 			persistFlatWorkflowStatus(uPromise, map[string]any{
 				"pipelines": []any{
 					map[string]any{"name": "pipeline-1", "phase": v1alpha1.WorkflowPhaseSuspended},

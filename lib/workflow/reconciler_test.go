@@ -2346,9 +2346,6 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: uPromise.GetName(), Namespace: uPromise.GetNamespace()}, uPromise)).To(Succeed())
 
 				By("writing the delete pipeline under the delete key", func() {
-					// The delete lane runs one pipeline, so its ledger holds one
-					// entry: anything else would be a ledger describing a
-					// workflow that is not the one being run.
 					Expect(pipelinesUnderKey(uPromise, deleteKey)).To(ConsistOf(
 						HaveKeyWithValue("name", deletePipelines[0].Name),
 					))

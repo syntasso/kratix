@@ -298,14 +298,9 @@ func GetStatus(rr *unstructured.Unstructured, key string) string {
 }
 
 // WorkflowsPath returns the status path of a field under the workflow stored at
-// key. Keying is what stops one workflow's status reset overwriting another's
-// pipeline ledger: before it, running the delete workflow wiped the configure
-// workflow's entries.
-//
-// It is exported so that everything writing the keyed status — the engine, its
-// migration and these helpers — spells the path once. A second spelling drifts:
-// the flat-to-keyed migration and the progression it feeds have to agree on
-// where the ledger lives, or a migrated object reads as unmigrated forever.
+// key. It is exported so the engine, its migration and these helpers spell the
+// path once: a second spelling drifts, and a migrated object then reads as
+// unmigrated for ever.
 func WorkflowsPath(key string, fields ...string) []string {
 	return append([]string{"status", "kratix", "workflows", key}, fields...)
 }
@@ -314,15 +309,15 @@ func pipelinesPath(key string) []string {
 	return WorkflowsPath(key, "pipelines")
 }
 
-// GetPipelineStatuses returns the pipeline ledger stored under key, in the order
-// it is stored. The entries are deep copies; write them back with
+// GetPipelineStatuses returns the pipeline statuses stored under key, in the
+// order they are stored. The entries are deep copies; write them back with
 // SetPipelineStatuses.
 func GetPipelineStatuses(obj *unstructured.Unstructured, key string) ([]any, bool, error) {
 	return unstructured.NestedSlice(obj.Object, pipelinesPath(key)...)
 }
 
-// SetPipelineStatuses replaces the pipeline ledger stored under key. Only the
-// ledger of that one workflow is touched; other keys are left alone.
+// SetPipelineStatuses replaces the pipeline statuses stored under key. Only that
+// one workflow's entries are touched; other keys are left alone.
 func SetPipelineStatuses(obj *unstructured.Unstructured, key string, entries []any) error {
 	return unstructured.SetNestedSlice(obj.Object, entries, pipelinesPath(key)...)
 }
@@ -411,13 +406,9 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, key str
 	previousHash, _ := pipeline["hash"].(string)
 	jobHash := job.GetLabels()[v1alpha1.KratixResourceHashLabel]
 
-	// Both have to match to skip the write. The hash is what says which
-	// definition the recorded phase belongs to, so skipping on the phase alone
-	// left an entry that already read Succeeded (or Failed) pinned to a
-	// definition nothing ran: the entry could never settle, the caller wrote a
-	// byte-identical object, and no watch event came back to try again. The
-	// Failed half of that also rewrote its condition on every pass, which did
-	// change the object, and so re-triggered itself for ever.
+	// Both have to match to skip the write. On the phase alone, an entry already
+	// reading Succeeded at a definition nothing ran can never be corrected: the
+	// write is byte-identical, so no watch event comes back to try again.
 	if previousPhase == status && previousHash == jobHash {
 		return nil
 	}
@@ -561,11 +552,9 @@ func GetResourceRequestStatusPipelines(rr *unstructured.Unstructured, key string
 	if err != nil {
 		return updatedPipelines, fmt.Errorf("error fetching workflow pipelines for resource %s/%s from status", rr.GetName(), rr.GetKind())
 	}
-	// No ledger under this key means the workflow has not been seeded yet, which
-	// is a state and not a failure: the workflow engine writes the ledger from
-	// inside ReconcileConfigure, and a workflow suspended before its first run
-	// never reaches it. Reporting that as an error failed every reconcile of such
-	// a resource, and nothing else would ever seed it.
+	// No statuses under this key is a state, not a failure: a workflow suspended
+	// before its first run never reaches the engine that seeds them, and failing
+	// here fails every reconcile of such a resource for ever.
 	if !found {
 		return nil, nil
 	}

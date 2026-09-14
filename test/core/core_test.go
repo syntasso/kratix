@@ -64,7 +64,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 
 		It("should deliver xaas to users", func() {
 			var originalPromiseConfigMapTimestamp1 string
-			// The pipeline ledger is keyed by workflow action; these specs only
+			// The pipeline statuses are keyed by workflow action; these specs only
 			// assert on the configure lane.
 			pipelinesExecutionStatusPath := ".status.kratix.workflows.configure.pipelines"
 			By("successfully installing a Promise", func() {

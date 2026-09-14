@@ -41,15 +41,11 @@ type Opts struct {
 	SkipConditions bool
 
 	// WorkflowKey is the key under status.kratix.workflows that this workflow's
-	// pipeline ledger is stored at. Leave it empty and Kratix's own keys are
-	// used, one per workflow action. Controllers that embed the workflow engine
-	// set it so their ledger sits beside Kratix's rather than on top of it:
-	// without it, their reset of "the" pipeline status wipes the configure or
-	// delete entries Kratix is progressing through.
-	//
-	// Validated on entry to ReconcileConfigure/ReconcileDelete, so a bad key
-	// fails the reconciliation instead of writing status at a path nothing can
-	// read back.
+	// pipeline statuses are stored at. Leave it empty and Kratix's own keys are
+	// used, one per workflow action. A controller that embeds the workflow
+	// engine has to set it: without a key of its own, its reset of "the"
+	// pipeline status wipes the entries Kratix's configure and delete workflows
+	// are progressing through.
 	WorkflowKey string
 }
 
@@ -57,11 +53,6 @@ func (o *Opts) SetParentObject(parentObj *unstructured.Unstructured) {
 	o.parentObject = parentObj
 }
 
-// statusKey is the key under status.kratix.workflows that this reconciliation's
-// pipeline status is stored at. Kratix's own workflows key by workflow action,
-// so the configure and delete lanes keep separate ledgers instead of each reset
-// wiping the other's entries; a controller that embeds the workflow engine
-// overrides both with its own WorkflowKey.
 func (o *Opts) statusKey(action v1alpha1.Action) string {
 	if o.WorkflowKey != "" {
 		return o.WorkflowKey
@@ -69,18 +60,11 @@ func (o *Opts) statusKey(action v1alpha1.Action) string {
 	return string(action)
 }
 
-// workflowKeyPattern is deliberately narrower than "any map key": the key
-// becomes a segment of a status path that people read with `kubectl get -o
-// jsonpath` and that controllers walk with unstructured field paths, so a dot,
-// a slash or a leading dash in it turns a working query into a silently empty
-// one.
+// workflowKeyPattern is narrower than "any map key" because the key becomes a
+// segment of a status path: a dot, a slash or a leading dash in it turns a
+// working jsonpath query into a silently empty one.
 var workflowKeyPattern = regexp.MustCompile(`^[a-zA-Z0-9]([-_a-zA-Z0-9]*[a-zA-Z0-9])?$`)
 
-// validateWorkflowKey rejects a WorkflowKey that would collide with one of
-// Kratix's own lanes or would not survive as a status path segment. The
-// collision matters more than it looks: a controller keying its ledger at
-// "configure" would have its entries pruned and rewritten by Kratix's configure
-// workflow on the next reconcile, and vice versa.
 func (o *Opts) validateWorkflowKey() error {
 	if o.WorkflowKey == "" {
 		return nil
@@ -143,10 +127,6 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	if len(opts.Resources) > 1 {
 		logging.Warn(opts.logger, "multiple delete pipelines found; only the first will be used")
 	}
-	// The delete lane runs exactly one pipeline. Truncating here rather than
-	// indexing everywhere keeps the ledger it writes the same shape as the
-	// workflow it runs; the configure lane's entries live under their own key
-	// and are never read or written from here.
 	opts.Resources = opts.Resources[:1]
 	pipeline := opts.Resources[0]
 
@@ -179,11 +159,11 @@ func ReconcileDelete(opts Opts) (bool, error) {
 		return createDeletePipelineWhenConfigureIdle(opts, deleteKey, pipeline, resetAll)
 	}
 
-	ledger, err := deletePipelineLedger(opts, deleteKey, evidence)
+	statuses, err := deletePipelineStatuses(opts, deleteKey, evidence)
 	if err != nil {
 		return false, err
 	}
-	phase := ledger.phase(pipeline.Name)
+	phase := statuses.phase(pipeline.Name)
 	workflowSuspended := opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true"
 
 	if phase == v1alpha1.WorkflowPhaseSuspended {
@@ -191,22 +171,14 @@ func ReconcileDelete(opts Opts) (bool, error) {
 			logging.Info(opts.logger, "delete pipeline suspended; waiting")
 			return true, nil
 		}
-		// Resuming after a retry interval elapsed, not a genuine restart:
-		// preserve the pipeline's existing status (attempts, nextRetryAt),
-		// mirroring how configure's resume-from-suspended path never resets.
 		return createDeletePipeline(opts, deleteKey, resetNone)
 	}
 
-	if phase == v1alpha1.WorkflowPhaseSucceeded && ledger.hash(pipeline.Name) == desiredPipelineHash(pipeline) {
+	if phase == v1alpha1.WorkflowPhaseSucceeded && statuses.hash(pipeline.Name) == desiredPipelineHash(pipeline) {
 		if workflowSuspended {
 			logging.Info(opts.logger, "delete pipeline completed but workflow is suspended; waiting")
 			return true, nil
 		}
-		// The ledger records the completion, so the delete workflow stays
-		// complete once its Job has been pruned or garbage collected. Deriving
-		// this from the Job instead is what made a controller that embeds the
-		// workflow engine recreate the delete pipeline forever: no Job meant
-		// "never ran", and the finalizer was never removed.
 		logging.Info(opts.logger, "delete pipeline completed")
 		return false, nil
 	}
@@ -218,13 +190,9 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	case isFailed(job):
 		return false, ErrDeletePipelineFailed
 	default:
+		// A status write here lands on the pipeline statuses a caller that owns
+		// this object's status is progressing through.
 		if opts.SkipConditions {
-			// Unreachable today: the ephemeral ledger this caller gets is built
-			// from the same succeeded Job, so the Succeeded branch above has
-			// already returned. Kept because what it guards against is a status
-			// write on an object whose status the caller owns — that write goes
-			// over the ledger the caller is progressing through, which is the
-			// failure the per-workflow key exists to prevent.
 			return false, nil
 		}
 		if err = resourceutil.MarkCurrentPipelineAsSucceeded(opts.parentObject, deleteKey, opts.logger, job); err != nil {
@@ -237,37 +205,33 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	}
 }
 
-// deletePipelineLedger reads the delete workflow's ledger, seeding the single
-// entry in memory when the object has none yet. The seed is not written on its
-// own: unlike the configure lane there is no order to normalise and nothing to
-// prune, and every branch that needs the entry to exist writes the status
-// anyway, so seeding here saves the delete workflow a whole reconcile.
-func deletePipelineLedger(opts Opts, key string, evidence map[string]*batchv1.Job) (pipelineLedger, error) {
+// deletePipelineStatuses reads the delete workflow's pipeline statuses, seeding
+// the single entry on the object — but not persisting it — when there is none.
+func deletePipelineStatuses(opts Opts, key string, evidence map[string]*batchv1.Job) (pipelineStatuses, error) {
 	if opts.SkipConditions {
-		return ephemeralLedger(opts, evidence), nil
+		return ephemeralPipelineStatuses(opts, evidence), nil
 	}
 
 	entries, _, err := resourceutil.GetPipelineStatuses(opts.parentObject, key)
 	if err != nil {
-		return pipelineLedger{}, err
+		return pipelineStatuses{}, err
 	}
 
-	ledger := newPipelineLedger(entries)
-	if _, found := ledger.byName[opts.Resources[0].Name]; found {
-		return ledger, nil
+	statuses := newPipelineStatuses(entries)
+	if _, found := statuses.byName[opts.Resources[0].Name]; found {
+		return statuses, nil
 	}
 
 	entries = []any{newPendingEntry(opts.Resources[0].Name)}
 	if err := resourceutil.SetPipelineStatuses(opts.parentObject, key, entries); err != nil {
-		return pipelineLedger{}, err
+		return pipelineStatuses{}, err
 	}
-	return newPipelineLedger(entries), nil
+	return newPipelineStatuses(entries), nil
 }
 
 // createDeletePipelineWhenConfigureIdle holds the delete pipeline back until no
-// configure Job is still running, so the two lanes never write the same Works
-// at the same time.
-func createDeletePipelineWhenConfigureIdle(opts Opts, key string, pipeline v1alpha1.PipelineJobResources, reset ledgerReset) (bool, error) {
+// configure Job is running, so the two lanes never write the same Works at once.
+func createDeletePipelineWhenConfigureIdle(opts Opts, key string, pipeline v1alpha1.PipelineJobResources, reset statusReset) (bool, error) {
 	configureJobs, err := getJobsWithLabels(opts, labelsForWorkflowJobs(opts, v1alpha1.WorkflowActionConfigure), opts.namespace)
 	if err != nil {
 		return false, err
@@ -283,7 +247,7 @@ func createDeletePipelineWhenConfigureIdle(opts Opts, key string, pipeline v1alp
 	return createDeletePipeline(opts, key, reset)
 }
 
-func createDeletePipeline(opts Opts, key string, reset ledgerReset) (passiveRequeue bool, err error) {
+func createDeletePipeline(opts Opts, key string, reset statusReset) (passiveRequeue bool, err error) {
 	pipeline := opts.Resources[0]
 	logging.Debug(opts.logger, "creating delete pipeline; execution will commence")
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
@@ -291,10 +255,6 @@ func createDeletePipeline(opts Opts, key string, reset ledgerReset) (passiveRequ
 			return false, err
 		}
 	}
-	// A caller that owns the parent object's status gets no status written for
-	// it here either, the same as every other create path: its ledger is its
-	// own, and the engine writing this lane's entries over it is what the
-	// per-workflow key exists to prevent.
 	if !opts.SkipConditions {
 		if reset == resetAll {
 			if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, key, opts.Resources); err != nil {
@@ -314,39 +274,37 @@ func createDeletePipeline(opts Opts, key string, reset ledgerReset) (passiveRequ
 	return true, nil
 }
 
-// pipelineLedger is the record of how far a workflow has got: one entry per
-// pipeline, keyed by pipeline name. It is read from
-// status.kratix.workflows.<key>.pipelines, or built in memory from Job evidence
-// for callers that own the parent object's status.
+// pipelineStatuses is the record of how far a workflow has got: one entry per
+// pipeline, read from status.kratix.workflows.<key>.pipelines, or built in
+// memory from Job evidence for callers that own the parent object's status.
 //
-// Entries are looked up by name, never by position. A workflow's pipelines can
-// be added to, removed or reordered between reconciliations, and matching by
-// index would then read one pipeline's history as another's — marking a
-// pipeline that has never run as already succeeded.
-type pipelineLedger struct {
+// Entries are looked up by name, never by position: pipelines can be added,
+// removed or reordered between reconciliations, and matching by index then
+// reads one pipeline's history as another's.
+type pipelineStatuses struct {
 	byName map[string]map[string]any
 }
 
-func newPipelineLedger(entries []any) pipelineLedger {
-	ledger := pipelineLedger{byName: map[string]map[string]any{}}
+func newPipelineStatuses(entries []any) pipelineStatuses {
+	statuses := pipelineStatuses{byName: map[string]map[string]any{}}
 	for _, raw := range entries {
 		entry, ok := raw.(map[string]any)
 		if !ok {
 			continue
 		}
 		if name, _ := entry["name"].(string); name != "" {
-			ledger.byName[name] = entry
+			statuses.byName[name] = entry
 		}
 	}
-	return ledger
+	return statuses
 }
 
-func (l pipelineLedger) phase(name string) string {
+func (l pipelineStatuses) phase(name string) string {
 	phase, _ := l.byName[name]["phase"].(string)
 	return phase
 }
 
-func (l pipelineLedger) hash(name string) string {
+func (l pipelineStatuses) hash(name string) string {
 	hash, _ := l.byName[name]["hash"].(string)
 	return hash
 }
@@ -360,20 +318,19 @@ func newPendingEntry(name string) map[string]any {
 }
 
 // desiredPipelineHash is the kratix.io/hash the pipeline's Job would carry if it
-// ran now. The pipeline's own hash is already folded into it by the Job factory,
-// so this one value covers both a change to the parent object's spec and a
-// change to the pipeline definition.
+// ran now. The Job factory folds the pipeline's own hash into it, so this one
+// value covers a spec change and a pipeline-definition change alike.
 func desiredPipelineHash(pipeline v1alpha1.PipelineJobResources) string {
 	return pipeline.Job.GetLabels()[v1alpha1.KratixResourceHashLabel]
 }
 
-// ledgerReset says what a pipeline creation does to the rest of the ledger.
-type ledgerReset int
+// statusReset says what a pipeline creation does to the other pipelines' entries.
+type statusReset int
 
 const (
 	// resetNone leaves every other entry alone: used when resuming a suspended
 	// pipeline, whose own entry carries the retry bookkeeping to preserve.
-	resetNone ledgerReset = iota
+	resetNone statusReset = iota
 	// resetFollowing returns the entries after the pipeline being run to Pending.
 	resetFollowing
 	// resetAll returns every entry to Pending: a manual reconciliation or a
@@ -402,12 +359,6 @@ type workflowStep struct {
 }
 
 // ReconcileConfigure reconciles configure workflows.
-//
-// Progression is driven by the pipeline ledger, not by which Job happens to be
-// the most recent. Jobs are evidence that moves an entry along; the ledger is
-// the record of where the workflow got to. That is the whole point of this
-// function: a workflow whose Jobs have all been pruned, or whose namespace was
-// swept, is complete — not restarted from its first pipeline.
 //
 // The returned bool is passiveRequeue:
 // true means reconcile should happen again, passively, when watched external
@@ -444,16 +395,10 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 		return false, err
 	}
 
-	// A caller that owns the parent object's status gets its ledger from the
-	// Jobs; there is nothing to seed, prune or write. The label flows below run
-	// for it all the same: they are driven by labels on the object and they
-	// write labels back, and skipping them left manual reconciliation,
-	// run-from-start and resume-from-suspended completely inert for such a
-	// caller — the label was not even removed, so it stuck on the object.
-	ledger := ephemeralLedger(opts, evidence)
+	statuses := ephemeralPipelineStatuses(opts, evidence)
 	if !opts.SkipConditions {
 		var changed bool
-		if ledger, changed, err = seedAndPruneLedger(opts, configureKey); err != nil {
+		if statuses, changed, err = seedAndPrunePipelineStatuses(opts, configureKey); err != nil {
 			return false, err
 		}
 		if changed {
@@ -469,19 +414,17 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 		return requeue, err
 	}
 
-	return runWorkflowStep(opts, configureKey, ledger, evidence)
+	return runWorkflowStep(opts, configureKey, statuses, evidence)
 }
 
 // reconcileWorkflowLabels handles the three label-driven flows — manual
 // reconciliation, restart-from-start and resume-from-suspended — and reports
 // whether it took the reconciliation.
 //
-// These run BEFORE any Job evidence is interpreted, and the order is
-// load-bearing. isFailed() counts a suspended Job as failed, and a manual
-// reconciliation deliberately suspends the Job that is running; reading the
-// evidence first would therefore write Failed into the authoritative ledger
-// every time somebody re-runs a workflow by hand, and the Failed entry would
-// then halt the very run the label asked for.
+// It has to run before any Job evidence is interpreted: isFailed() counts a
+// suspended Job as failed and a manual reconciliation suspends the running Job,
+// so reading the evidence first records Failed on every re-run by hand — and
+// that entry then halts the run the label asked for.
 func reconcileWorkflowLabels(opts Opts, key string, evidence map[string]*batchv1.Job) (passiveRequeue, handled bool, err error) {
 	manualReconcile := isManualReconciliation(opts.parentObject.GetLabels())
 	restartFromStart := isWorkflowRestart(opts.parentObject.GetLabels())
@@ -515,9 +458,8 @@ func reconcileWorkflowLabels(opts Opts, key string, evidence map[string]*batchv1
 	}
 
 	pipeline := opts.Resources[suspendedIdx]
-	// Any Job of this workflow still in flight holds the resume back, not just
-	// this pipeline's own: creating a Job here beside a live one gives the
-	// workflow two pipelines writing the same parent's Works at once.
+	// Any Job of this workflow holds the resume back, not just this pipeline's
+	// own: a second live Job has two pipelines writing the same Works at once.
 	if job := mostRecentRunningJob(opts, evidence); job != nil {
 		logging.Debug(opts.logger, "job already inflight for this workflow; waiting for completion before resuming the suspended pipeline",
 			"job", job.Name, "pipeline", pipeline.Name)
@@ -530,8 +472,6 @@ func reconcileWorkflowLabels(opts Opts, key string, evidence map[string]*batchv1
 	if err != nil {
 		return false, true, err
 	}
-	// Cleanup happens here because a suspended workflow never reaches the
-	// completion branch of the walk below.
 	return requeue, true, cleanup(opts, opts.namespace)
 }
 
@@ -539,29 +479,21 @@ func reconcileWorkflowLabels(opts Opts, key string, evidence map[string]*batchv1
 // is not settled. "Settled" is the entry saying Succeeded at exactly the hash
 // the pipeline would run with now: a Succeeded entry recorded against an older
 // definition is a pipeline that still has to run.
-func nextWorkflowStep(opts Opts, ledger pipelineLedger, evidence map[string]*batchv1.Job) workflowStep {
+func nextWorkflowStep(opts Opts, statuses pipelineStatuses, evidence map[string]*batchv1.Job) workflowStep {
 	for i, pipeline := range opts.Resources {
 		desired := desiredPipelineHash(pipeline)
-		phase := ledger.phase(pipeline.Name)
+		phase := statuses.phase(pipeline.Name)
 
-		if phase == v1alpha1.WorkflowPhaseSucceeded && ledger.hash(pipeline.Name) == desired {
+		if phase == v1alpha1.WorkflowPhaseSucceeded && statuses.hash(pipeline.Name) == desired {
 			continue
 		}
 
 		if phase == v1alpha1.WorkflowPhaseSuspended {
-			// Job evidence never overwrites a Suspended entry. Suspension is
-			// written by whoever owns the retry policy, and the Job it left
-			// behind reads as failed — letting the evidence win here would turn
-			// every scheduled retry into a permanent failure.
 			logging.Debug(opts.logger, "pipeline is suspended; waiting", "pipeline", pipeline.Name)
 			return workflowStep{kind: stepWait, index: i}
 		}
 
-		if phase == v1alpha1.WorkflowPhaseFailed && ledger.hash(pipeline.Name) == desired {
-			// This exact definition has already failed and the failure is
-			// recorded. Re-running it on every reconcile would hammer the
-			// cluster; the way back is a manual reconciliation, a restart, or a
-			// change that produces a new hash.
+		if phase == v1alpha1.WorkflowPhaseFailed && statuses.hash(pipeline.Name) == desired {
 			logging.Debug(opts.logger, "pipeline failed at the current definition; waiting for a re-run to be requested", "pipeline", pipeline.Name)
 			return workflowStep{kind: stepWait, index: i, failedHalt: true}
 		}
@@ -569,32 +501,11 @@ func nextWorkflowStep(opts Opts, ledger pipelineLedger, evidence map[string]*bat
 		job := evidence[pipeline.Name]
 		switch {
 		case isRunning(job):
-			// Never start a second Job for a pipeline that already has one in
-			// flight, whichever definition that one is running.
 			logging.Debug(opts.logger, "job already inflight for pipeline; waiting for completion", "job", job.Name, "pipeline", pipeline.Name)
 			return workflowStep{kind: stepWait, index: i, job: job}
 		case phase == v1alpha1.WorkflowPhasePending || phase == "":
-			// Pending means no run of this pipeline is outstanding: either
-			// nothing has been started, or a manual reconciliation or restart
-			// deliberately unwound what had been. Any terminal Job still lying
-			// around therefore describes a run that is over, and adopting it
-			// would make a re-run of the workflow skip every pipeline whose
-			// definition had not changed — which is exactly what a manual
-			// reconciliation is for.
-			//
-			// An entry with no phase at all is read the same way: nothing is
-			// recorded, so nothing has run. Adopting a Job for it would settle a
-			// pipeline against a run the ledger cannot account for.
 			return runOrWaitForWorkflow(opts, evidence, i)
 		case !jobIsForPipeline(pipeline, job):
-			// Either there is no Job for this pipeline at all, or the only one
-			// left ran a definition that is no longer wanted. Both mean run it.
-			//
-			// The no-Job case includes a pipeline whose entry says Running: the
-			// Job completed and was pruned, or deleted, in the window between
-			// two reconciliations, and no evidence of it survives. Re-running is
-			// the safe answer — Kratix pipelines are expected to be idempotent —
-			// where trusting the entry would wedge the workflow forever.
 			return runOrWaitForWorkflow(opts, evidence, i)
 		case isFailed(job):
 			return workflowStep{kind: stepRecordFailure, index: i, job: job}
@@ -608,18 +519,10 @@ func nextWorkflowStep(opts Opts, ledger pipelineLedger, evidence map[string]*bat
 // runOrWaitForWorkflow runs the pipeline at index unless any pipeline of this
 // workflow still has a Job in flight.
 //
-// The walk stops at the first unsettled pipeline, and after a second spec edit
-// that is a pipeline *behind* the one whose Job is running: without this guard
-// the engine starts a Job for it while the later pipeline's Job is still
-// writing Works for the same parent, and resetFollowing has already put that
-// running pipeline's entry back to Pending under its own feet. When the last
-// pipeline's Job then completes, its in-Job status writer marks the whole
-// workflow completed while the new Job is still running.
-//
-// It keys on a Job that is actually running, never on what an entry says: a
-// Running entry whose Job is gone is still recreated (progression assertion 4).
-// A manual reconciliation suspends the running Job first, in
-// reconcileWorkflowLabels, so the label branches are never held up by it.
+// After a second spec edit the first unsettled pipeline is one *behind* the
+// pipeline whose Job is running. Starting it there gives the parent two Jobs
+// writing its Works at once, and the later Job's in-Job status writer then
+// marks the whole workflow completed while the new one is still going.
 func runOrWaitForWorkflow(opts Opts, evidence map[string]*batchv1.Job, index int) workflowStep {
 	if job := mostRecentRunningJob(opts, evidence); job != nil {
 		logging.Debug(opts.logger, "job already inflight for another pipeline of this workflow; waiting for completion",
@@ -629,8 +532,8 @@ func runOrWaitForWorkflow(opts Opts, evidence map[string]*batchv1.Job, index int
 	return workflowStep{kind: stepRun, index: index}
 }
 
-func runWorkflowStep(opts Opts, key string, ledger pipelineLedger, evidence map[string]*batchv1.Job) (passiveRequeue bool, err error) {
-	step := nextWorkflowStep(opts, ledger, evidence)
+func runWorkflowStep(opts Opts, key string, statuses pipelineStatuses, evidence map[string]*batchv1.Job) (passiveRequeue bool, err error) {
+	step := nextWorkflowStep(opts, statuses, evidence)
 
 	if step.kind != stepComplete {
 		pipeline := opts.Resources[step.index]
@@ -643,33 +546,19 @@ func runWorkflowStep(opts Opts, key string, ledger pipelineLedger, evidence map[
 		return false, cleanup(opts, opts.namespace)
 
 	case stepWait:
+		// A caller that owns the status never reaches recordPipelineFailure,
+		// so this is the only prune a workflow that keeps failing ever gets.
 		if step.failedHalt && opts.SkipConditions {
-			// A caller that owns the status never reaches recordPipelineFailure
-			// — its ledger is rebuilt from the Jobs on every reconcile, so the
-			// failure is re-derived rather than recorded once — and pruning is
-			// the only thing that stops a workflow that keeps failing growing
-			// its Job history without bound. Jobs only, as on the recorded
-			// failure path: Works are left alone while the workflow is unfinished.
 			return true, cleanupJobs(opts, opts.namespace)
 		}
-		// The halt writes and emits nothing: the failure is already recorded in
-		// the ledger, in the conditions and in one event, and rewriting any of
-		// them here re-triggers the watch that brought us back — the hot loop.
 		return true, nil
 
 	case stepRecordSuccess:
+		// A status write here lands on the pipeline statuses a caller that owns
+		// this object's status is progressing through.
 		if opts.SkipConditions {
-			// Unreachable today: the ephemeral ledger such a caller gets is
-			// built from the same succeeded Job, so this pipeline is already
-			// settled and the walk moved past it. Kept because what it guards
-			// against is a status write on an object whose status the caller
-			// owns, which would overwrite the ledger that caller is
-			// progressing through.
 			return true, nil
 		}
-		// The hash comes off the Job that actually ran, not off the pipeline
-		// being reconciled: recording the desired hash instead would mark a
-		// pipeline as having run a definition it never saw.
 		if err = resourceutil.MarkCurrentPipelineAsSucceeded(opts.parentObject, key, opts.logger, step.job); err != nil {
 			logging.Error(opts.logger, err, "failed to mark pipeline as succeeded")
 			return false, err
@@ -692,11 +581,8 @@ func recordPipelineFailure(opts Opts, key string, step workflowStep) (bool, erro
 	pipeline := opts.Resources[step.index]
 	logging.Debug(opts.logger, "job failed", "job", step.job.Name, "pipeline", pipeline.Name)
 
-	// Unreachable for a caller that owns the parent object's status: its
-	// ephemeral ledger records a failed Job as Failed at that Job's own hash,
-	// so the walk halts at the Failed arm and never reaches this step. Kept
-	// because what it guards against is Kratix's conditions and ledger being
-	// written onto an object whose status belongs to that caller.
+	// Kratix's conditions and pipeline statuses must not be written onto an
+	// object whose status belongs to the caller.
 	if !opts.SkipConditions {
 		resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
 		resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
@@ -713,33 +599,26 @@ func recordPipelineFailure(opts Opts, key string, step workflowStep) (bool, erro
 	opts.eventRecorder.Eventf(opts.parentObject, nil, v1.EventTypeWarning, resourceutil.ConfigureWorkflowCompletedFailedReason, resourceutil.ConfigureWorkflowCompletedFailedReason, "A %s/configure Pipeline has failed: %s", opts.workflowType, pipeline.Name)
 	logging.Warn(opts.logger, "pipeline job failed; exiting workflow", "failedJob", step.job.Name, "pipeline", pipeline.Name)
 
-	// A workflow that keeps failing never reaches the completion branch of the
-	// walk, so without pruning here its Jobs grow without bound once the
-	// periodic reconcile retries failed runs. This reconciler is shared, so the
-	// pruning applies to promise and resource workflows alike; only resources
-	// retry on the interval today, so a failing promise workflow is pruned when
-	// it is re-run manually or by a spec change. Jobs only, not the full
-	// cleanup(): Works are left alone while the workflow has not completed.
+	// Jobs only, not the full cleanup(): the Works of a workflow that has not
+	// completed are still wanted.
 	return true, cleanupJobs(opts, opts.namespace)
 }
 
-// seedAndPruneLedger reconciles the ledger under key with the workflow's current
-// pipelines: entries whose pipeline no longer exists are dropped, pipelines with
-// no entry are appended as Pending, and the entries are put back into the
-// workflow's own order.
+// seedAndPrunePipelineStatuses reconciles the entries under key with the
+// workflow's current pipelines: entries whose pipeline no longer exists are
+// dropped, pipelines with no entry are appended as Pending, and the entries are
+// put back into the workflow's own order.
 //
-// This is what makes the ledger safe to read as the record of progress. A stale
-// Succeeded entry left behind by a renamed or removed pipeline would otherwise
-// count towards completion for a pipeline nobody runs any more, and a pipeline
-// with no entry at all makes every later mark fail with "no pipeline found for
-// job" — the ledger and the workflow have to describe the same set of pipelines
-// before anything reads either.
-func seedAndPruneLedger(opts Opts, key string) (pipelineLedger, bool, error) {
+// The stored entries and the workflow have to describe the same pipelines before
+// anything reads either: a stale Succeeded entry counts towards completion for a
+// pipeline nobody runs, and a pipeline with no entry makes every later mark fail
+// with "no pipeline found for job".
+func seedAndPrunePipelineStatuses(opts Opts, key string) (pipelineStatuses, bool, error) {
 	stored, _, err := resourceutil.GetPipelineStatuses(opts.parentObject, key)
 	if err != nil {
-		return pipelineLedger{}, false, err
+		return pipelineStatuses{}, false, err
 	}
-	existing := newPipelineLedger(stored)
+	existing := newPipelineStatuses(stored)
 
 	changed := len(stored) != len(opts.Resources)
 	entries := make([]any, 0, len(opts.Resources))
@@ -762,9 +641,9 @@ func seedAndPruneLedger(opts Opts, key string) (pipelineLedger, bool, error) {
 
 	logging.Info(opts.logger, "reconciling the workflow pipeline status with the workflow's pipelines", "key", key)
 	if err := resourceutil.SetPipelineStatuses(opts.parentObject, key, entries); err != nil {
-		return pipelineLedger{}, false, err
+		return pipelineStatuses{}, false, err
 	}
-	return newPipelineLedger(entries), true, nil
+	return newPipelineStatuses(entries), true, nil
 }
 
 func sameName(raw any, name string) bool {
@@ -776,22 +655,14 @@ func sameName(raw any, name string) bool {
 	return stored == name
 }
 
-// ephemeralLedger builds a ledger in memory from Job evidence alone, for callers
-// that own the parent object's status lifecycle (SkipConditions). It records
-// only what the evidence proves — a retained Job that succeeded at the hash the
-// pipeline would run with now — so the walk reaches the same decisions it does
-// from a stored ledger, without a single status read or write.
-func ephemeralLedger(opts Opts, evidence map[string]*batchv1.Job) pipelineLedger {
+// ephemeralPipelineStatuses builds the pipeline statuses in memory from Job
+// evidence alone, for callers that own the parent object's status lifecycle
+// (SkipConditions), so the walk decides without a single status read or write.
+func ephemeralPipelineStatuses(opts Opts, evidence map[string]*batchv1.Job) pipelineStatuses {
 	entries := make([]any, 0, len(opts.Resources))
 	for _, pipeline := range opts.Resources {
 		entry := map[string]any{"name": pipeline.Name, "phase": v1alpha1.WorkflowPhasePending}
 		if job := evidence[pipeline.Name]; jobIsForPipeline(pipeline, job) && !isRunning(job) {
-			// A Job that finished is proof either way. Recording only the
-			// successes left a failed run reading as Pending — "nothing has run
-			// yet" — and the walk's Pending arm then created a replacement Job
-			// on every reconcile, for ever: the Failed arm in nextWorkflowStep
-			// is the only thing between such a caller and an unbounded create
-			// loop.
 			entry["phase"] = v1alpha1.WorkflowPhaseSucceeded
 			if isFailed(job) {
 				entry["phase"] = v1alpha1.WorkflowPhaseFailed
@@ -800,18 +671,16 @@ func ephemeralLedger(opts Opts, evidence map[string]*batchv1.Job) pipelineLedger
 		}
 		entries = append(entries, entry)
 	}
-	return newPipelineLedger(entries)
+	return newPipelineStatuses(entries)
 }
 
 // jobEvidence lists this workflow's Jobs once and indexes the most recent one
 // per pipeline name.
 //
-// It selects on the labels Kratix writes today. A Job carrying only the retired
-// kratix.io/work-* labels is invisible to progression by design (#360): a
-// cluster old enough to still have one is old enough that the run it describes
-// is not the run the ledger records, and the pipeline it belongs to re-runs
-// once. Re-adding a legacy selector here would resurrect the very ambiguity the
-// keyed ledger exists to remove.
+// It selects on the labels Kratix writes today, so a Job carrying only the
+// retired kratix.io/work-* labels is no evidence at all (#360). Re-adding a
+// legacy selector resurrects the ambiguity keying removes: such a Job describes
+// a run the pipeline statuses cannot account for.
 func jobEvidence(opts Opts, action v1alpha1.Action) (map[string]*batchv1.Job, error) {
 	jobs, err := getJobsWithLabels(opts, labelsForWorkflowJobs(opts, action), opts.namespace)
 	if err != nil {
@@ -836,8 +705,6 @@ func jobEvidence(opts Opts, action v1alpha1.Action) (map[string]*batchv1.Job, er
 	return evidence, nil
 }
 
-// mostRecentRunningJob returns the newest Job of this workflow that is still
-// running, or nil when none is.
 func mostRecentRunningJob(opts Opts, evidence map[string]*batchv1.Job) *batchv1.Job {
 	var newest *batchv1.Job
 	for _, pipeline := range opts.Resources {
@@ -852,12 +719,9 @@ func mostRecentRunningJob(opts Opts, evidence map[string]*batchv1.Job) *batchv1.
 	return newest
 }
 
-// resetPipelinesAfter returns the entries after index to Pending. Once a
-// pipeline runs again, everything downstream of it ran against a workflow state
-// that no longer holds, so leaving their Succeeded entries in place reports a
-// completion the new run has not reached — and, because the hash goes with the
-// entry, would let the workflow declare itself finished the moment the pipeline
-// being re-run succeeds.
+// resetPipelinesAfter returns the entries after index to Pending. Their hashes
+// go with them: left in place, the workflow declares itself finished the moment
+// the pipeline being re-run succeeds, without the later ones running at all.
 func resetPipelinesAfter(opts Opts, key string, index int) (bool, error) {
 	entries, found, err := resourceutil.GetPipelineStatuses(opts.parentObject, key)
 	if err != nil || !found {
@@ -866,12 +730,8 @@ func resetPipelinesAfter(opts Opts, key string, index int) (bool, error) {
 
 	changed := false
 	for i := index + 1; i < len(entries) && i < len(opts.Resources); i++ {
-		// Positions line up here because seedAndPruneLedger has already aligned
-		// the ledger with the workflow's pipelines, so this skip is unreachable
-		// from the engine's own path. It guards against the one thing that
-		// makes an unwind actively harmful: writing Pending over the entry of a
-		// pipeline that is not the one at this position — a pipeline nobody is
-		// re-running, whose recorded run is then lost.
+		// Writing Pending over an entry that is not this position's pipeline
+		// loses the recorded run of a pipeline nobody is re-running.
 		entry, ok := entries[i].(map[string]any)
 		if !ok || !sameName(entries[i], opts.Resources[i].Name) {
 			continue
@@ -918,9 +778,7 @@ func labelsForJobs(opts Opts) map[string]string {
 }
 
 // labelsForWorkflowJobs narrows labelsForJobs to one workflow action, so the
-// single List a reconciliation makes returns only that lane's Jobs. Selecting on
-// the action here rather than filtering afterwards is what lets jobIsForPipeline
-// shrink to the two labels that actually vary per run.
+// single List a reconciliation makes returns only that lane's Jobs.
 func labelsForWorkflowJobs(opts Opts, action v1alpha1.Action) map[string]string {
 	l := labelsForJobs(opts)
 	l[v1alpha1.WorkflowActionLabel] = string(action)
@@ -949,10 +807,8 @@ func labelsForAllWorkflowJobs(pipeline v1alpha1.PipelineJobResources) map[string
 
 // jobIsForPipeline reports whether job is a run of exactly this pipeline at
 // exactly its current definition. Workflow type and action are not compared:
-// they are part of the label selector every Job list uses, so a Job that got
-// this far already matches them. The pipeline's own hash is folded into
-// kratix.io/hash by the Job factory, so that one label covers both a spec change
-// and a pipeline change.
+// they are in the label selector every Job list uses, so a Job that got this far
+// already matches them.
 func jobIsForPipeline(pipeline v1alpha1.PipelineJobResources, job *batchv1.Job) bool {
 	if job == nil {
 		return false
@@ -1062,10 +918,6 @@ func pruneJobs(opts Opts, jobsForPipeline []batchv1.Job) error {
 	for i := 0; i < len(jobsForPipeline)-opts.numberOfJobsToKeep; i++ {
 		job := jobsForPipeline[i]
 		if isRunning(&job) {
-			// Never prune a Job that is still running, however old it is.
-			// Progression now reads the Jobs as evidence of what the pipelines
-			// are doing, so deleting a live one makes its pipeline look like it
-			// has no Job at all and the workflow starts a duplicate run of it.
 			logging.Debug(opts.logger, "not deleting a running job", "name", job.GetName())
 			continue
 		}
@@ -1086,7 +938,7 @@ func pruneJobs(opts Opts, jobsForPipeline []batchv1.Job) error {
 	return nil
 }
 
-func createConfigurePipeline(opts Opts, key string, index int, reset ledgerReset) (passiveRequeue bool, err error) {
+func createConfigurePipeline(opts Opts, key string, index int, reset statusReset) (passiveRequeue bool, err error) {
 	resources := opts.Resources[index]
 	logging.Info(opts.logger, "triggering pipeline", "workflowAction", resources.WorkflowAction, "pipeline", resources.Name)
 	var objectToDelete []client.Object
@@ -1106,23 +958,23 @@ func createConfigurePipeline(opts Opts, key string, index int, reset ledgerReset
 		}
 	}
 
-	ledgerChanged := false
+	statusesChanged := false
 	if !opts.SkipConditions {
 		switch reset {
 		case resetAll:
 			if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, key, opts.Resources); err != nil {
 				return false, err
 			}
-			ledgerChanged = true
+			statusesChanged = true
 		case resetFollowing:
-			if ledgerChanged, err = resetPipelinesAfter(opts, key, index); err != nil {
+			if statusesChanged, err = resetPipelinesAfter(opts, key, index); err != nil {
 				return false, err
 			}
 		case resetNone:
 		}
 	}
 
-	if err = setPipelineStartingStatus(opts, key, index, resources.Job, ledgerChanged); err != nil {
+	if err = setPipelineStartingStatus(opts, key, index, resources.Job, statusesChanged); err != nil {
 		return false, err
 	}
 

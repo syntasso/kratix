@@ -9,19 +9,18 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-// The pre-keyed (flat) workflow status layout. Kratix wrote these three fields
-// directly under status.kratix.workflows, which is where the workflow keys now
-// live, so each has to be read by its own name rather than by walking the node.
+// The pre-keyed (flat) workflow status layout. These three fields sat directly
+// under status.kratix.workflows, where the workflow keys live now, so each has
+// to be read by name rather than by walking the node.
 const (
 	flatPipelinesField           = "pipelines"
 	flatSuspendedGenerationField = "suspendedGeneration"
 	flatLastSuccessfulTimeField  = "lastSuccessfulConfigureWorkflowTime"
 )
 
-// keyedLastSuccessfulTimeField is where flatLastSuccessfulTimeField lands. It is
-// always written under the configure key: the field records when the *configure*
-// workflow last succeeded, so migrating it under a delete reconciliation's key
-// would file a configure timestamp as a delete one.
+// keyedLastSuccessfulTimeField is where flatLastSuccessfulTimeField lands, always
+// under the configure key: it records when the configure workflow last
+// succeeded, so a delete reconciliation must not file it as a delete one.
 const keyedLastSuccessfulTimeField = "lastSuccessfulTime"
 
 // legacyStatusCounters are top-level status fields Kratix stopped writing before
@@ -38,10 +37,8 @@ func flatWorkflowsPath(field string) []string {
 // retained Jobs when they still exist. Returns true when it changed the object;
 // the caller writes the status and requeues before doing anything else.
 //
-// Every move merges rather than overwrites: a half-upgraded writer can recreate
-// the flat layout after the migration has already run, and the keyed layout is
-// the truth from then on. Running the migration twice therefore reports no change
-// the second time.
+// Every move merges rather than overwrites, because a half-upgraded writer can
+// recreate the flat layout after the migration has already run.
 func migrateWorkflowStatus(opts Opts, key string, action v1alpha1.Action) (bool, error) {
 	changed := false
 
@@ -83,11 +80,9 @@ func migrateWorkflowStatus(opts Opts, key string, action v1alpha1.Action) (bool,
 	return changed, nil
 }
 
-// migrateFlatPipelines performs step 1 of the migration: the flat pipeline ledger
-// moves under key, with each Succeeded entry's hash lifted from its retained Job
-// on the way. The entries are moved verbatim and in order — the migration never
-// invents an entry for a pipeline the old ledger did not know about, and never
-// re-orders the ones it did.
+// migrateFlatPipelines moves the flat pipeline statuses under key, lifting each
+// Succeeded entry's hash from its retained Job on the way. Entries move verbatim
+// and in order: nothing is invented for a pipeline they did not already name.
 func migrateFlatPipelines(opts Opts, key string, action v1alpha1.Action) (bool, error) {
 	obj := opts.parentObject
 
@@ -118,9 +113,8 @@ func migrateFlatPipelines(opts Opts, key string, action v1alpha1.Action) (bool, 
 	return true, nil
 }
 
-// nestedReader reads one flat field at its declared type. Reading typed rather
-// than as an opaque value is what turns a status field of the wrong type into a
-// returned error instead of a panic inside the unstructured deep copy.
+// nestedReader reads one flat field at its declared type, so a status field of
+// the wrong type returns an error instead of panicking in the deep copy.
 type nestedReader func(obj map[string]any, fields ...string) (any, bool, error)
 
 func nestedInt64(obj map[string]any, fields ...string) (any, bool, error) {
@@ -172,14 +166,11 @@ func removeLegacyStatusCounters(obj *unstructured.Unstructured) bool {
 }
 
 // liftPipelineHashes fills in the hash of each Succeeded entry from the Job that
-// produced it, so progression can tell an already-run pipeline from one whose
-// definition changed. Without it every pipeline of every existing resource looks
-// unrun after the upgrade and re-runs once.
+// produced it. Without it every pipeline of every existing object looks unrun
+// after the upgrade and re-runs once.
 //
 // Only Succeeded entries are lifted: any other phase means the recorded run did
-// not finish, so pinning it to a hash would suppress the re-run it still needs.
-// An entry whose Job has already been cleaned up keeps no hash and re-runs once;
-// that is cheaper than guessing a hash the pipeline may not have run with.
+// not finish, and a hash on it would suppress the re-run it still needs.
 func liftPipelineHashes(opts Opts, action v1alpha1.Action, pipelines []any) error {
 	for _, entry := range pipelines {
 		pipeline, ok := entry.(map[string]any)
@@ -211,19 +202,12 @@ func liftPipelineHashes(opts Opts, action v1alpha1.Action, pipelines []any) erro
 // hashOfMostRecentSucceededJob returns the kratix.io/hash of the newest retained
 // Job that succeeded for pipelineName, or "" when there is none.
 //
-// It looks only at Jobs of the workflow action being migrated. Pipeline names
-// are unique per (workflow type, workflow action), not across actions, so a
-// Promise may legally give its resource.delete pipeline the same name as a
-// resource.configure one — and both lanes' Jobs carry the same kratix.io/hash
-// for the same object. Without the action in the selector the delete entry
-// lifts the configure Job's hash, reads as already complete at the current
-// definition, and the delete pipeline is skipped while the finalizer comes off.
-//
-// It looks only at Jobs carrying the current labels. Jobs from before the
-// kratix.io/work-* labels were renamed are deliberately not consulted: a cluster
-// old enough to still have them is old enough that the run they describe is no
-// longer the one the entry claims. Those entries migrate without a hash and
-// re-run once.
+// The action has to be in the selector. Pipeline names are unique per workflow
+// action, not across them, and both lanes' Jobs carry the same kratix.io/hash
+// for the same object: without it a delete entry lifts the configure Job's hash,
+// reads as complete, and the delete pipeline is skipped as the finalizer comes
+// off. Jobs carrying only the retired kratix.io/work-* labels are not consulted
+// either (#360); those entries migrate without a hash and re-run once.
 func hashOfMostRecentSucceededJob(opts Opts, action v1alpha1.Action, pipelineName string) (string, error) {
 	jobLabels := labelsForWorkflowJobs(opts, action)
 	jobLabels[v1alpha1.PipelineNameLabel] = pipelineName

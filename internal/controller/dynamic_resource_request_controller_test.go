@@ -395,12 +395,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(condition.Reason).To(Equal(resourceutil.DeleteWorkflowSuspendedReason))
 			})
 
-			// F5 (UPG-I-2) — the suspended-delete handler reuses the configure
-			// lane's handler, and its manual-reconcile arm reset "the" pipeline
-			// status: with the configure key hard-coded it replaced the configure
-			// ledger with the delete workflow's pipelines (here: none at all) on
-			// an object that may well outlive the delete attempt.
-			It("resets the delete lane, not the configure ledger, when it is manually reconciled", func() {
+			It("resets the delete lane, not the configure entries, when it is manually reconciled", func() {
 				seedResourceConfigureWorkflowPipelines(resReq, "first-pipeline")
 
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
@@ -416,7 +411,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				configurePipelines, found, err := unstructured.NestedSlice(resReq.Object,
 					"status", "kratix", "workflows", configureKey, "pipelines")
 				Expect(err).NotTo(HaveOccurred())
-				Expect(found).To(BeTrue(), "the configure ledger was removed by the delete lane")
+				Expect(found).To(BeTrue(), "the configure entries were removed by the delete lane")
 				Expect(configurePipelines).To(ConsistOf(HaveKeyWithValue("name", "first-pipeline")))
 			})
 
@@ -757,13 +752,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(lastSuccessfulConfigureWorkflowTime).To(Equal(lastTransitionTime.Format(time.RFC3339)))
 				})
 
-				// The interval reconcile is scheduled by the branch that finds both
-				// copies of the time already current. The controller writes the
-				// legacy top-level field and the keyed one, and reads both back
-				// before deciding: a reader pointed at the wrong place never agrees
-				// with what was written, so every pass rewrites the status, every
-				// write re-triggers the watch, and the interval requeue is never
-				// returned — the workflow then never re-runs on its interval.
 				It("writes both the legacy and the keyed field, and the next pass rewrites neither", func() {
 					lastTransitionTime := time.Now().Add(-time.Minute)
 					setConfigureWorkflowStatus(resReq, v1.ConditionTrue, lastTransitionTime)
@@ -1243,12 +1231,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					createPromiseRevision(fakeK8sClient, promise, "v1.1.0")
 				})
 
-				// The workflow engine seeds and prunes the ledger, but it returns
-				// before reading any status when the workflow has no pipelines, so
-				// this is the one ledger write the controller still owns. The
-				// fixture seeds the ledger the engine left behind while the
-				// workflow still had a pipeline: without it the spec passes on a
-				// resource that never had a ledger at all.
 				It("clears the workflow pipeline status", func() {
 					seedResourceConfigureWorkflowPipelines(resReq, "first-pipeline")
 
@@ -1261,14 +1243,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(pipelines).To(BeEmpty())
 				})
 			})
-
-			// Seeding the ledger to Pending is the workflow engine's seed-and-prune
-			// step ("prunes ledger entries for pipelines the workflow no longer
-			// has, and seeds the ones it does", lib/workflow/progression_test.go),
-			// and clearing the counters an older Kratix left at the top of .status
-			// is the engine's migration ("removes the legacy status counters",
-			// lib/workflow/migration_test.go). Neither can be asserted from here
-			// any more: this suite stubs the engine out.
 		})
 	})
 
@@ -1454,9 +1428,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
 			Expect(err).NotTo(HaveOccurred())
 
-			// The workflow engine seeds the ledger from inside ReconcileConfigure,
-			// and this suite stubs the engine out, so the fixture writes the entry
-			// the engine would have written before the workflow was suspended.
 			seedResourceConfigureWorkflowPipelines(resReq, "first-pipeline")
 
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
@@ -1473,12 +1444,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 		})
 
-		// The engine seeds the pipeline ledger from inside ReconcileConfigure, and
-		// a suspended workflow returns long before that, so a resource suspended
-		// from its first reconcile has no ledger at all. Reading that as an error
-		// fails every reconcile of such a resource, and nothing is left that could
-		// ever seed it or take it out of suspension.
-		It("stays suspended when the workflow was suspended before its ledger was seeded", func() {
+		It("stays suspended when the workflow was suspended before its statuses were seeded", func() {
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 			unstructured.RemoveNestedField(resReq.Object, "status", "kratix", "workflows", configureKey, "pipelines")
 			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
@@ -1606,12 +1572,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
-		// F4 (UPG-C-1) — a resource suspended before the upgrade carries the
-		// pre-keyed flat ledger. The migration lives inside the engine and the
-		// suspended branch returns before the engine is ever called, so reading
-		// only the keyed path made the retry invisible: no RequeueAfter, no
-		// watch event, and a spec change could not un-suspend it either,
-		// because suspendedGeneration read 0.
 		When("it was suspended before the workflow status was keyed by workflow", func() {
 			BeforeEach(func() {
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
@@ -1631,7 +1591,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 			})
 
-			It("schedules the retry the flat ledger recorded", func() {
+			It("schedules the retry the flat pipeline status recorded", func() {
 				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result.RequeueAfter).NotTo(BeZero())
@@ -2800,10 +2760,9 @@ func getResourceBinding(promiseName string, resource types.NamespacedName) *v1al
 	return &bindingList.Items[0]
 }
 
-// seedResourceConfigureWorkflowPipelines writes the all-Pending ledger the
-// workflow engine seeds on its first pass over a workflow. This suite stubs the
-// engine out, so a spec that needs a resource whose workflow Kratix has already
-// started tracking has to persist the ledger itself.
+// seedResourceConfigureWorkflowPipelines writes the all-Pending pipeline statuses
+// the engine seeds on its first pass. This suite stubs the engine out, so a spec
+// needing a resource Kratix already tracks has to persist them itself.
 func seedResourceConfigureWorkflowPipelines(rr *unstructured.Unstructured, names ...string) {
 	GinkgoHelper()
 	Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(rr), rr)).To(Succeed())

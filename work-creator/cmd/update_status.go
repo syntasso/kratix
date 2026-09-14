@@ -81,22 +81,20 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 		return err
 	}
 
-	// The workflow engine writes this object's status while the pipeline is still
-	// running, so a losing race here is expected rather than exceptional. Without
-	// a retry a 409 fails this container, and the engine then records the whole
-	// pipeline as Failed even though every user container in it succeeded. Re-Get
-	// and rebuild the merge on each attempt: the merge is only valid against the
-	// copy of the object it was built from.
+	// The engine writes this object's status while the pipeline is still running,
+	// so losing the race is routine: without a retry the 409 fails this container
+	// and the engine records the pipeline as Failed though every user container
+	// in it succeeded. The merge is only valid against the copy of the object it
+	// was built from, so each attempt re-Gets and rebuilds it.
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		existingObj, err := objectClient.Get(ctx, params.ObjectName, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to get existing object: %w", err)
 		}
 
-		// Deferred rather than computed here because handleWorkflowControlFile may
-		// Update the object to add the suspend label, and the copy that Update hands
-		// back can already carry status the engine wrote since our Get. Whichever
-		// copy we are about to write is the one the merge has to be built from.
+		// Deferred: handleWorkflowControlFile may Update the object to add the
+		// suspend label, and that Update hands back a copy already carrying status
+		// the engine wrote since our Get. Merging before it drops that status.
 		mergeStatus := func(obj *unstructured.Unstructured) map[string]any {
 			merged := lib.MergeStatuses(objectStatus(obj), incomingStatus)
 			if params.IsLastPipeline && !control.IfSuspendOrRetry() {
@@ -115,10 +113,7 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 			mergedStatus["message"] = "Dry run executed"
 		}
 
-		// Apply merged status to the existing object
 		existingObj.Object["status"] = mergedStatus
-
-		// Update the object's status
 		if _, err = objectClient.UpdateStatus(ctx, existingObj, metav1.UpdateOptions{}); err != nil {
 			return fmt.Errorf("failed to update status: %w", err)
 		}
@@ -138,15 +133,11 @@ func handleWorkflowControlFile(ctx context.Context, params *helpers.Parameters,
 	existingObj *unstructured.Unstructured, objectClient dynamic.ResourceInterface,
 	mergeStatus func(*unstructured.Unstructured) map[string]any,
 	control *lib.WorkflowControl) (*unstructured.Unstructured, map[string]any, error) {
-	// Every write below addresses status.kratix.workflows.<key>, and for Kratix's
-	// own workflows that key is the workflow action, which this container is handed
-	// in KRATIX_WORKFLOW_ACTION. Controllers that embed the workflow engine key
-	// their workflow status by something this container is never told, so there is
-	// no entry here to address and workflow-control writes stay a no-op for them -
-	// tracked in https://github.com/syntasso/kratix/issues/920. Do not "fix" this
-	// by deriving a key from KRATIX_WORKFLOW_TYPE: that names the lane
-	// (promise/resource), not the workflow, so it would address a key the engine
-	// never reads while leaving the real entry unsuspended.
+	// Deriving the key from KRATIX_WORKFLOW_TYPE addresses a key the engine never
+	// reads and leaves the real entry unsuspended: the type names the lane
+	// (promise/resource), not the workflow. Only KRATIX_WORKFLOW_ACTION keys
+	// Kratix's own workflows; a controller that embeds the engine is never told
+	// its key, so workflow-control writes are a no-op for it — issue #920.
 	if params.WorkflowType != v1alpha1.WorkflowTypePromise && params.WorkflowType != v1alpha1.WorkflowTypeResource {
 		return existingObj, mergeStatus(existingObj), nil
 	}
@@ -175,10 +166,6 @@ func handleWorkflowControlFile(ctx context.Context, params *helpers.Parameters,
 		return nil, nil, err
 	}
 
-	// Merged only now, from the object addWorkflowSuspendLabel handed back: that
-	// copy is the one being written, and merging before the label Update would
-	// write a status built from the pre-Update copy over it, silently dropping
-	// whatever the engine wrote in between.
 	mergedStatus, err := lib.MarkPipelineAsSuspended(mergeStatus(existingObj),
 		params.WorkflowStatusKey(), params.PipelineName, control.Message,
 		retryAfterTimestamp, existingObj.GetGeneration())

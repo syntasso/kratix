@@ -217,8 +217,7 @@ type WorkflowPipelineStatus struct {
 	Attempts int64 `json:"attempts,omitempty"`
 
 	// Hash of the inputs the last run of this pipeline saw (the kratix.io/hash
-	// Job label). Progression compares it to the current desired hash: a
-	// Succeeded entry with a different or empty hash is re-run.
+	// Job label). A Succeeded entry carrying any other hash is re-run.
 	Hash string `json:"hash,omitempty"`
 
 	// Last transition time of the workflow
@@ -542,10 +541,9 @@ const (
 	WorkflowPhaseSuspended = "Suspended"
 )
 
-// ClearPipelineExecutionStatus removes the workflow status Kratix core owns —
-// the "configure" and "delete" keys, plus any pre-keyed flat layout still
-// stored. Keys written by controllers that embed the workflow engine are left
-// alone; wiping the whole map would delete status core never wrote.
+// ClearPipelineExecutionStatus removes the workflow status Kratix core owns — the
+// "configure" and "delete" keys, plus any pre-keyed flat layout still stored.
+// Keys a controller that embeds the workflow engine wrote are left alone.
 func (p *Promise) ClearPipelineExecutionStatus() bool {
 	workflows := &p.Status.Kratix.Workflows
 	changed := len(workflows.LegacyRaw) != 0

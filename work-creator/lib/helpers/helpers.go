@@ -69,9 +69,8 @@ func getParametersFromEnv() *Parameters {
 }
 
 // WorkflowStatusKey is the key this workflow's entry sits under in
-// status.kratix.workflows. For Kratix's own workflows the key is the workflow
-// action, which the pipeline factory hands this container in
-// KRATIX_WORKFLOW_ACTION - so it is exactly "configure" or "delete".
+// status.kratix.workflows: for Kratix's own workflows, the workflow action the
+// pipeline factory hands this container in KRATIX_WORKFLOW_ACTION.
 func (p *Parameters) WorkflowStatusKey() string {
 	return strings.ToLower(string(p.WorkflowAction))
 }

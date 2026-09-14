@@ -458,11 +458,10 @@ func (p *PipelineFactory) pipelineJobLabels(requestSHA string) map[string]string
 			ls = labels.Merge(ls, resourceNamespaceLabel(p.ResourceRequest.GetNamespace()))
 		}
 	}
-	// Fold the pipeline's own hash into the resource hash so a pipeline
-	// definition change produces a new Job the same way a spec change does,
-	// through the single kratix.io/hash label. A pipeline carrying no
-	// kratix.io/pipeline-hash label keeps the bare resource hash, so upgrading
-	// Kratix does not re-run pipelines that have not changed.
+	// Fold the pipeline's own hash in so a pipeline-definition change produces a
+	// new Job the way a spec change does, through the one kratix.io/hash label.
+	// A pipeline with no kratix.io/pipeline-hash keeps the bare resource hash, so
+	// upgrading Kratix does not re-run pipelines that have not changed.
 	if pipelineHash := p.Pipeline.GetLabels()[KratixPipelineHashLabel]; pipelineHash != "" && requestSHA != "" {
 		requestSHA = hash.ComputeHash(requestSHA + "-" + pipelineHash)
 	}

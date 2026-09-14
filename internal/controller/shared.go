@@ -28,19 +28,11 @@ const (
 	removeAllWorkflowJobsFinalizer = v1alpha1.KratixPrefix + "workflows-cleanup"
 	runDeleteWorkflowsFinalizer    = v1alpha1.KratixPrefix + "delete-workflows"
 	promiseLogKey                  = "promise"
-	// configureWorkflowStatusKey is the status.kratix.workflows key that the
-	// configure workflow's pipeline status is stored under. Reading or writing
-	// the configure lane at any other key would resurrect the pre-keyed flat
-	// layout, which the delete lane overwrites.
+	// The status.kratix.workflows keys Kratix's own workflows store their
+	// pipeline statuses under.
 	configureWorkflowStatusKey = string(v1alpha1.WorkflowActionConfigure)
-	// deleteWorkflowStatusKey is the status.kratix.workflows key the delete
-	// workflow's pipeline status is stored under, by the engine's delete lane
-	// and by the in-Job status writer alike. The suspended-workflow handler is
-	// shared between the lanes, so it is told which key it is working on:
-	// reading the delete lane's suspension at the configure key found nothing,
-	// scheduled no retry, and left the delete finalizer on for ever.
-	deleteWorkflowStatusKey = string(v1alpha1.WorkflowActionDelete)
-	resourceRequestLogKey   = "resourceRequest"
+	deleteWorkflowStatusKey    = string(v1alpha1.WorkflowActionDelete)
+	resourceRequestLogKey      = "resourceRequest"
 	// DefaultReconciliationInterval is the fallback reconciliation interval for re-running
 	// workflows, used when neither the resolved PromiseRevision nor the live Promise spec
 	// declares its own reconciliationInterval.

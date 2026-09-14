@@ -509,10 +509,10 @@ func (r *PromiseReconciler) setPromiseUnavailableStatusConditions(
 	return r.Client.Status().Update(ctx, promise)
 }
 
-// resetPromiseWorkflowPipelinesToPending unwinds the ledger of the workflow
-// under key so it runs again from its first pipeline. The suspended generation
-// goes with it: leaving it behind makes the next reconcile read the Promise as
-// still suspended at a generation it has already moved past.
+// resetPromiseWorkflowPipelinesToPending unwinds the pipeline statuses of the
+// workflow under key so it runs again from its first pipeline. The suspended
+// generation goes with them, or the next reconcile reads the Promise as still
+// suspended at a generation it has already moved past.
 func resetPromiseWorkflowPipelinesToPending(promise *v1alpha1.Promise, key string) {
 	workflowStatus := promiseWorkflowStatus(promise, key)
 	workflowStatus.SuspendedGeneration = 0
@@ -521,22 +521,15 @@ func resetPromiseWorkflowPipelinesToPending(promise *v1alpha1.Promise, key strin
 		workflowStatus.Pipelines[i].Message = ""
 		workflowStatus.Pipelines[i].LastTransitionTime = metav1.Now()
 	}
-	// Written back explicitly: Get returns a copy, so without this the cleared
-	// suspended generation is discarded and the Promise reads as suspended for
-	// ever at the generation it was suspended on.
+	// Get returns a copy: without writing it back the cleared suspended
+	// generation is discarded and the Promise stays suspended for ever.
 	promise.Status.Kratix.Workflows.Set(key, workflowStatus)
 }
 
 // promiseWorkflowStatus returns the workflow status under key, falling back to
-// the pre-keyed flat layout when the object has not been migrated yet.
-//
-// The fallback is transitional. A Promise suspended before the upgrade decodes
-// its whole flat workflow status into LegacyRaw, so Get(key) is the zero value;
-// only the engine migrates it, and the suspended branch returns before the
-// engine is ever reached. Without this the retry deadline and the suspended
-// generation are both invisible: no requeue is scheduled, no watch event
-// follows, and even a spec change cannot un-suspend the Promise. Remove it when
-// the flat layout can no longer be encountered.
+// the pre-keyed flat layout when the object has not been migrated yet. Drop the
+// fallback while pre-keyed objects still exist and a Promise suspended at
+// upgrade has no visible retry deadline, so nothing can un-suspend it.
 func promiseWorkflowStatus(promise *v1alpha1.Promise, key string) v1alpha1.WorkflowStatus {
 	workflowStatus := promise.Status.Kratix.Workflows.Get(key)
 	if len(workflowStatus.Pipelines) > 0 || workflowStatus.SuspendedGeneration != 0 {
@@ -1090,10 +1083,9 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 }
 
 // reconcileSuspendedWorkflow handles a Promise whose workflow is suspended. key
-// says which lane is suspended: the delete lane suspends itself under
-// status.kratix.workflows.delete, and reading it at the configure key found no
-// retry to schedule, so a suspended delete workflow never resumed and the
-// delete finalizer was never removed.
+// says which lane: read the delete lane's suspension at the configure key and
+// there is no retry to schedule, so it never resumes and the delete finalizer
+// never comes off.
 func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 	o opts,
 	promise *v1alpha1.Promise,
@@ -2086,19 +2078,13 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 				"kratix": {
 					Type: "object",
 					Properties: map[string]apiextensionsv1.JSONSchemaProps{
-						// The workflow status is keyed by workflow — Kratix's own
-						// workflows by action ("configure", "delete"), controllers
-						// that embed the workflow engine by their own key — and each
-						// keyed value holds {pipelines: [{name, phase, message,
-						// nextRetryAt, attempts, hash, lastTransitionTime}],
-						// suspendedGeneration, lastSuccessfulTime}. Declaring those
-						// properties instead of preserving unknown fields would make
-						// the API server prune every key it does not know: both the
-						// new keyed entries and the pre-keyed flat ledger a
-						// pre-migration resource still carries, which any unrelated
-						// status write would then destroy before the workflow engine
-						// can lift each pipeline's hash out of it — re-running every
-						// pipeline of every resource on upgrade.
+						// Declaring the shape here instead of preserving unknown
+						// fields makes the API server prune every key it does not
+						// know. That takes the pre-keyed flat pipeline statuses a
+						// pre-migration resource still carries with it, on the first
+						// unrelated status write — before the workflow engine can
+						// lift each pipeline's hash out of them, and so re-running
+						// every pipeline of every resource on upgrade.
 						"workflows": {
 							Type:                   "object",
 							XPreserveUnknownFields: ptr.To(true),

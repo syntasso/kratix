@@ -243,13 +243,9 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	// The workflow engine seeds and prunes the pipeline ledger itself, but it
-	// never gets the chance when the workflow has no pipelines at all:
-	// ReconcileConfigure returns before it reads any status. Dropping the last
-	// resource.configure pipeline from the Promise would then leave the resource
-	// reporting the pipelines of a workflow that no longer exists, so this one
-	// clear stays with the controller — the Promise controller clears its own the
-	// same way, with ClearPipelineExecutionStatus.
+	// The engine seeds and prunes the pipeline statuses itself, but returns before
+	// reading any status when the workflow has no pipelines — leaving the resource
+	// reporting the pipelines of a workflow that no longer exists.
 	if len(pipelineResources) == 0 {
 		cleared, clearErr := clearConfigureWorkflowPipelines(rr)
 		if clearErr != nil {
@@ -735,8 +731,6 @@ func (r *DynamicResourceRequestController) determineResourceBindingVersion(ctx c
 	return LatestVersion, nil
 }
 
-// clearConfigureWorkflowPipelines empties the configure workflow's pipeline
-// ledger, reporting whether there was anything there to clear.
 func clearConfigureWorkflowPipelines(rr *unstructured.Unstructured) (bool, error) {
 	existing, found, err := unstructured.NestedSlice(rr.Object,
 		resourceutil.WorkflowsPath(configureWorkflowStatusKey, "pipelines")...)
@@ -750,10 +744,9 @@ func clearConfigureWorkflowPipelines(rr *unstructured.Unstructured) (bool, error
 }
 
 // reconcileSuspendedWorkflow handles a resource request whose workflow is
-// suspended. key says which lane is suspended: the delete lane suspends itself
-// under status.kratix.workflows.delete, and reading it at the configure key
-// found no retry and no suspended generation at all, so a suspended delete
-// workflow never resumed and its finalizer was never removed.
+// suspended. key says which lane: read the delete lane's suspension at the
+// configure key and there is no retry to schedule, so it never resumes and its
+// finalizer never comes off.
 func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 	ctx context.Context,
 	logger logr.Logger,
@@ -1723,11 +1716,10 @@ func getResourceLabels(rr *unstructured.Unstructured) map[string]string {
 	return labels
 }
 
-// The last successful configure time lives in two places, and both are written:
-// the keyed status.kratix.workflows.configure.lastSuccessfulTime, and the legacy
-// top-level status.lastSuccessfulConfigureWorkflowTime that predates the keyed
-// layout and is still what interval scheduling reads. A write that lands in only
-// one of them leaves the two disagreeing, so they are compared and set together.
+// The last successful configure time is written in two places — the keyed
+// status.kratix.workflows.configure.lastSuccessfulTime and the legacy top-level
+// status.lastSuccessfulConfigureWorkflowTime that interval scheduling still
+// reads — so both are compared here, or the two drift apart.
 func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 	workflowCompletedCondition *clusterv1.Condition,
 	rr *unstructured.Unstructured,
@@ -1767,15 +1759,9 @@ func nextRetryAtForResource(rr *unstructured.Unstructured, key string) (time.Tim
 }
 
 // suspendedGenerationForResource reads the generation the workflow was suspended
-// at, from the keyed layout and then from the pre-keyed flat one.
-//
-// The flat fallback is transitional. A resource suspended before the upgrade
-// still carries status.kratix.workflows.suspendedGeneration, and only the
-// workflow engine migrates it — but the suspended branch above returns before
-// the engine is ever called, so the migration can never run. Reading 0 here
-// makes resourceSpecChanged permanently false, and the object stays suspended
-// through every spec change its owner makes. Remove it when the flat layout can
-// no longer be encountered.
+// at, from the keyed layout and then from the pre-keyed flat one. Drop the flat
+// fallback while pre-keyed objects still exist and a resource suspended at
+// upgrade reads 0, so no spec change can ever un-suspend it.
 func suspendedGenerationForResource(rr *unstructured.Unstructured, key string) int64 {
 	if generation := resourceutil.GetKratixWorkflowsInt64Status(rr, key, "suspendedGeneration"); generation != 0 {
 		return generation
@@ -1787,10 +1773,9 @@ func suspendedGenerationForResource(rr *unstructured.Unstructured, key string) i
 	return generation
 }
 
-// flatWorkflowPipelines reads the pre-keyed flat pipeline ledger. Same
-// transitional reason as suspendedGenerationForResource: without it a resource
-// suspended at upgrade schedules no retry, so nothing wakes it up, nothing
-// migrates it, and the suspension never ends.
+// flatWorkflowPipelines reads the pre-keyed flat pipeline statuses. Drop it while
+// pre-keyed objects still exist and a resource suspended at upgrade schedules no
+// retry, so nothing ever wakes it up to be migrated.
 func flatWorkflowPipelines(rr *unstructured.Unstructured) []map[string]any {
 	entries, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
 	if err != nil || !found {

@@ -23,10 +23,9 @@ import (
 
 var _ = Describe("UpdateStatus", func() {
 	const (
-		// foreignKey stands for an entry under status.kratix.workflows that this
-		// container never owns: Kratix's other action, or a workflow belonging to a
-		// controller that embeds the workflow engine. Every spec plants it and
-		// asserts it survives the whole update flow untouched.
+		// foreignKey stands for an entry under status.kratix.workflows this
+		// container never owns. Every spec plants it and asserts it survives, so a
+		// write that widens past the entry it addressed is caught.
 		foreignKey       = "portal-x"
 		foreignEntryJSON = `{"pipelines":[{"name":"their-pipeline","phase":"Running"}],"suspendedGeneration":11}`
 	)
@@ -151,10 +150,6 @@ var _ = Describe("UpdateStatus", func() {
 				Expect(storedForeignEntryJSON()).To(Equal(foreignEntryJSON))
 			})
 
-			// The key is the workflow action as the pipeline factory hands it to
-			// this container. Writing it verbatim would file the entry under a
-			// key of its own — "Configure" beside "configure" — where the engine
-			// that reads the ledger never looks.
 			It("keys by the workflow action whatever case it arrives in", func() {
 				params.WorkflowAction = v1alpha1.Action("Configure")
 				newClient(newObject(map[string]any{

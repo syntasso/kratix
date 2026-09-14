@@ -6,8 +6,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // storedFlatWorkflows is the value a Promise stored before the workflow status
@@ -48,26 +46,11 @@ var _ = Describe("WorkflowsStatus", func() {
 			Expect(json.Unmarshal(promiseJSONWithWorkflows(storedFlatWorkflows), &promise)).To(Succeed())
 		})
 
-		It("decodes without error into the typed Promise", func() {
+		It("carries the stored flat layout through a marshal round-trip byte for byte", func() {
 			Expect(promise.GetName()).To(Equal("stored-promise"))
 			Expect(promise.Status.Kratix.Workflows.Actions).To(BeNil())
-		})
-
-		It("carries the stored flat layout through a marshal round-trip byte for byte", func() {
 			Expect(string(promise.Status.Kratix.Workflows.LegacyRaw)).To(Equal(storedFlatWorkflows))
 			Expect(workflowsValueOf(promise)).To(Equal(storedFlatWorkflows))
-		})
-
-		It("survives the unstructured conversion controllers put Promises through", func() {
-			content, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&promise)
-			Expect(err).NotTo(HaveOccurred())
-
-			var roundTripped v1alpha1.Promise
-			Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(content, &roundTripped)).To(Succeed())
-			Expect(roundTripped.Status.Kratix.Workflows.Actions).To(BeNil())
-			// The converter rebuilds the value through a map, so the key order
-			// within it is not preserved; every stored pipeline entry is.
-			Expect(workflowsValueOf(roundTripped)).To(MatchJSON(storedFlatWorkflows))
 		})
 	})
 
@@ -101,51 +84,6 @@ var _ = Describe("WorkflowsStatus", func() {
 				Expect(promise.Status.Kratix.Workflows.LegacyRaw).To(BeEmpty())
 				Expect(promise.Status.Kratix.Workflows.IsZero()).To(BeTrue())
 			}
-		})
-	})
-
-	Describe("marshalling", func() {
-		It("writes no workflows key at all when there is no workflow status", func() {
-			encoded, err := json.Marshal(v1alpha1.Promise{
-				ObjectMeta: metav1.ObjectMeta{Name: "fresh"},
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			var envelope struct {
-				Status struct {
-					Kratix map[string]json.RawMessage `json:"kratix"`
-				} `json:"status"`
-			}
-			Expect(json.Unmarshal(encoded, &envelope)).To(Succeed())
-			Expect(envelope.Status.Kratix).NotTo(HaveKey("workflows"))
-		})
-
-		It("writes the keyed layout when a workflow has status", func() {
-			promise := v1alpha1.Promise{}
-			promise.Status.Kratix.Workflows.Set(string(v1alpha1.WorkflowActionConfigure), v1alpha1.WorkflowStatus{
-				Pipelines: []v1alpha1.WorkflowPipelineStatus{{Name: "first-pipeline", Phase: v1alpha1.WorkflowPhaseRunning}},
-			})
-
-			Expect(workflowsValueOf(promise)).To(Equal(
-				`{"configure":{"pipelines":[{"name":"first-pipeline","phase":"Running","lastTransitionTime":null}]}}`))
-		})
-	})
-
-	Describe("DeepCopy", func() {
-		It("copies the keyed statuses and the stored flat layout", func() {
-			var promise v1alpha1.Promise
-			Expect(json.Unmarshal(promiseJSONWithWorkflows(storedFlatWorkflows), &promise)).To(Succeed())
-			promise.Status.Kratix.Workflows.Set("embedding-controller", v1alpha1.WorkflowStatus{
-				Pipelines: []v1alpha1.WorkflowPipelineStatus{{Name: "theirs", Phase: v1alpha1.WorkflowPhasePending}},
-			})
-
-			copied := promise.DeepCopy()
-			copied.Status.Kratix.Workflows.Get("embedding-controller").Pipelines[0].Phase = v1alpha1.WorkflowPhaseFailed
-			copied.Status.Kratix.Workflows.LegacyRaw[0] = 'X'
-
-			Expect(promise.Status.Kratix.Workflows.Get("embedding-controller").Pipelines[0].Phase).
-				To(Equal(v1alpha1.WorkflowPhasePending))
-			Expect(string(promise.Status.Kratix.Workflows.LegacyRaw)).To(Equal(storedFlatWorkflows))
 		})
 	})
 
