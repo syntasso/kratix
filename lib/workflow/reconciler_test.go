@@ -458,7 +458,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				var passiveRequeue bool
 				var err error
 
-				Context("and the SkipConditions flag is not set", func() {
+				Context("and the workflow is the object's own configure workflow", func() {
 					BeforeEach(func() {
 						jobs := listJobs(namespace)
 						Expect(jobs).To(HaveLen(1))
@@ -527,8 +527,9 @@ var _ = Describe("Workflow Reconciler", func() {
 					})
 				})
 
-				When("the SkipConditions flag is set", func() {
+				When("the workflow belongs to another controller", func() {
 					var existingConditions []metav1.Condition
+					var existingConfigurePipelines []v1alpha1.WorkflowPipelineStatus
 
 					BeforeEach(func() {
 						jobs := listJobs(namespace)
@@ -537,15 +538,22 @@ var _ = Describe("Workflow Reconciler", func() {
 						newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
 						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
 						existingConditions = promise.Status.Conditions
+						existingConfigurePipelines = promise.ConfigureWorkflowStatus().Pipelines
 
 						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5, namespace)
-						opts.SkipConditions = true
+						opts.WorkflowKey = "portal-backstage"
 						passiveRequeue, err = workflow.ReconcileConfigure(opts)
 					})
 
-					It("does not update the Promise status", func() {
+					It("does not update the Promise conditions", func() {
 						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
 						Expect(promise.Status.Conditions).To(Equal(existingConditions))
+					})
+
+					It("records its pipelines under its own key, leaving the configure record alone", func() {
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+						Expect(promise.Status.Kratix.Workflows["portal-backstage"].Pipelines).To(HaveLen(len(pipelines)))
+						Expect(promise.ConfigureWorkflowStatus().Pipelines).To(Equal(existingConfigurePipelines))
 					})
 				})
 			})

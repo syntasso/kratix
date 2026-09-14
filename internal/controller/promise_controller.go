@@ -1971,6 +1971,8 @@ func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiexten
 	return rrCRD, rrGVK, nil
 }
 
+var preserveUnknownFields = true
+
 func workflowStatusSchema() apiextensionsv1.JSONSchemaProps {
 	return apiextensionsv1.JSONSchemaProps{
 		Type: "object",
@@ -2082,6 +2084,11 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 					Properties: map[string]apiextensionsv1.JSONSchemaProps{
 						"workflows": {
 							Type: "object",
+							// Without this, the API server drops the record of any
+							// workflow whose key is not named below, such as one run
+							// by another controller. Preserving unknown fields on
+							// "status" does not reach this far down.
+							XPreserveUnknownFields: &preserveUnknownFields,
 							Properties: map[string]apiextensionsv1.JSONSchemaProps{
 								"lastSuccessfulConfigureWorkflowTime": {
 									Type: "string",

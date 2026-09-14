@@ -128,6 +128,9 @@ var _ = Describe("PromiseController", func() {
 						lastSuccessfulConfigureWorkflowTime, ok := kratixWorkflows.Properties["lastSuccessfulConfigureWorkflowTime"]
 						Expect(ok).To(BeTrue(), ".status.kratix.workflows.lastSuccessfulConfigureWorkflowTime did not exist. Spec %v", kratixWorkflows)
 						Expect(lastSuccessfulConfigureWorkflowTime.Type).To(Equal("string"))
+						Expect(kratixWorkflows.XPreserveUnknownFields).NotTo(BeNil(),
+							"a workflow run by another controller records under its own key, which the API server drops unless unknown fields are preserved here")
+						Expect(*kratixWorkflows.XPreserveUnknownFields).To(BeTrue())
 						configure, ok := kratixWorkflows.Properties["configure"]
 						Expect(ok).To(BeTrue(), ".status.kratix.workflows.configure did not exist. Spec %v", kratixWorkflows)
 						Expect(kratixWorkflows.Properties).To(HaveKey("delete"))

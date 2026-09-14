@@ -38,8 +38,11 @@ type Opts struct {
 	eventRecorder      events.EventRecorder
 	namespace          string
 
-	// Set by other controllers that use the Workflow engine
-	SkipConditions bool
+	// WorkflowKey is set by controllers that run their own workflows with this
+	// engine. It is where their pipeline progress is recorded in the object's
+	// status, and it keeps them apart from the object's own configure and
+	// delete workflows. It defaults to the action of the pipelines being run.
+	WorkflowKey string
 }
 
 func (o *Opts) SetParentObject(parentObj *unstructured.Unstructured) {
@@ -252,7 +255,16 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 // workflowKey is where this workflow records the progress of its pipelines in
 // the parent object's status.
 func workflowKey(opts Opts) string {
+	if opts.WorkflowKey != "" {
+		return opts.WorkflowKey
+	}
 	return string(opts.Resources[0].WorkflowAction)
+}
+
+// ownsObjectConditions keeps a workflow run by another controller from setting
+// the message and conditions of an object it does not own.
+func ownsObjectConditions(opts Opts) bool {
+	return workflowKey(opts) == string(v1alpha1.WorkflowActionConfigure)
 }
 
 // runHash combines the hash of the object's spec with the hash of the pipeline
@@ -307,7 +319,7 @@ func startPipeline(opts Opts, recorded []v1alpha1.WorkflowPipelineStatus, index 
 	}
 
 	markPipelineAsRunning(&recorded[index], pipeline)
-	if !opts.SkipConditions {
+	if ownsObjectConditions(opts) {
 		resourceutil.SetStatus(opts.parentObject, opts.logger, "message", "Pending")
 		resourceutil.MarkReconciledPending(opts.parentObject, "WorkflowPending")
 		if shouldMarkConfigureWorkflowAsRunning(opts.parentObject) {
@@ -339,7 +351,7 @@ func failWorkflow(opts Opts, statuses []v1alpha1.WorkflowPipelineStatus, index i
 	statuses[index].Hash = runHash(pipeline)
 	statuses[index].LastTransitionTime = metav1.Now()
 
-	if !opts.SkipConditions {
+	if ownsObjectConditions(opts) {
 		resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
 		resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
 	}
