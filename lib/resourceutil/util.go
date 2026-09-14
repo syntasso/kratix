@@ -297,16 +297,34 @@ func GetStatus(rr *unstructured.Unstructured, key string) string {
 	return nestedMap[key].(string)
 }
 
-// workflowsPath returns the status path of a field under the workflow stored at
+// WorkflowsPath returns the status path of a field under the workflow stored at
 // key. Keying is what stops one workflow's status reset overwriting another's
 // pipeline ledger: before it, running the delete workflow wiped the configure
 // workflow's entries.
-func workflowsPath(key string, fields ...string) []string {
+//
+// It is exported so that everything writing the keyed status — the engine, its
+// migration and these helpers — spells the path once. A second spelling drifts:
+// the flat-to-keyed migration and the progression it feeds have to agree on
+// where the ledger lives, or a migrated object reads as unmigrated forever.
+func WorkflowsPath(key string, fields ...string) []string {
 	return append([]string{"status", "kratix", "workflows", key}, fields...)
 }
 
 func pipelinesPath(key string) []string {
-	return workflowsPath(key, "pipelines")
+	return WorkflowsPath(key, "pipelines")
+}
+
+// GetPipelineStatuses returns the pipeline ledger stored under key, in the order
+// it is stored. The entries are deep copies; write them back with
+// SetPipelineStatuses.
+func GetPipelineStatuses(obj *unstructured.Unstructured, key string) ([]any, bool, error) {
+	return unstructured.NestedSlice(obj.Object, pipelinesPath(key)...)
+}
+
+// SetPipelineStatuses replaces the pipeline ledger stored under key. Only the
+// ledger of that one workflow is touched; other keys are left alone.
+func SetPipelineStatuses(obj *unstructured.Unstructured, key string, entries []any) error {
+	return unstructured.SetNestedSlice(obj.Object, entries, pipelinesPath(key)...)
 }
 
 // CountPipelinesInPhase returns how many of key's workflow pipelines are in the
@@ -410,34 +428,6 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, key str
 	return unstructured.SetNestedSlice(rr.Object, workflows, pipelinesPath(key)...)
 }
 
-// MarkPipelinesAsSucceeded marks the first count pipelines of key as succeeded,
-// so the status catches up with pipeline completions no reconciliation ever observed.
-func MarkPipelinesAsSucceeded(obj *unstructured.Unstructured, key string, count int64) error {
-	pipelines, found, err := unstructured.NestedSlice(obj.Object, pipelinesPath(key)...)
-	if err != nil || !found {
-		return err
-	}
-
-	for i := range min(int(count), len(pipelines)) {
-		pipeline, ok := pipelines[i].(map[string]any)
-		if !ok {
-			continue
-		}
-		previousPhase, _ := pipeline["phase"].(string)
-		if previousPhase == v1alpha1.WorkflowPhaseSucceeded {
-			continue
-		}
-		if previousPhase == v1alpha1.WorkflowPhaseSuspended {
-			delete(pipeline, "message")
-		}
-		pipeline["phase"] = v1alpha1.WorkflowPhaseSucceeded
-		pipeline["lastTransitionTime"] = metav1.Now().Format(time.RFC3339)
-		pipelines[i] = pipeline
-	}
-
-	return unstructured.SetNestedSlice(obj.Object, pipelines, pipelinesPath(key)...)
-}
-
 func ResetPipelineStatusToPending(obj *unstructured.Unstructured, key string, pipelines []v1alpha1.PipelineJobResources) error {
 	if obj.Object["status"] == nil {
 		obj.Object["status"] = map[string]any{}
@@ -452,7 +442,7 @@ func ResetPipelineStatusToPending(obj *unstructured.Unstructured, key string, pi
 		})
 	}
 
-	unstructured.RemoveNestedField(obj.Object, workflowsPath(key, "suspendedGeneration")...)
+	unstructured.RemoveNestedField(obj.Object, WorkflowsPath(key, "suspendedGeneration")...)
 	return unstructured.SetNestedSlice(obj.Object, workflows, pipelinesPath(key)...)
 }
 
@@ -539,15 +529,15 @@ func IsPromiseMarkedAsUnavailable(obj *unstructured.Unstructured) bool {
 }
 
 func SetKratixWorkflowsStatus(rr *unstructured.Unstructured, key, field, value string) error {
-	return unstructured.SetNestedField(rr.Object, value, workflowsPath(key, field)...)
+	return unstructured.SetNestedField(rr.Object, value, WorkflowsPath(key, field)...)
 }
 
 func SetKratixWorkflowsInt64Status(rr *unstructured.Unstructured, key, field string, value int64) error {
-	return unstructured.SetNestedField(rr.Object, value, workflowsPath(key, field)...)
+	return unstructured.SetNestedField(rr.Object, value, WorkflowsPath(key, field)...)
 }
 
 func GetKratixWorkflowsStatus(rr *unstructured.Unstructured, key, field string) string {
-	value, found, err := unstructured.NestedString(rr.Object, workflowsPath(key, field)...)
+	value, found, err := unstructured.NestedString(rr.Object, WorkflowsPath(key, field)...)
 	if err != nil || !found {
 		return ""
 	}
@@ -555,7 +545,7 @@ func GetKratixWorkflowsStatus(rr *unstructured.Unstructured, key, field string) 
 }
 
 func GetKratixWorkflowsInt64Status(rr *unstructured.Unstructured, key, field string) int64 {
-	value, found, err := unstructured.NestedInt64(rr.Object, workflowsPath(key, field)...)
+	value, found, err := unstructured.NestedInt64(rr.Object, WorkflowsPath(key, field)...)
 	if err != nil || !found {
 		return 0
 	}

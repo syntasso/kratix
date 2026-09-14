@@ -33,10 +33,6 @@ func flatWorkflowsPath(field string) []string {
 	return []string{"status", "kratix", "workflows", field}
 }
 
-func keyedWorkflowsPath(key string, fields ...string) []string {
-	return append([]string{"status", "kratix", "workflows", key}, fields...)
-}
-
 // migrateWorkflowStatus moves the pre-keyed (flat) workflow status of parentObject
 // to the keyed layout under key, lifting each pipeline's last-run hash from the
 // retained Jobs when they still exist. Returns true when it changed the object;
@@ -62,7 +58,7 @@ func migrateWorkflowStatus(opts Opts, key string) (bool, error) {
 	}
 
 	suspendedGenerationMoved, err := migrateFlatField(opts.parentObject, nestedInt64,
-		flatSuspendedGenerationField, keyedWorkflowsPath(key, flatSuspendedGenerationField))
+		flatSuspendedGenerationField, resourceutil.WorkflowsPath(key, flatSuspendedGenerationField))
 	if suspendedGenerationMoved {
 		changed = true
 	}
@@ -72,7 +68,7 @@ func migrateWorkflowStatus(opts Opts, key string) (bool, error) {
 
 	lastSuccessfulTimeMoved, err := migrateFlatField(opts.parentObject, nestedString,
 		flatLastSuccessfulTimeField,
-		keyedWorkflowsPath(string(v1alpha1.WorkflowActionConfigure), keyedLastSuccessfulTimeField))
+		resourceutil.WorkflowsPath(string(v1alpha1.WorkflowActionConfigure), keyedLastSuccessfulTimeField))
 	if lastSuccessfulTimeMoved {
 		changed = true
 	}
@@ -107,7 +103,7 @@ func migrateFlatPipelines(opts Opts, key string) (bool, error) {
 		return false, nil
 	}
 
-	keyedPath := keyedWorkflowsPath(key, flatPipelinesField)
+	keyedPath := resourceutil.WorkflowsPath(key, flatPipelinesField)
 	_, keyedFound, err := unstructured.NestedFieldNoCopy(obj.Object, keyedPath...)
 	if err != nil {
 		return false, fmt.Errorf("reading the keyed workflow pipeline status: %w", err)
