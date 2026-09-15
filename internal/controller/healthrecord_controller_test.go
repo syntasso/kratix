@@ -478,18 +478,17 @@ var _ = Describe("HealthRecordController", func() {
 				return apierrors.IsNotFound(fakeK8sClient.Get(ctx, name, &v1alpha1.HealthRecord{}))
 			}
 
-			for pass := 0; pass < 20 && (!gone(firstName) || !gone(secondName)); pass++ {
+			Eventually(func(g Gomega) {
 				for _, name := range []types.NamespacedName{firstName, secondName} {
 					if gone(name) {
 						continue
 					}
 					_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: name})
-					Expect(err).NotTo(HaveOccurred())
+					g.Expect(err).NotTo(HaveOccurred())
 				}
-			}
-
-			Expect(gone(firstName)).To(BeTrue(), "the first record never lost its finalizer")
-			Expect(gone(secondName)).To(BeTrue(), "the second record never lost its finalizer")
+				g.Expect(gone(firstName)).To(BeTrue(), "the first record never lost its finalizer")
+				g.Expect(gone(secondName)).To(BeTrue(), "the second record never lost its finalizer")
+			}).Should(Succeed())
 		})
 	})
 
