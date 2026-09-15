@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -92,56 +93,46 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 	return reconcileWorkflow(opts)
 }
 
-// pipelineStatus is one entry from status.kratix.workflows.<key>.pipelines.
-type pipelineStatus struct {
-	name  string
-	phase string
-	// hash stays an any so that a missing hash is still different from an empty
-	// one, which is how the comparison against the Job label has always behaved.
-	hash any
-	job  string
-}
-
-// workflowProgress is everything read from the cluster before deciding what to do
-// next. It holds plain values only, so decideNextAction needs no client.
-type workflowProgress struct {
-	pipelines []pipelineStatus
-	// malformedStatus is true when a status entry could not be read, which means
+// Progress is everything read from the cluster before deciding what to do
+// next. It holds plain values only, so DecideNextAction needs no client.
+type Progress struct {
+	Pipelines []v1alpha1.WorkflowPipelineStatus
+	// MalformedStatus is true when a status entry could not be read, which means
 	// status cannot be trusted and the workflow has to start again.
-	malformedStatus bool
-	// jobs are all Jobs for the parent object. They span every pipeline, both
+	MalformedStatus bool
+	// Jobs are all Jobs for the parent object. They span every pipeline, both
 	// workflow actions, and earlier runs.
-	jobs            []batchv1.Job
-	manualReconcile bool
-	runFromStart    bool
-	paused          bool
+	Jobs            []batchv1.Job
+	ManualReconcile bool
+	RunFromStart    bool
+	Paused          bool
 }
 
-type nextAction string
+type NextAction string
 
 const (
-	waitForRunningJob   nextAction = "waitForRunningJob"
-	suspendRunningJob   nextAction = "suspendRunningJob"
-	stayPaused          nextAction = "stayPaused"
-	finishWorkflow      nextAction = "finishWorkflow"
-	failCurrentPipeline nextAction = "failCurrentPipeline"
-	recordFinishedJob   nextAction = "recordFinishedJob"
-	startPipeline       nextAction = "startPipeline"
+	WaitForRunningJob   NextAction = "waitForRunningJob"
+	SuspendRunningJob   NextAction = "suspendRunningJob"
+	StayPaused          NextAction = "stayPaused"
+	FinishWorkflow      NextAction = "finishWorkflow"
+	FailCurrentPipeline NextAction = "failCurrentPipeline"
+	RecordJobOutcome    NextAction = "recordJobOutcome"
+	StartPipeline       NextAction = "startPipeline"
 )
 
-// workflowDecision is the one thing reconcileWorkflow should do this pass. Only the
+// Decision is the one thing reconcileWorkflow should do this pass. Only the
 // fields named against each action are set; the rest stay nil or false.
-type workflowDecision struct {
-	action nextAction
-	// pipeline is set for failCurrentPipeline, recordFinishedJob and startPipeline.
-	pipeline *v1alpha1.PipelineJobResources
-	// jobToSuspend is set for suspendRunningJob only.
-	jobToSuspend *batchv1.Job
-	// jobToRecord is set for recordFinishedJob only. It has always finished,
-	// because that action is only chosen when no Job is running.
-	jobToRecord *batchv1.Job
-	// restart is set for startPipeline only, when every pipeline starts again.
-	restart bool
+type Decision struct {
+	Action NextAction
+	// Pipeline is set for FailCurrentPipeline, RecordJobOutcome and StartPipeline.
+	Pipeline *v1alpha1.PipelineJobResources
+	// JobToSuspend is set for SuspendRunningJob only.
+	JobToSuspend *batchv1.Job
+	// JobToRecord is set for RecordJobOutcome only. It has always finished, but it
+	// may have either succeeded or failed; the outcome is read off it later.
+	JobToRecord *batchv1.Job
+	// Restart is set for StartPipeline only, when every pipeline starts again.
+	Restart bool
 }
 
 func reconcileWorkflow(opts Opts) (bool, error) {
@@ -153,125 +144,144 @@ func reconcileWorkflow(opts Opts) (bool, error) {
 		return false, err
 	}
 
-	decision := decideNextAction(opts, progress)
-	switch decision.action {
-	case waitForRunningJob, stayPaused:
+	decision := DecideNextAction(opts, progress)
+	switch decision.Action {
+	case WaitForRunningJob, StayPaused:
 		return true, nil
-	case suspendRunningJob:
-		return true, suspendJob(opts.ctx, opts.client, decision.jobToSuspend)
-	case finishWorkflow:
+	case SuspendRunningJob:
+		return true, suspendJob(opts.ctx, opts.client, decision.JobToSuspend)
+	case FinishWorkflow:
 		if opts.Resources[0].WorkflowAction == v1alpha1.WorkflowActionDelete {
 			return false, cleanupJobs(opts, opts.namespace)
 		}
 		return false, cleanup(opts, opts.namespace)
-	case failCurrentPipeline:
-		if decision.pipeline.WorkflowAction == v1alpha1.WorkflowActionDelete {
+	case FailCurrentPipeline:
+		if decision.Pipeline.WorkflowAction == v1alpha1.WorkflowActionDelete {
 			return false, ErrDeletePipelineFailed
 		}
 		return true, cleanupJobs(opts, opts.namespace)
-	case recordFinishedJob:
-		return recordFinishedPipelineJob(opts, decision)
-	case startPipeline:
+	case RecordJobOutcome:
+		return recordPipelineJobOutcome(opts, decision)
+	case StartPipeline:
 		return createPipeline(opts, decision)
 	}
-	return false, fmt.Errorf("unhandled workflow decision %q", decision.action)
+	return false, fmt.Errorf("unhandled workflow decision %q", decision.Action)
 }
 
 // readWorkflowProgress does all of the reading. It makes no decisions.
-func readWorkflowProgress(opts Opts) (workflowProgress, error) {
+func readWorkflowProgress(opts Opts) (Progress, error) {
 	entries, _, err := unstructured.NestedSlice(opts.parentObject.Object,
 		"status", "kratix", "workflows", opts.workflowKey(), "pipelines")
 	if err != nil {
-		return workflowProgress{}, err
+		return Progress{}, err
 	}
 
 	parentLabels := opts.parentObject.GetLabels()
-	progress := workflowProgress{
-		pipelines:       make([]pipelineStatus, 0, len(entries)),
-		manualReconcile: isManualReconciliation(parentLabels),
-		runFromStart:    isWorkflowRestart(parentLabels),
-		paused:          workflowIsPaused(opts.parentObject),
+	progress := Progress{
+		Pipelines:       make([]v1alpha1.WorkflowPipelineStatus, 0, len(entries)),
+		ManualReconcile: isManualReconciliation(parentLabels),
+		RunFromStart:    isWorkflowRestart(parentLabels),
+		Paused:          hasWorkflowSuspendedLabel(opts.parentObject),
 	}
 	for _, entry := range entries {
-		fields, ok := entry.(map[string]any)
-		if !ok {
-			progress.malformedStatus = true
-			progress.pipelines = append(progress.pipelines, pipelineStatus{})
+		pipeline, err := pipelineStatusFromUnstructured(entry)
+		if err != nil {
+			logging.Warn(opts.logger, "could not read workflow pipeline status; the workflow will start again", "error", err)
+			progress.MalformedStatus = true
 			continue
 		}
-		pipeline := pipelineStatus{hash: fields["hash"]}
-		pipeline.name, _ = fields["name"].(string)
-		pipeline.phase, _ = fields["phase"].(string)
-		pipeline.job, _ = fields["job"].(string)
-		progress.pipelines = append(progress.pipelines, pipeline)
+		progress.Pipelines = append(progress.Pipelines, pipeline)
 	}
 
-	if progress.jobs, err = getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace); err != nil {
-		return workflowProgress{}, err
+	if progress.Jobs, err = getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace); err != nil {
+		return Progress{}, err
 	}
 	return progress, nil
 }
 
-// decideNextAction picks the single next action from what was read. It is pure, so
-// the whole state machine can be read in one place.
-func decideNextAction(opts Opts, progress workflowProgress) workflowDecision {
+// pipelineStatusFromUnstructured converts one raw status entry into the type the CRD
+// already defines, so the field names are spelled out in exactly one place.
+func pipelineStatusFromUnstructured(entry any) (v1alpha1.WorkflowPipelineStatus, error) {
+	fields, ok := entry.(map[string]any)
+	if !ok {
+		return v1alpha1.WorkflowPipelineStatus{}, fmt.Errorf("workflow pipeline status was %T, not an object", entry)
+	}
+	var pipeline v1alpha1.WorkflowPipelineStatus
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(fields, &pipeline); err != nil {
+		return v1alpha1.WorkflowPipelineStatus{}, err
+	}
+	return pipeline, nil
+}
+
+// DecideNextAction picks the single next action from what was read. It is pure, so
+// the whole state machine can be read, and tested, in one place.
+func DecideNextAction(opts Opts, progress Progress) Decision {
 	// Never start anything while a Job is still going. That Job may belong to a
 	// different pipeline, a different workflow action, or an earlier run.
-	if runningJob := firstUnfinishedJob(progress.jobs); runningJob != nil {
-		if progress.manualReconcile {
-			return workflowDecision{action: suspendRunningJob, jobToSuspend: runningJob}
+	if runningJob := firstUnfinishedJob(progress.Jobs); runningJob != nil {
+		if progress.ManualReconcile {
+			return Decision{Action: SuspendRunningJob, JobToSuspend: runningJob}
 		}
-		return workflowDecision{action: waitForRunningJob}
+		return Decision{Action: WaitForRunningJob}
 	}
 
-	if progress.manualReconcile || progress.runFromStart || !statusMatchesPipelines(progress, opts.Resources) {
-		return workflowDecision{action: startPipeline, pipeline: &opts.Resources[0], restart: true}
+	if progress.ManualReconcile || progress.RunFromStart ||
+		pipelinesHaveChangedSinceStatusWasWritten(progress, opts.Resources) {
+		return Decision{Action: StartPipeline, Pipeline: &opts.Resources[0], Restart: true}
 	}
 
-	index, found := firstUnfinishedPipeline(progress.pipelines)
+	index, found := firstUnfinishedPipeline(progress.Pipelines)
 	if !found {
-		return workflowDecision{action: finishWorkflow}
+		return Decision{Action: FinishWorkflow}
 	}
-	if progress.paused {
-		return workflowDecision{action: stayPaused}
+	if progress.Paused {
+		return Decision{Action: StayPaused}
 	}
 
 	pipeline := &opts.Resources[index]
-	status := progress.pipelines[index]
+	status := progress.Pipelines[index]
 
-	if status.phase == v1alpha1.WorkflowPhaseFailed {
-		return workflowDecision{action: failCurrentPipeline, pipeline: pipeline}
+	// The failure is read from status, not from the Job, because it was already
+	// recorded on an earlier pass. That Job may since have been pruned, and asking
+	// a Job that is no longer there would lose the failure and start the pipeline
+	// again. Reading status keeps the pipeline failed until someone changes the
+	// spec or asks for a reconciliation.
+	if status.Phase == v1alpha1.WorkflowPhaseFailed {
+		return Decision{Action: FailCurrentPipeline, Pipeline: pipeline}
 	}
-	if status.phase == v1alpha1.WorkflowPhaseRunning {
-		if job := findJobByName(progress.jobs, status.job); job != nil {
-			return workflowDecision{action: recordFinishedJob, pipeline: pipeline, jobToRecord: job}
+	if status.Phase == v1alpha1.WorkflowPhaseRunning {
+		if job := findJobByName(progress.Jobs, status.Job); job != nil {
+			return Decision{Action: RecordJobOutcome, Pipeline: pipeline, JobToRecord: job}
 		}
 	}
-	return workflowDecision{action: startPipeline, pipeline: pipeline}
+	return Decision{Action: StartPipeline, Pipeline: pipeline}
 }
 
-// statusMatchesPipelines reports whether status still describes the pipelines we
-// were given. A pipeline that has not started yet is allowed a stale hash.
-func statusMatchesPipelines(progress workflowProgress, resources []v1alpha1.PipelineJobResources) bool {
-	if progress.malformedStatus || len(progress.pipelines) != len(resources) {
-		return false
+// pipelinesHaveChangedSinceStatusWasWritten reports that the pipelines we were given
+// no longer match what status describes: one was added, removed or renamed, or the
+// spec changed so a pipeline that has already started now carries a stale hash. A
+// pipeline that has not started yet is allowed a stale hash, because it picks up the
+// new one when it runs.
+func pipelinesHaveChangedSinceStatusWasWritten(progress Progress, resources []v1alpha1.PipelineJobResources) bool {
+	if progress.MalformedStatus || len(progress.Pipelines) != len(resources) {
+		return true
 	}
 	for i, resource := range resources {
-		pipeline := progress.pipelines[i]
-		if pipeline.name != resource.Name {
-			return false
+		pipeline := progress.Pipelines[i]
+		if pipeline.Name != resource.Name {
+			return true
 		}
-		if pipeline.phase != v1alpha1.WorkflowPhasePending &&
-			pipeline.hash != resource.Job.Labels[v1alpha1.KratixResourceHashLabel] {
-			return false
+		if pipeline.Phase != v1alpha1.WorkflowPhasePending &&
+			pipeline.Hash != resource.Job.Labels[v1alpha1.KratixResourceHashLabel] {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
-func firstUnfinishedPipeline(pipelines []pipelineStatus) (int, bool) {
+func firstUnfinishedPipeline(pipelines []v1alpha1.WorkflowPipelineStatus) (int, bool) {
 	for i, pipeline := range pipelines {
-		if pipeline.phase != v1alpha1.WorkflowPhaseSucceeded {
+		if pipeline.Phase != v1alpha1.WorkflowPhaseSucceeded {
 			return i, true
 		}
 	}
@@ -299,11 +309,11 @@ func findJobByName(jobs []batchv1.Job, name string) *batchv1.Job {
 	return nil
 }
 
-func recordFinishedPipelineJob(opts Opts, decision workflowDecision) (bool, error) {
-	pipeline := *decision.pipeline
+func recordPipelineJobOutcome(opts Opts, decision Decision) (bool, error) {
+	pipeline := *decision.Pipeline
 	patch := client.MergeFromWithOptions(opts.parentObject.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	phase := v1alpha1.WorkflowPhaseSucceeded
-	if isFailed(decision.jobToRecord) {
+	if isFailed(decision.JobToRecord) {
 		phase = v1alpha1.WorkflowPhaseFailed
 		if opts.coreConfigure() {
 			resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
@@ -312,7 +322,7 @@ func recordFinishedPipelineJob(opts Opts, decision workflowDecision) (bool, erro
 		opts.eventRecorder.Eventf(opts.parentObject, nil, v1.EventTypeWarning, resourceutil.ConfigureWorkflowCompletedFailedReason, resourceutil.ConfigureWorkflowCompletedFailedReason,
 			"A %s/%s Pipeline has failed: %s", opts.workflowType, pipeline.WorkflowAction, pipeline.Name)
 	}
-	if err := resourceutil.MarkCurrentPipelineAs(phase, opts.parentObject, opts.logger, decision.jobToRecord, opts.workflowKey()); err != nil {
+	if err := resourceutil.MarkCurrentPipelineAs(phase, opts.parentObject, opts.logger, decision.JobToRecord, opts.workflowKey()); err != nil {
 		return false, err
 	}
 	if err := opts.client.Status().Patch(opts.ctx, opts.parentObject, patch); err != nil {
@@ -485,8 +495,8 @@ func pruneJobs(opts Opts, jobsForPipeline []batchv1.Job) error {
 	return nil
 }
 
-func createPipeline(opts Opts, decision workflowDecision) (passiveRequeue bool, err error) {
-	resources := *decision.pipeline
+func createPipeline(opts Opts, decision Decision) (passiveRequeue bool, err error) {
+	resources := *decision.Pipeline
 	logging.Info(opts.logger, "triggering pipeline", "workflowAction", resources.WorkflowAction)
 	var objectToDelete []client.Object
 	if objectToDelete, err = getObjectsToDelete(opts, resources); err != nil {
@@ -505,7 +515,7 @@ func createPipeline(opts Opts, decision workflowDecision) (passiveRequeue bool, 
 		}
 	}
 
-	if decision.restart {
+	if decision.Restart {
 		if err := resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.Resources, opts.workflowKey()); err != nil {
 			return false, err
 		}
@@ -582,7 +592,7 @@ func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string)
 	return jobs.Items, nil
 }
 
-func workflowIsPaused(parentObject *unstructured.Unstructured) bool {
+func hasWorkflowSuspendedLabel(parentObject *unstructured.Unstructured) bool {
 	return parentObject.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true"
 }
 

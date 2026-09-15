@@ -1,9 +1,10 @@
-package workflow
+package workflow_test
 
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/workflow"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,234 +43,234 @@ func newFinishedJob(name string) batchv1.Job {
 	}
 }
 
-var _ = Describe("decideNextAction", func() {
-	var opts Opts
-	var progress workflowProgress
+var _ = Describe("DecideNextAction", func() {
+	var opts workflow.Opts
+	var progress workflow.Progress
 
 	BeforeEach(func() {
-		opts = Opts{
+		opts = workflow.Opts{
 			Resources: []v1alpha1.PipelineJobResources{
 				newPipelineResources("pipeline-1", "hash-1", v1alpha1.WorkflowActionConfigure),
 				newPipelineResources("pipeline-2", "hash-2", v1alpha1.WorkflowActionConfigure),
 			},
 		}
 		// Status that matches both pipelines, with neither started yet.
-		progress = workflowProgress{
-			pipelines: []pipelineStatus{
-				{name: "pipeline-1", phase: v1alpha1.WorkflowPhasePending, hash: "hash-1"},
-				{name: "pipeline-2", phase: v1alpha1.WorkflowPhasePending, hash: "hash-2"},
+		progress = workflow.Progress{
+			Pipelines: []v1alpha1.WorkflowPipelineStatus{
+				{Name: "pipeline-1", Phase: v1alpha1.WorkflowPhasePending, Hash: "hash-1"},
+				{Name: "pipeline-2", Phase: v1alpha1.WorkflowPhasePending, Hash: "hash-2"},
 			},
 		}
 	})
 
 	When("a Job is still running", func() {
 		BeforeEach(func() {
-			progress.jobs = []batchv1.Job{newRunningJob("some-other-job")}
+			progress.Jobs = []batchv1.Job{newRunningJob("some-other-job")}
 		})
 
 		It("waits for that Job to finish", func() {
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(waitForRunningJob))
-			Expect(decision.jobToSuspend).To(BeNil())
+			Expect(decision.Action).To(Equal(workflow.WaitForRunningJob))
+			Expect(decision.JobToSuspend).To(BeNil())
 		})
 
 		It("suspends that Job when a manual reconciliation is requested", func() {
-			progress.manualReconcile = true
+			progress.ManualReconcile = true
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(suspendRunningJob))
-			Expect(decision.jobToSuspend).NotTo(BeNil())
-			Expect(decision.jobToSuspend.Name).To(Equal("some-other-job"))
+			Expect(decision.Action).To(Equal(workflow.SuspendRunningJob))
+			Expect(decision.JobToSuspend).NotTo(BeNil())
+			Expect(decision.JobToSuspend.Name).To(Equal("some-other-job"))
 		})
 
 		It("waits even when every pipeline has already succeeded", func() {
-			progress.pipelines[0].phase = v1alpha1.WorkflowPhaseSucceeded
-			progress.pipelines[1].phase = v1alpha1.WorkflowPhaseSucceeded
+			progress.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSucceeded
+			progress.Pipelines[1].Phase = v1alpha1.WorkflowPhaseSucceeded
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(waitForRunningJob))
+			Expect(decision.Action).To(Equal(workflow.WaitForRunningJob))
 		})
 	})
 
-	When("status does not describe the pipelines we were given", func() {
+	When("the pipelines have changed since status was written", func() {
 		It("starts again when there is no status at all", func() {
-			progress.pipelines = nil
+			progress.Pipelines = nil
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(startPipeline))
-			Expect(decision.restart).To(BeTrue())
-			Expect(decision.pipeline.Name).To(Equal("pipeline-1"))
+			Expect(decision.Action).To(Equal(workflow.StartPipeline))
+			Expect(decision.Restart).To(BeTrue())
+			Expect(decision.Pipeline.Name).To(Equal("pipeline-1"))
 		})
 
 		It("starts again when a pipeline has been renamed", func() {
-			progress.pipelines[1].name = "renamed-pipeline"
+			progress.Pipelines[1].Name = "renamed-pipeline"
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(startPipeline))
-			Expect(decision.restart).To(BeTrue())
+			Expect(decision.Action).To(Equal(workflow.StartPipeline))
+			Expect(decision.Restart).To(BeTrue())
 		})
 
 		It("starts again when a pipeline that has started has a stale hash", func() {
-			progress.pipelines[0].phase = v1alpha1.WorkflowPhaseRunning
-			progress.pipelines[0].hash = "an-old-hash"
+			progress.Pipelines[0].Phase = v1alpha1.WorkflowPhaseRunning
+			progress.Pipelines[0].Hash = "an-old-hash"
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(startPipeline))
-			Expect(decision.restart).To(BeTrue())
+			Expect(decision.Action).To(Equal(workflow.StartPipeline))
+			Expect(decision.Restart).To(BeTrue())
 		})
 
 		It("does not start again when a pipeline that is still pending has a stale hash", func() {
-			progress.pipelines[0].hash = "an-old-hash"
+			progress.Pipelines[0].Hash = "an-old-hash"
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.restart).To(BeFalse())
+			Expect(decision.Restart).To(BeFalse())
 		})
 
 		It("starts again when a status entry could not be read", func() {
-			progress.malformedStatus = true
+			progress.MalformedStatus = true
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(startPipeline))
-			Expect(decision.restart).To(BeTrue())
+			Expect(decision.Action).To(Equal(workflow.StartPipeline))
+			Expect(decision.Restart).To(BeTrue())
 		})
 	})
 
 	When("a restart has been asked for by label", func() {
 		It("starts again from the first pipeline", func() {
-			progress.runFromStart = true
-			progress.pipelines[0].phase = v1alpha1.WorkflowPhaseSucceeded
+			progress.RunFromStart = true
+			progress.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSucceeded
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(startPipeline))
-			Expect(decision.restart).To(BeTrue())
-			Expect(decision.pipeline.Name).To(Equal("pipeline-1"))
+			Expect(decision.Action).To(Equal(workflow.StartPipeline))
+			Expect(decision.Restart).To(BeTrue())
+			Expect(decision.Pipeline.Name).To(Equal("pipeline-1"))
 		})
 
 		It("starts again even when the workflow is paused", func() {
-			progress.runFromStart = true
-			progress.paused = true
+			progress.RunFromStart = true
+			progress.Paused = true
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(startPipeline))
-			Expect(decision.restart).To(BeTrue())
+			Expect(decision.Action).To(Equal(workflow.StartPipeline))
+			Expect(decision.Restart).To(BeTrue())
 		})
 	})
 
 	When("nothing is running and status is trusted", func() {
 		It("starts the first pipeline that has not finished", func() {
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(startPipeline))
-			Expect(decision.restart).To(BeFalse())
-			Expect(decision.pipeline.Name).To(Equal("pipeline-1"))
+			Expect(decision.Action).To(Equal(workflow.StartPipeline))
+			Expect(decision.Restart).To(BeFalse())
+			Expect(decision.Pipeline.Name).To(Equal("pipeline-1"))
 		})
 
 		It("moves on to the next pipeline once the first has succeeded", func() {
-			progress.pipelines[0].phase = v1alpha1.WorkflowPhaseSucceeded
+			progress.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSucceeded
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(startPipeline))
-			Expect(decision.pipeline.Name).To(Equal("pipeline-2"))
+			Expect(decision.Action).To(Equal(workflow.StartPipeline))
+			Expect(decision.Pipeline.Name).To(Equal("pipeline-2"))
 		})
 
 		It("finishes the workflow once every pipeline has succeeded", func() {
-			progress.pipelines[0].phase = v1alpha1.WorkflowPhaseSucceeded
-			progress.pipelines[1].phase = v1alpha1.WorkflowPhaseSucceeded
+			progress.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSucceeded
+			progress.Pipelines[1].Phase = v1alpha1.WorkflowPhaseSucceeded
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(finishWorkflow))
-			Expect(decision.pipeline).To(BeNil())
+			Expect(decision.Action).To(Equal(workflow.FinishWorkflow))
+			Expect(decision.Pipeline).To(BeNil())
 		})
 
 		It("stays paused when the workflow is suspended", func() {
-			progress.paused = true
+			progress.Paused = true
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(stayPaused))
+			Expect(decision.Action).To(Equal(workflow.StayPaused))
 		})
 
 		It("finishes the workflow even when it is paused, if every pipeline has succeeded", func() {
-			progress.paused = true
-			progress.pipelines[0].phase = v1alpha1.WorkflowPhaseSucceeded
-			progress.pipelines[1].phase = v1alpha1.WorkflowPhaseSucceeded
+			progress.Paused = true
+			progress.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSucceeded
+			progress.Pipelines[1].Phase = v1alpha1.WorkflowPhaseSucceeded
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(finishWorkflow))
+			Expect(decision.Action).To(Equal(workflow.FinishWorkflow))
 		})
 	})
 
 	When("the current pipeline says it is running", func() {
 		BeforeEach(func() {
-			progress.pipelines[0].phase = v1alpha1.WorkflowPhaseRunning
-			progress.pipelines[0].job = "pipeline-1-job"
+			progress.Pipelines[0].Phase = v1alpha1.WorkflowPhaseRunning
+			progress.Pipelines[0].Job = "pipeline-1-job"
 		})
 
-		It("records the Job named in status, which has now finished", func() {
-			progress.jobs = []batchv1.Job{newFinishedJob("pipeline-1-job")}
+		It("records the outcome of the Job named in status, which has now finished", func() {
+			progress.Jobs = []batchv1.Job{newFinishedJob("pipeline-1-job")}
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(recordFinishedJob))
-			Expect(decision.jobToRecord).NotTo(BeNil())
-			Expect(decision.jobToRecord.Name).To(Equal("pipeline-1-job"))
-			Expect(decision.pipeline.Name).To(Equal("pipeline-1"))
+			Expect(decision.Action).To(Equal(workflow.RecordJobOutcome))
+			Expect(decision.JobToRecord).NotTo(BeNil())
+			Expect(decision.JobToRecord.Name).To(Equal("pipeline-1-job"))
+			Expect(decision.Pipeline.Name).To(Equal("pipeline-1"))
 		})
 
 		It("starts the pipeline again when the Job named in status has gone", func() {
-			progress.jobs = nil
+			progress.Jobs = nil
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(startPipeline))
-			Expect(decision.restart).To(BeFalse())
-			Expect(decision.pipeline.Name).To(Equal("pipeline-1"))
+			Expect(decision.Action).To(Equal(workflow.StartPipeline))
+			Expect(decision.Restart).To(BeFalse())
+			Expect(decision.Pipeline.Name).To(Equal("pipeline-1"))
 		})
 
 		It("ignores Jobs belonging to anything other than the current pipeline", func() {
-			progress.jobs = []batchv1.Job{newFinishedJob("a-job-from-somewhere-else")}
+			progress.Jobs = []batchv1.Job{newFinishedJob("a-job-from-somewhere-else")}
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(startPipeline))
+			Expect(decision.Action).To(Equal(workflow.StartPipeline))
 		})
 	})
 
 	When("the current pipeline has already failed", func() {
 		BeforeEach(func() {
-			progress.pipelines[0].phase = v1alpha1.WorkflowPhaseFailed
+			progress.Pipelines[0].Phase = v1alpha1.WorkflowPhaseFailed
 		})
 
 		It("reports the failure rather than starting anything", func() {
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(failCurrentPipeline))
-			Expect(decision.pipeline.Name).To(Equal("pipeline-1"))
+			Expect(decision.Action).To(Equal(workflow.FailCurrentPipeline))
+			Expect(decision.Pipeline.Name).To(Equal("pipeline-1"))
 		})
 
 		It("reports the failure for a delete pipeline too", func() {
 			opts.Resources = []v1alpha1.PipelineJobResources{
 				newPipelineResources("pipeline-1", "hash-1", v1alpha1.WorkflowActionDelete),
 			}
-			progress.pipelines = progress.pipelines[:1]
+			progress.Pipelines = progress.Pipelines[:1]
 
-			decision := decideNextAction(opts, progress)
+			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.action).To(Equal(failCurrentPipeline))
-			Expect(decision.pipeline.WorkflowAction).To(Equal(v1alpha1.WorkflowActionDelete))
+			Expect(decision.Action).To(Equal(workflow.FailCurrentPipeline))
+			Expect(decision.Pipeline.WorkflowAction).To(Equal(v1alpha1.WorkflowActionDelete))
 		})
 	})
 })
