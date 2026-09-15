@@ -92,7 +92,8 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 		return err
 	}
 
-	if params.IsLastPipeline && !control.IfSuspendOrRetry() {
+	if params.IsLastPipeline && !control.IfSuspendOrRetry() &&
+		(params.WorkflowType == v1alpha1.WorkflowTypePromise || params.WorkflowType == v1alpha1.WorkflowTypeResource) {
 		mergedStatus = lib.MarkAsCompleted(mergedStatus, params.WorkflowType)
 	}
 
@@ -126,7 +127,7 @@ func handleWorkflowControlFile(ctx context.Context, params *helpers.Parameters,
 	var err error
 
 	if !control.IfSuspendOrRetry() {
-		mergedStatus, err = lib.ClearPipelineSuspension(mergedStatus, params.PipelineName)
+		mergedStatus, err = lib.ClearPipelineSuspension(mergedStatus, params.PipelineName, os.Getenv(v1alpha1.KratixActionEnvVar))
 		return existingObj, mergedStatus, err
 	}
 
@@ -148,7 +149,7 @@ func handleWorkflowControlFile(ctx context.Context, params *helpers.Parameters,
 		return nil, nil, err
 	}
 
-	mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message, retryAfterTimestamp, existingObj.GetGeneration())
+	mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message, retryAfterTimestamp, existingObj.GetGeneration(), os.Getenv(v1alpha1.KratixActionEnvVar))
 	return existingObj, mergedStatus, err
 }
 

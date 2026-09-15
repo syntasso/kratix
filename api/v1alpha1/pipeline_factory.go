@@ -462,7 +462,12 @@ func (p *PipelineFactory) pipelineJobLabels(requestSHA string) map[string]string
 		ls[KratixResourceHashLabel] = requestSHA
 	}
 
-	return labels.Merge(ls, p.Pipeline.GetLabels())
+	ls = labels.Merge(ls, p.Pipeline.GetLabels())
+	if pipelineHash := ls[KratixPipelineHashLabel]; pipelineHash != "" {
+		ls[KratixResourceHashLabel] = hash.ComputeHash(ls[KratixResourceHashLabel] + "-" + pipelineHash)
+		delete(ls, KratixPipelineHashLabel)
+	}
+	return ls
 }
 
 func (p *PipelineFactory) pipelineJobAnnotations(obj *unstructured.Unstructured) map[string]string {

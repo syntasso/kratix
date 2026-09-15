@@ -50,9 +50,9 @@ func MarkAsCompleted(status map[string]any, workflowType v1alpha1.Type) map[stri
 
 	if kratix, ok := status["kratix"].(map[string]any); ok {
 		if workflows, ok := kratix["workflows"].(map[string]any); ok {
-			delete(workflows, "suspendedGeneration")
-			kratix["workflows"] = workflows
-			status["kratix"] = kratix
+			if configure, ok := workflows["configure"].(map[string]any); ok {
+				delete(configure, "suspendedGeneration")
+			}
 		}
 	}
 
@@ -69,7 +69,7 @@ func MarkAsCompleted(status map[string]any, workflowType v1alpha1.Type) map[stri
 	return status
 }
 
-func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg, retryAtTimeStamp string, generation int64) (map[string]any, error) {
+func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg, retryAtTimeStamp string, generation int64, workflowKey string) (map[string]any, error) {
 	kratix, ok := status["kratix"].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("missing status.kratix while marking pipeline %q as suspended", pipelineName)
@@ -80,15 +80,16 @@ func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg, retryAtTi
 		return nil, fmt.Errorf("missing status.kratix.workflows while marking pipeline %q as suspended", pipelineName)
 	}
 
-	pipelines, ok := workflows["pipelines"].([]any)
+	workflow, _ := workflows[workflowKey].(map[string]any)
+	pipelines, ok := workflow["pipelines"].([]any)
 	if !ok {
-		return nil, fmt.Errorf("missing status.kratix.workflows.pipelines while marking pipeline %q as suspended", pipelineName)
+		return nil, fmt.Errorf("missing status.kratix.workflows.%s.pipelines while marking pipeline %q as suspended", workflowKey, pipelineName)
 	}
 
 	for i, pipeline := range pipelines {
 		pipelineMap, ok := pipeline.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("invalid pipeline status type at index %d in status.kratix.workflows.pipelines", i)
+			return nil, fmt.Errorf("invalid pipeline status type at index %d in status.kratix.workflows.%s.pipelines", i, workflowKey)
 		}
 
 		if pipelineMap["name"] != pipelineName {
@@ -115,17 +116,15 @@ func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg, retryAtTi
 		}
 
 		pipelines[i] = pipelineMap
-		workflows["suspendedGeneration"] = generation
-		workflows["pipelines"] = pipelines
-		kratix["workflows"] = workflows
-		status["kratix"] = kratix
+		workflow["suspendedGeneration"] = generation
+		workflow["pipelines"] = pipelines
 		return status, nil
 	}
 
-	return nil, fmt.Errorf("pipeline %q not found in status.kratix.workflows.pipelines", pipelineName)
+	return nil, fmt.Errorf("pipeline %q not found in status.kratix.workflows.%s.pipelines", pipelineName, workflowKey)
 }
 
-func ClearPipelineSuspension(status map[string]any, pipelineName string) (map[string]any, error) {
+func ClearPipelineSuspension(status map[string]any, pipelineName, workflowKey string) (map[string]any, error) {
 	kratix, ok := status["kratix"].(map[string]any)
 	if !ok {
 		return status, nil
@@ -136,7 +135,8 @@ func ClearPipelineSuspension(status map[string]any, pipelineName string) (map[st
 		return status, nil
 	}
 
-	pipelines, ok := workflows["pipelines"].([]any)
+	workflow, _ := workflows[workflowKey].(map[string]any)
+	pipelines, ok := workflow["pipelines"].([]any)
 	if !ok {
 		return status, nil
 	}
@@ -144,7 +144,7 @@ func ClearPipelineSuspension(status map[string]any, pipelineName string) (map[st
 	for i, pipeline := range pipelines {
 		pipelineMap, ok := pipeline.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("invalid pipeline status type at index %d in status.kratix.workflows.pipelines", i)
+			return nil, fmt.Errorf("invalid pipeline status type at index %d in status.kratix.workflows.%s.pipelines", i, workflowKey)
 		}
 
 		if pipelineMap["name"] != pipelineName {
@@ -156,13 +156,11 @@ func ClearPipelineSuspension(status map[string]any, pipelineName string) (map[st
 		delete(pipelineMap, "attempts")
 		delete(pipelineMap, "nextRetryAt")
 		pipelines[i] = pipelineMap
-		workflows["pipelines"] = pipelines
-		kratix["workflows"] = workflows
-		status["kratix"] = kratix
+		workflow["pipelines"] = pipelines
 		return status, nil
 	}
 
-	return nil, fmt.Errorf("pipeline %q not found in status.kratix.workflows.pipelines", pipelineName)
+	return nil, fmt.Errorf("pipeline %q not found in status.kratix.workflows.%s.pipelines", pipelineName, workflowKey)
 }
 
 func updateConditions(conditions []any, newCondition metav1.Condition) []any {

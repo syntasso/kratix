@@ -15,6 +15,18 @@ import (
 )
 
 var _ = Describe("Promise", func() {
+	It("discards legacy workflow status while preserving keyed workflows", func() {
+		status := map[string]any{"status": map[string]any{"kratix": map[string]any{"workflows": map[string]any{
+			"pipelines":           []any{map[string]any{"name": "old", "phase": "Succeeded"}},
+			"suspendedGeneration": int64(1),
+			"example":             map[string]any{"pipelines": []any{map[string]any{"name": "current", "phase": "Succeeded", "hash": "abc"}}},
+		}}}}
+		promise := &platformv1alpha1.Promise{}
+		Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(status, promise)).To(Succeed())
+		Expect(promise.Status.Kratix.Workflows).To(HaveLen(1))
+		Expect(promise.Status.Kratix.Workflows["example"].Pipelines[0].Hash).To(Equal("abc"))
+	})
+
 	Describe("Scheduling", func() {
 		It("generates the correct set of matchLabels", func() {
 			input := []platformv1alpha1.PromiseScheduling{

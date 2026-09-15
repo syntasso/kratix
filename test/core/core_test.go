@@ -64,7 +64,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 
 		It("should deliver xaas to users", func() {
 			var originalPromiseConfigMapTimestamp1 string
-			pipelinesExecutionStatusPath := ".status.kratix.workflows.pipelines"
+			pipelinesExecutionStatusPath := ".status.kratix.workflows.configure.pipelines"
 			By("successfully installing a Promise", func() {
 				Expect(platform.Kubectl("apply", "-f", "assets/promise.yaml")).To(ContainSubstring("testbundle created"))
 
@@ -195,7 +195,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 							var parsedOutput [][]v1alpha1.WorkflowPipelineStatus // jsonpath-as-json returns a nested array of the target objects
 							jsonOutput := platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath-as-json={%s}`, pipelinesExecutionStatusPath))...)
 							json.Unmarshal([]byte(jsonOutput), &parsedOutput)
-							// TODO: remove after releasing: only assert if '.kratix.workflows.pipelines' is set
+							// TODO: remove after releasing: only assert if '.kratix.workflows.configure.pipelines' is set
 							if len(parsedOutput) != 0 {
 								g.Expect(parsedOutput).To(HaveLen(1))
 								workflowPipelines := parsedOutput[0]
@@ -234,7 +234,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.completed}'")...)).To(ContainSubstring("true"))
 						g.Expect(platform.Kubectl(append(rrArgs, `-o=jsonpath='{.status.observedGeneration}'`)...)).To(Equal(generation))
 
-						if platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows}`)...) != "" {
+						if platform.Kubectl(append(rrArgs, fmt.Sprintf(`-o=jsonpath={%s}`, pipelinesExecutionStatusPath))...) != "" {
 							var parsedOutput [][]v1alpha1.WorkflowPipelineStatus
 							jsonOutput := platform.Kubectl(append(rrArgs, fmt.Sprintf(`-o=jsonpath-as-json={%s}`, pipelinesExecutionStatusPath))...)
 							json.Unmarshal([]byte(jsonOutput), &parsedOutput)
@@ -256,14 +256,14 @@ var _ = Describe("Core Tests", Ordered, func() {
 						)
 
 						// TODO: remove after releasing: for downgrade tests, we don't have the .status.kratix.workflows field, so we return true if it's not present.
-						if platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows}`)...) == "" {
+						if platform.Kubectl(append(rrArgs, fmt.Sprintf(`-o=jsonpath={%s}`, pipelinesExecutionStatusPath))...) == "" {
 							return true
 						}
 
 						// If it is present, it should be set to the time the workflow finished with the right reason.
-						lastSuccessful := platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows.lastSuccessfulConfigureWorkflowTime}`)...)
+						lastSuccessful := platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows.configure.lastSuccessfulConfigureWorkflowTime}`)...)
 						return transitionTime == lastSuccessful
-					}, timeout, interval).Should(BeTrue(), "lastTransitionTime should be equal to kratix.workflows.lastSuccessfulConfigureWorkflowTime")
+					}, timeout, interval).Should(BeTrue(), "lastTransitionTime should be equal to kratix.workflows.configure.lastSuccessfulConfigureWorkflowTime")
 
 					worksSucceededCondition := `.status.conditions[?(@.type=="WorksSucceeded")]`
 					reconciledCondition := `.status.conditions[?(@.type=="Reconciled")]`
@@ -337,7 +337,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 						).ToNot(Equal(originalTimeStampW2))
 					}, longerTimeout, interval).Should(Succeed())
 
-					if platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows}`)...) != "" {
+					if platform.Kubectl(append(rrArgs, fmt.Sprintf(`-o=jsonpath={%s}`, pipelinesExecutionStatusPath))...) != "" {
 						Eventually(func(g Gomega) {
 							var parsedOutput [][]v1alpha1.WorkflowPipelineStatus
 							jsonOutput := platform.Kubectl(append(rrArgs, fmt.Sprintf(`-o=jsonpath-as-json={%s}`, pipelinesExecutionStatusPath))...)
