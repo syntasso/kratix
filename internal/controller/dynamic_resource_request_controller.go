@@ -259,7 +259,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		namespace,
 	)
 
-	if migrated, err := workflow.MigrateStatus(jobOpts); migrated || err != nil {
+	if removed, err := workflow.RemovePreKeyedStatus(jobOpts); removed || err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -1207,7 +1207,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		}
 
 		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
-		if migrated, err := workflow.MigrateStatus(jobOpts); migrated || err != nil {
+		if removed, err := workflow.RemovePreKeyedStatus(jobOpts); removed || err != nil {
 			return ctrl.Result{}, err
 		}
 
