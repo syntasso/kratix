@@ -68,7 +68,7 @@ func NewOpts(ctx context.Context, client client.Client, eventRecorder events.Eve
 // true means reconcile should happen again, passively, when watched external
 // resources are updated (for example a workflow Job changing state), rather
 // than by issuing an explicit direct requeue from this function.
-func ReconcileDelete(opts Opts) (bool, error) {
+func ReconcileDelete(opts Opts) (passiveRequeue bool, err error) {
 	logging.Debug(opts.logger, "reconciling delete pipeline")
 
 	if len(opts.Resources) == 0 {
@@ -81,95 +81,103 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	}
 
 	pipeline := opts.Resources[0]
-	isManualReconciliation := isManualReconciliation(opts.parentObject.GetLabels())
-	mostRecentJob, err := getMostRecentDeletePipelineJob(opts, opts.namespace, pipeline)
+	manualReconcile := isManualReconciliation(opts.parentObject.GetLabels())
+
+	recorded, err := resourceutil.GetPipelineStatuses(opts.parentObject, workflowKey(opts))
+	if err != nil {
+		return false, err
+	}
+	if !recordMatchesPipelines(recorded, opts.Resources) {
+		recorded = pendingPipelines(opts.Resources)
+	}
+
+	job, err := mostRecentJobForPipeline(opts, pipeline)
 	if err != nil {
 		return false, err
 	}
 
-	if isManualReconciliation {
-		logging.Info(opts.logger, "manual reconciliation detected for delete pipeline", "pipeline", pipeline.Name)
-	}
-
-	if isRunning(mostRecentJob) {
-		if isManualReconciliation {
-			logging.Info(opts.logger, "suspending job for manual reconciliation", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
-			if err = suspendJob(opts.ctx, opts.client, mostRecentJob); err != nil {
-				logging.Error(opts.logger, err, "failed to suspend job", "job", mostRecentJob.GetName())
+	if isRunning(job) {
+		if manualReconcile {
+			logging.Info(opts.logger, "suspending job for manual reconciliation", "job", job.Name, "pipeline", pipeline.Name)
+			if err = suspendJob(opts.ctx, opts.client, job); err != nil {
+				logging.Error(opts.logger, err, "failed to suspend job", "job", job.GetName())
 			}
-			opts.eventRecorder.Eventf(opts.parentObject, nil, "Normal", "PipelineSuspended", "PipelineSuspended", "Delete Pipeline suspended: %s", opts.Resources[0].Name)
+			opts.eventRecorder.Eventf(opts.parentObject, nil, "Normal", "PipelineSuspended", "PipelineSuspended", "Delete Pipeline suspended: %s", pipeline.Name)
 			return true, err
 		}
 
-		logging.Debug(opts.logger, "job already inflight for pipeline; waiting for completion", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
+		logging.Debug(opts.logger, "job already running for pipeline; waiting for it to finish", "job", job.Name, "pipeline", pipeline.Name)
 		return true, nil
 	}
 
-	if mostRecentJob == nil || isManualReconciliation {
-		configureLabels := labelsForJobs(opts)
-		configureLabels[v1alpha1.WorkflowActionLabel] = string(v1alpha1.WorkflowActionConfigure)
-		configureJobs, listErr := getJobsWithLabels(opts, configureLabels, opts.namespace)
-		if listErr != nil {
-			return false, listErr
-		}
-		for i := range configureJobs {
-			if isRunning(&configureJobs[i]) {
-				logging.Info(opts.logger, "configure pipeline still running; "+
-					"waiting for completion before starting delete pipeline",
-					"runningJob", configureJobs[i].Name)
-				return true, nil
-			}
-		}
-		return createDeletePipeline(opts, pipeline, true)
+	if jobFailed(job) {
+		return false, ErrDeletePipelineFailed
 	}
 
-	logging.Debug(opts.logger, "checking status of delete pipeline")
-	if mostRecentJob.Status.Succeeded > 0 {
+	switch {
+	case manualReconcile, recorded[0].Phase == v1alpha1.WorkflowPhaseSuspended:
+		// A suspended pipeline asked to be run again later, and the wait is
+		// over: keep the attempts and nextRetryAt it recorded.
+		return startDeletePipeline(opts, pipeline, recorded, manualReconcile)
+
+	case recorded[0].Phase == v1alpha1.WorkflowPhaseRunning && jobFinished(job):
 		if opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true" {
 			logging.Info(opts.logger, "delete pipeline completed but workflow is suspended; waiting")
 			return true, nil
 		}
-		recorded, err := resourceutil.GetPipelineStatuses(opts.parentObject, workflowKey(opts))
-		if err != nil {
-			return false, err
-		}
-		if len(recorded) > 0 && recorded[0].Phase == v1alpha1.WorkflowPhaseSuspended {
-			// Resuming after a retry interval elapsed, not a genuine restart:
-			// keep the attempts and nextRetryAt already recorded.
-			return createDeletePipeline(opts, pipeline, false)
-		}
 		logging.Info(opts.logger, "delete pipeline completed")
-		return false, nil
-	}
-	if mostRecentJob.Status.Failed > 0 {
-		return false, ErrDeletePipelineFailed
-	}
+		markPipelineAsSucceeded(&recorded[0])
+		return false, writePipelineStatuses(opts, recorded)
 
-	logging.Debug(opts.logger, "delete pipeline still running", "status", mostRecentJob.Status)
-	return true, nil
+	case recorded[0].Phase == v1alpha1.WorkflowPhaseSucceeded && recorded[0].Hash == runHash(pipeline):
+		return false, nil
+
+	default:
+		return startDeletePipeline(opts, pipeline, pendingPipelines(opts.Resources), manualReconcile)
+	}
 }
 
-func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources, resetStatus bool) (passiveRequeue bool, err error) {
+// startDeletePipeline runs the delete pipeline, once no configure pipeline of
+// the same object is still running.
+func startDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources,
+	recorded []v1alpha1.WorkflowPipelineStatus, manualReconcile bool,
+) (passiveRequeue bool, err error) {
+	configureLabels := labelsForJobs(opts)
+	configureLabels[v1alpha1.WorkflowActionLabel] = string(v1alpha1.WorkflowActionConfigure)
+	configureJobs, err := getJobsWithLabels(opts, configureLabels, opts.namespace)
+	if err != nil {
+		return false, err
+	}
+	if running := firstRunningJob(configureJobs); running != nil {
+		logging.Info(opts.logger, "configure pipeline still running; "+
+			"waiting for completion before starting delete pipeline", "runningJob", running.Name)
+		return true, nil
+	}
+
+	if manualReconcile {
+		logging.Info(opts.logger, "manual reconciliation detected for delete pipeline", "pipeline", pipeline.Name)
+	}
+	return createDeletePipeline(opts, pipeline, recorded)
+}
+
+func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources,
+	recorded []v1alpha1.WorkflowPipelineStatus,
+) (passiveRequeue bool, err error) {
 	logging.Debug(opts.logger, "creating delete pipeline; execution will commence")
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
 		if err := removeManualReconciliationLabel(opts); err != nil {
 			return false, err
 		}
 	}
-	recorded, err := resourceutil.GetPipelineStatuses(opts.parentObject, workflowKey(opts))
-	if err != nil {
-		return false, err
-	}
-	if resetStatus || !recordMatchesPipelines(recorded, opts.Resources) {
-		recorded = pendingPipelines(opts.Resources)
-	}
+
 	markPipelineAsRunning(&recorded[0], pipeline)
 	if err = writePipelineStatuses(opts, recorded); err != nil {
 		return false, err
 	}
+
 	//TODO retrieve error information from applyResources to return to the caller
 	applyResources(opts, append(pipeline.GetObjects(), pipeline.Job)...)
-	opts.eventRecorder.Eventf(opts.parentObject, nil, "Normal", "PipelineStarted", "PipelineStarted", "Delete Pipeline started: %s", opts.Resources[0].Name)
+	opts.eventRecorder.Eventf(opts.parentObject, nil, "Normal", "PipelineStarted", "PipelineStarted", "Delete Pipeline started: %s", pipeline.Name)
 	return true, nil
 }
 
@@ -620,9 +628,8 @@ func shouldMarkConfigureWorkflowAsRunning(obj *unstructured.Unstructured) bool {
 	return condition.Reason != resourceutil.PipelinesInProgressReason
 }
 
-func getMostRecentDeletePipelineJob(opts Opts, namespace string, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {
-	labels := getLabelsForPipelineJob(pipeline)
-	jobs, err := getJobsWithLabels(opts, labels, namespace)
+func mostRecentJobForPipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {
+	jobs, err := getJobsWithLabels(opts, getLabelsForPipelineJob(pipeline), opts.namespace)
 	if err != nil || len(jobs) == 0 {
 		return nil, err
 	}

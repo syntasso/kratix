@@ -210,6 +210,39 @@ var _ = Describe("Configure workflow progression", func() {
 	})
 })
 
+var _ = Describe("Delete workflow progression", func() {
+	var promise v1alpha1.Promise
+	var pipelines []v1alpha1.Pipeline
+	var deletePipelines []v1alpha1.PipelineJobResources
+	var uPromise *unstructured.Unstructured
+	var opts workflow.Opts
+
+	BeforeEach(func() {
+		promise, pipelines = promiseWithTwoConfigurePipelines()
+		Expect(fakeK8sClient.Create(ctx, &promise)).To(Succeed())
+		deletePipelines, uPromise = setupDeleteTest(promise, pipelines[:1])
+		opts = workflow.NewOpts(ctx, fakeK8sClient, events.NewFakeRecorder(1024), logger, uPromise,
+			deletePipelines, "promise", 5, namespace)
+	})
+
+	When("the status says the delete pipeline succeeded and its Job is gone", func() {
+		It("reports the workflow as finished instead of running it again", func() {
+			recordDeletePipelines(uPromise, succeededPipeline(deletePipelines[0]))
+
+			passiveRequeue, err := workflow.ReconcileDelete(opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(passiveRequeue).To(BeFalse())
+			Expect(listJobs(namespace)).To(BeEmpty())
+		})
+	})
+})
+
+func recordDeletePipelines(parent *unstructured.Unstructured, statuses ...v1alpha1.WorkflowPipelineStatus) {
+	GinkgoHelper()
+	Expect(resourceutil.SetPipelineStatuses(parent, string(v1alpha1.WorkflowActionDelete), statuses)).To(Succeed())
+	Expect(fakeK8sClient.Status().Update(ctx, parent)).To(Succeed())
+}
+
 func recordPipelines(parent *unstructured.Unstructured, statuses ...v1alpha1.WorkflowPipelineStatus) {
 	GinkgoHelper()
 	Expect(resourceutil.SetPipelineStatuses(parent, string(v1alpha1.WorkflowActionConfigure), statuses)).To(Succeed())
