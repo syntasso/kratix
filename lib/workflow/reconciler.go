@@ -136,8 +136,8 @@ type Decision struct {
 }
 
 func reconcileWorkflow(opts Opts) (bool, error) {
-	if migrated, err := MigrateStatus(opts); migrated || err != nil {
-		return migrated, err
+	if removed, err := RemovePreKeyedStatus(opts); removed || err != nil {
+		return removed, err
 	}
 	progress, err := readWorkflowProgress(opts)
 	if err != nil {
