@@ -261,9 +261,9 @@ var _ = Describe("Core Tests", Ordered, func() {
 						}
 
 						// If it is present, it should be set to the time the workflow finished with the right reason.
-						lastSuccessful := platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows.lastSuccessfulConfigureWorkflowTime}`)...)
+						lastSuccessful := platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows.configure.lastSuccessfulConfigureWorkflowTime}`)...)
 						return transitionTime == lastSuccessful
-					}, timeout, interval).Should(BeTrue(), "lastTransitionTime should be equal to kratix.workflows.lastSuccessfulConfigureWorkflowTime")
+					}, timeout, interval).Should(BeTrue(), "lastTransitionTime should be equal to kratix.workflows.configure.lastSuccessfulConfigureWorkflowTime")
 
 					worksSucceededCondition := `.status.conditions[?(@.type=="WorksSucceeded")]`
 					reconciledCondition := `.status.conditions[?(@.type=="Reconciled")]`
