@@ -8,6 +8,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"fmt"
+	"slices"
 	"time"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -225,6 +227,62 @@ var _ = Describe("HealthRecordController", func() {
 			Entry("it is degraded when one of the healthRecords is degraded", "degraded", "degraded"),
 			Entry("it is unknown when one of the healthRecords is unknown", "unknown", "unknown"),
 		)
+	})
+
+	When("the healthRecords for a resource are listed in an arbitrary order", func() {
+		createRecordForResource := func(namespace, name string) {
+			record := &v1alpha1.HealthRecord{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: v1alpha1.GroupVersion.String(),
+					Kind:       "HealthRecord",
+				},
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Data: v1alpha1.HealthRecordData{
+					PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
+					ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
+					State:       "ready",
+					LastRun:     now,
+					Details:     details,
+				},
+			}
+			Expect(fakeK8sClient.Create(ctx, record)).To(Succeed())
+		}
+
+		BeforeEach(func() {
+			reorderListResults = func(list client.ObjectList) {
+				records, ok := list.(*v1alpha1.HealthRecordList)
+				if !ok {
+					return
+				}
+				slices.Reverse(records.Items)
+			}
+		})
+
+		It("orders the healthRecords by source name", func() {
+			createRecordForResource("default", "z-name")
+			createRecordForResource("default", "b-name")
+
+			status := getResourceStatus(reconcile())
+
+			Expect(getHealthRecordSources(status)).To(Equal([]string{
+				"default/a-name",
+				"default/b-name",
+				"default/z-name",
+			}))
+		})
+
+		It("orders the healthRecords by source namespace before source name", func() {
+			createRecordForResource("zzz-ns", "a-name")
+			createRecordForResource("aaa-ns", "z-name")
+
+			status := getResourceStatus(reconcile())
+
+			Expect(getHealthRecordSources(status)).To(Equal([]string{
+				"aaa-ns/z-name",
+				"default/a-name",
+				"zzz-ns/a-name",
+			}))
+		})
 	})
 
 	When("there are healthRecords for other resources", func() {
@@ -491,4 +549,13 @@ func getHealthStatusState(status map[string]interface{}) (state string) {
 	Expect(ok).To(BeTrue())
 
 	return stateString
+}
+
+func getHealthRecordSources(status map[string]interface{}) (sources []string) {
+	for _, record := range getHealthRecordsList(status) {
+		source, ok := record.(map[string]any)["source"].(map[string]any)
+		Expect(ok).To(BeTrue())
+		sources = append(sources, fmt.Sprintf("%s/%s", source["namespace"], source["name"]))
+	}
+	return sources
 }

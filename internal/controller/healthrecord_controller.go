@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -228,6 +229,13 @@ func referToSameResource(a, b *platformv1alpha1.HealthRecord) bool {
 }
 
 func getHealthDataAndStates(healthRecords []platformv1alpha1.HealthRecord) ([]any, string, error) {
+	sort.Slice(healthRecords, func(i, j int) bool {
+		if healthRecords[i].GetNamespace() != healthRecords[j].GetNamespace() {
+			return healthRecords[i].GetNamespace() < healthRecords[j].GetNamespace()
+		}
+		return healthRecords[i].GetName() < healthRecords[j].GetName()
+	})
+
 	var healthData []any
 	var statePriority = map[string]int{
 		"unhealthy": 1,
