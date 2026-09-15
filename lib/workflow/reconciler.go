@@ -25,19 +25,18 @@ import (
 )
 
 type Opts struct {
-	ctx          context.Context
-	client       client.Client
-	logger       logr.Logger
-	parentObject *unstructured.Unstructured
-	//TODO make this field private too? or everything public and no constructor func
+	ctx                context.Context
+	client             client.Client
+	logger             logr.Logger
+	parentObject       *unstructured.Unstructured
 	Resources          []v1alpha1.PipelineJobResources
 	workflowType       string
 	numberOfJobsToKeep int
 	eventRecorder      events.EventRecorder
 	namespace          string
 
-	// Set by other controllers that use the Workflow engine
-	SkipConditions bool
+	// WorkflowKey isolates status for controllers that embed the workflow engine.
+	WorkflowKey string
 }
 
 func (o *Opts) SetParentObject(parentObj *unstructured.Unstructured) {
@@ -61,368 +60,158 @@ func NewOpts(ctx context.Context, client client.Client, eventRecorder events.Eve
 	}
 }
 
-// ReconcileDelete deletes Workflows.
-// The returned bool is passiveRequeue:
-// true means reconcile should happen again, passively, when watched external
-// resources are updated (for example a workflow Job changing state), rather
-// than by issuing an explicit direct requeue from this function.
-func ReconcileDelete(opts Opts) (bool, error) {
-	logging.Debug(opts.logger, "reconciling delete pipeline")
+func (o *Opts) workflowKey() string {
+	if o.WorkflowKey != "" {
+		return o.WorkflowKey
+	}
+	return string(o.Resources[0].WorkflowAction)
+}
 
+func (o *Opts) coreConfigure() bool {
+	return o.workflowKey() == "configure" &&
+		(o.workflowType == "promise" || o.workflowType == "resource")
+}
+
+// ReconcileDelete returns true while the delete pipeline needs further reconciliation.
+func ReconcileDelete(opts Opts) (bool, error) {
 	if len(opts.Resources) == 0 {
 		return false, nil
 	}
-
 	if len(opts.Resources) > 1 {
 		logging.Warn(opts.logger, "multiple delete pipelines found; only the first will be used")
+		opts.Resources = opts.Resources[:1]
 	}
-
-	pipeline := opts.Resources[0]
-	isManualReconciliation := isManualReconciliation(opts.parentObject.GetLabels())
-	mostRecentJob, err := getMostRecentDeletePipelineJob(opts, opts.namespace, pipeline)
-	if err != nil {
-		return false, err
-	}
-
-	if isManualReconciliation {
-		logging.Info(opts.logger, "manual reconciliation detected for delete pipeline", "pipeline", pipeline.Name)
-	}
-
-	if isRunning(mostRecentJob) {
-		if isManualReconciliation {
-			logging.Info(opts.logger, "suspending job for manual reconciliation", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
-			if err = suspendJob(opts.ctx, opts.client, mostRecentJob); err != nil {
-				logging.Error(opts.logger, err, "failed to suspend job", "job", mostRecentJob.GetName())
-			}
-			opts.eventRecorder.Eventf(opts.parentObject, nil, "Normal", "PipelineSuspended", "PipelineSuspended", "Delete Pipeline suspended: %s", opts.Resources[0].Name)
-			return true, err
-		}
-
-		logging.Debug(opts.logger, "job already inflight for pipeline; waiting for completion", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
-		return true, nil
-	}
-
-	if mostRecentJob == nil || isManualReconciliation {
-		configureLabels := labelsForJobs(opts)
-		configureLabels[v1alpha1.WorkflowActionLabel] = string(v1alpha1.WorkflowActionConfigure)
-		configureJobs, listErr := getJobsWithLabels(opts, configureLabels, opts.namespace)
-		if listErr != nil {
-			return false, listErr
-		}
-		for i := range configureJobs {
-			if isRunning(&configureJobs[i]) {
-				logging.Info(opts.logger, "configure pipeline still running; "+
-					"waiting for completion before starting delete pipeline",
-					"runningJob", configureJobs[i].Name)
-				return true, nil
-			}
-		}
-		return createDeletePipeline(opts, pipeline, true)
-	}
-
-	logging.Debug(opts.logger, "checking status of delete pipeline")
-	if mostRecentJob.Status.Succeeded > 0 {
-		if opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true" {
-			logging.Info(opts.logger, "delete pipeline completed but workflow is suspended; waiting")
-			return true, nil
-		}
-		suspendedIdx, err := resourceutil.GetSuspendedPipelineIndex(opts.parentObject)
-		if err != nil {
-			return false, err
-		}
-		if suspendedIdx >= 0 {
-			// Resuming after a retry interval elapsed, not a genuine restart:
-			// preserve the pipeline's existing status (attempts, nextRetryAt),
-			// mirroring how configure's resumeFromSuspended path never resets.
-			return createDeletePipeline(opts, pipeline, false)
-		}
-		logging.Info(opts.logger, "delete pipeline completed")
-		return false, nil
-	}
-	if mostRecentJob.Status.Failed > 0 {
-		return false, ErrDeletePipelineFailed
-	}
-
-	logging.Debug(opts.logger, "delete pipeline still running", "status", mostRecentJob.Status)
-	return true, nil
+	return reconcileWorkflow(opts)
 }
 
-func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources, resetStatus bool) (passiveRequeue bool, err error) {
-	logging.Debug(opts.logger, "creating delete pipeline; execution will commence")
-	if isManualReconciliation(opts.parentObject.GetLabels()) {
-		if err := removeManualReconciliationLabel(opts); err != nil {
-			return false, err
-		}
-	}
-	if resetStatus {
-		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.Resources); err != nil {
-			return false, err
-		}
-	}
-	if err = resourceutil.MarkCurrentPipelineAsRunning(opts.parentObject, opts.logger, pipeline.Job); err != nil {
-		return false, err
-	}
-	if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
-		return false, err
-	}
-	//TODO retrieve error information from applyResources to return to the caller
-	applyResources(opts, append(pipeline.GetObjects(), pipeline.Job)...)
-	opts.eventRecorder.Eventf(opts.parentObject, nil, "Normal", "PipelineStarted", "PipelineStarted", "Delete Pipeline started: %s", opts.Resources[0].Name)
-	return true, nil
-}
-
-// workflowState holds the resolved state for a configure reconciliation.
-type workflowState struct {
-	mostRecentJob        *batchv1.Job
-	pipelineIndex        int   // index of the pipeline to act on (capped to len-1)
-	completedCount       int64 // number of pipelines completed, for status sync
-	manualReconcile      bool
-	restartFromStart     bool
-	resumeFromSuspended  bool
-	suspendedPipelineIdx int
-	desiredPipelinePhase string
-	desiredPipelineJob   *batchv1.Job
-}
-
-// ReconcileConfigure reconciles configure workflows.
-// The returned bool is passiveRequeue:
-// true means reconcile should happen again, passively, when watched external
-// resources are updated (for example workflow Jobs or the parent object status),
-// rather than by issuing an explicit direct requeue from this function.
-func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
+// ReconcileConfigure returns true while the configure workflow needs further reconciliation.
+func ReconcileConfigure(opts Opts) (bool, error) {
 	if len(opts.Resources) == 0 {
-		logging.Debug(opts.logger, "no pipeline resources to reconcile")
 		return false, nil
 	}
+	return reconcileWorkflow(opts)
+}
 
+type workflowState struct {
+	pipelineIndex   int
+	phase           string
+	mostRecentJob   *batchv1.Job
+	runningJob      *batchv1.Job
+	restart         bool
+	manualReconcile bool
+}
+
+func reconcileWorkflow(opts Opts) (bool, error) {
+	if migrated, err := MigrateStatus(opts); migrated || err != nil {
+		return migrated, err
+	}
 	state, err := determineWorkflowState(opts)
 	if err != nil {
 		return false, err
 	}
-
-	// TODO: do we need this check?
-	if state.pipelineIndex < 0 {
-		logging.Debug(opts.logger, "no pipeline to reconcile", "index", state.pipelineIndex)
-		return false, nil
-	}
-
-	if !opts.SkipConditions {
-		if requeue, err := reconcileWorkflowStatus(opts, state); err != nil {
-			return requeue, err
-		} else if requeue && !state.restartFromStart && !state.manualReconcile {
-			return requeue, err
+	if state.runningJob != nil {
+		if state.manualReconcile {
+			return true, suspendJob(opts.ctx, opts.client, state.runningJob)
 		}
+		return true, nil
 	}
-
-	pipeline := opts.Resources[state.pipelineIndex]
-	opts.logger = opts.logger.WithName(pipeline.Name).WithValues("isManualReconciliation", state.manualReconcile)
-
-	return executeReconcileAction(opts, state, pipeline)
+	if state.pipelineIndex == len(opts.Resources) {
+		if opts.Resources[0].WorkflowAction == v1alpha1.WorkflowActionDelete {
+			return false, cleanupJobs(opts, opts.namespace)
+		}
+		return false, cleanup(opts, opts.namespace)
+	}
+	if opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true" && !state.restart {
+		return true, nil
+	}
+	return executeReconcileAction(opts, state, opts.Resources[state.pipelineIndex])
 }
 
 func determineWorkflowState(opts Opts) (*workflowState, error) {
-	allJobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
+	pipelines, _, err := unstructured.NestedSlice(opts.parentObject.Object,
+		"status", "kratix", "workflows", opts.workflowKey(), "pipelines")
 	if err != nil {
-		logging.Error(opts.logger, err, "failed to list jobs")
 		return nil, err
 	}
-	allLegacyJobs, err := getJobsWithLabels(opts, legacyLabelsForJobs(opts), opts.namespace)
-	if err != nil {
-		logging.Error(opts.logger, err, "failed to list jobs")
-		return nil, err
-	}
-	allJobs = append(allJobs, allLegacyJobs...)
-
 	state := &workflowState{
-		manualReconcile:      isManualReconciliation(opts.parentObject.GetLabels()),
-		suspendedPipelineIdx: -1,
+		pipelineIndex:   len(opts.Resources),
+		manualReconcile: isManualReconciliation(opts.parentObject.GetLabels()),
 	}
-	state.restartFromStart = isWorkflowRestart(opts.parentObject.GetLabels())
+	state.restart = state.manualReconcile || isWorkflowRestart(opts.parentObject.GetLabels()) || len(pipelines) != len(opts.Resources)
+	if !state.restart {
+		for i, resource := range opts.Resources {
+			pipeline, ok := pipelines[i].(map[string]any)
+			if !ok || pipeline["name"] != resource.Name ||
+				(pipeline["phase"] != v1alpha1.WorkflowPhasePending && pipeline["hash"] != resource.Job.Labels[v1alpha1.KratixResourceHashLabel]) {
+				state.restart = true
+				break
+			}
+			if state.pipelineIndex == len(opts.Resources) && pipeline["phase"] != v1alpha1.WorkflowPhaseSucceeded {
+				state.pipelineIndex = i
+				state.phase, _ = pipeline["phase"].(string)
+			}
+		}
+	}
+	if state.restart {
+		state.pipelineIndex = 0
+		state.phase = v1alpha1.WorkflowPhasePending
+	}
 
-	state.suspendedPipelineIdx, err = resourceutil.GetSuspendedPipelineIndex(opts.parentObject)
+	jobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
 	if err != nil {
 		return nil, err
 	}
-	isWorkflowSuspended := opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true"
-	state.resumeFromSuspended = !isWorkflowSuspended && !state.restartFromStart && state.suspendedPipelineIdx >= 0
-
-	if len(allJobs) == 0 {
-		if state.resumeFromSuspended {
-			state.pipelineIndex = state.suspendedPipelineIdx
-			state.completedCount = int64(state.suspendedPipelineIdx)
-		} else {
-			state.pipelineIndex = 0
-			state.completedCount = 0
+	resourceutil.SortJobsByCreationDateTime(jobs, false)
+	for i := range jobs {
+		job := &jobs[i]
+		if isRunning(job) && state.runningJob == nil {
+			state.runningJob = job
 		}
-		return state, nil
-	}
-
-	resourceutil.SortJobsByCreationDateTime(allJobs, false)
-	state.mostRecentJob = &allJobs[0]
-	logging.Debug(opts.logger, "found existing jobs; most recent job is",
-		"name", state.mostRecentJob.GetName(),
-		"labels", state.mostRecentJob.Labels,
-		"createdTimestamp", state.mostRecentJob.GetCreationTimestamp().Time,
-		"status", overAllJobStatus(state.mostRecentJob))
-
-	if state.restartFromStart {
-		state.pipelineIndex = 0
-		state.completedCount = 0
-		return state, nil
-	}
-
-	pipelineIndex, jobIsForPipeline := jobToPipelineIndex(opts, state.mostRecentJob)
-
-	state.completedCount = int64(pipelineIndex)
-
-	if state.resumeFromSuspended {
-		state.pipelineIndex = state.suspendedPipelineIdx
-		state.completedCount = int64(state.suspendedPipelineIdx)
-		return state, nil
-	}
-
-	if jobIsForPipeline && isCompleted(state.mostRecentJob) {
-		state.completedCount++
-		if pipelineIndex < len(opts.Resources)-1 {
-			pipelineIndex++
+		if state.pipelineIndex < len(opts.Resources) && state.mostRecentJob == nil && jobIsForPipeline(opts.Resources[state.pipelineIndex], job) {
+			state.mostRecentJob = job
 		}
 	}
-
-	state.pipelineIndex = pipelineIndex
 	return state, nil
-
 }
 
-func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bool, err error) {
-	//this is -1 if the pipeline status has not been initialised yet
-	succeededPipelines := resourceutil.CountPipelinesInPhase(opts.parentObject, v1alpha1.WorkflowPhaseSucceeded)
-
-	succeededCountDrifted := succeededPipelines != state.completedCount
-	shouldResetForManualRetry := (state.manualReconcile || state.restartFromStart) &&
-		(succeededPipelines != 0 || resourceutil.HasPipelineInPhase(opts.parentObject, v1alpha1.WorkflowPhaseFailed))
-	pipelinePhaseDrifted := state.desiredPipelineJob != nil && state.desiredPipelinePhase != ""
-
-	if !succeededCountDrifted && !shouldResetForManualRetry && !pipelinePhaseDrifted {
-		return false, nil
-	}
-
-	if succeededCountDrifted && state.completedCount > 0 {
-		if err = resourceutil.MarkPipelinesAsSucceeded(opts.parentObject, state.completedCount); err != nil {
-			logging.Error(opts.logger, err, "failed to mark completed pipelines as succeeded")
-			return false, err
+func executeReconcileAction(opts Opts, state *workflowState, pipeline v1alpha1.PipelineJobResources) (bool, error) {
+	if !state.restart && state.phase == v1alpha1.WorkflowPhaseFailed {
+		if pipeline.WorkflowAction == v1alpha1.WorkflowActionDelete {
+			return false, ErrDeletePipelineFailed
 		}
+		return true, cleanupJobs(opts, opts.namespace)
 	}
-
-	if shouldResetForManualRetry || (succeededCountDrifted && state.completedCount == 0) {
-		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.Resources); err != nil {
-			return false, err
-		}
-	}
-
-	if pipelinePhaseDrifted {
-		if err = resourceutil.MarkCurrentPipelineAs(state.desiredPipelinePhase, opts.parentObject, opts.logger, state.desiredPipelineJob); err != nil {
-			logging.Error(opts.logger, err, "failed to mark current pipeline as "+state.desiredPipelinePhase)
-			return false, err
-		}
-	}
-
-	if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
-		logging.Error(opts.logger, err, "failed to update parent object status")
-		return false, err
-	}
-	return true, nil
-}
-
-func executeReconcileAction(opts Opts, state *workflowState, pipeline v1alpha1.PipelineJobResources) (passiveRequeue bool, err error) {
-	if jobIsForPipeline(pipeline, state.mostRecentJob) {
+	if !state.restart && state.phase == v1alpha1.WorkflowPhaseRunning && state.mostRecentJob != nil {
 		return handleCurrentPipelineJob(opts, state, pipeline)
 	}
 
-	if isRunning(state.mostRecentJob) {
-		if state.manualReconcile {
-			logging.Info(opts.logger, "suspending job for manual reconciliation", "jobName", state.mostRecentJob.Name)
-			if err = suspendJob(opts.ctx, opts.client, state.mostRecentJob); err != nil {
-				logging.Error(opts.logger, err, "failed to suspend job", "jobName", state.mostRecentJob.GetName())
-			}
-			return true, err
-		}
-		logging.Info(opts.logger, "job already inflight for another workflow; waiting for completion", "job", state.mostRecentJob.Name)
-		return true, nil
-	}
-
-	return createConfigurePipeline(opts, state, pipeline)
+	return createPipeline(opts, state, pipeline)
 }
 
-func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1.PipelineJobResources) (passiveRequeue bool, err error) {
-	logging.Debug(opts.logger, "job is for pipeline", "job", state.mostRecentJob.Name, "pipeline", pipeline.Name)
-
-	if isRunning(state.mostRecentJob) {
-		if state.manualReconcile {
-			logging.Info(opts.logger, "suspending job for manual reconciliation", "job", state.mostRecentJob.Name, "pipeline", pipeline.Name)
-			if err = suspendJob(opts.ctx, opts.client, state.mostRecentJob); err != nil {
-				logging.Error(opts.logger, err, "failed to suspend job", "job", state.mostRecentJob.GetName())
-			}
-			return true, err
-		}
-		logging.Debug(opts.logger, "job already inflight for pipeline; waiting for completion", "job", state.mostRecentJob.Name, "pipeline", pipeline.Name)
-		return true, nil
-	}
-
-	if state.manualReconcile {
-		logging.Info(opts.logger, "pipeline running due to manual reconciliation", "pipeline", pipeline.Name, "parentLabels", opts.parentObject.GetLabels())
-		return createConfigurePipeline(opts, state, pipeline)
-	}
-
-	if state.restartFromStart {
-		logging.Info(opts.logger, "pipeline running due to workflow restart label set to true", "pipeline", pipeline.Name, "parentLabels", opts.parentObject.GetLabels())
-		return createConfigurePipeline(opts, state, pipeline)
-	}
-
-	if state.resumeFromSuspended {
-		logging.Info(opts.logger, fmt.Sprintf("rerunning suspended pipeline after %q is removed",
-			v1alpha1.WorkflowSuspendedLabel), "pipeline", pipeline.Name)
-		requeue, err := createConfigurePipeline(opts, state, pipeline)
-		if err != nil {
-			return false, err
-		}
-		// we need to call clean up here because suspended workflows never reach the end of reconcileConfigure()
-		return requeue, cleanup(opts, opts.namespace)
-	}
-
+func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1.PipelineJobResources) (bool, error) {
+	phase := v1alpha1.WorkflowPhaseSucceeded
 	if isFailed(state.mostRecentJob) {
-		logging.Debug(opts.logger, "job failed", "job", state.mostRecentJob.Name, "pipeline", pipeline.Name)
-		passiveRequeue, err := setFailedConditionAndEvents(opts, state, pipeline)
-		if err != nil {
-			return passiveRequeue, err
+		phase = v1alpha1.WorkflowPhaseFailed
+		if opts.coreConfigure() {
+			resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
+			resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
 		}
-		// A workflow that keeps failing never reaches the cleanup at the end of this
-		// function, so without pruning here its Jobs grow without bound once the
-		// periodic reconcile retries failed runs. This reconciler is shared, so the
-		// pruning applies to promise and resource workflows alike; only resources
-		// retry on the interval today, so a failing promise workflow is pruned when
-		// it is re-run manually or by a spec change. Jobs only, not the full
-		// cleanup(): Works are left alone while the workflow has not completed.
-		return passiveRequeue, cleanupJobs(opts, opts.namespace)
+		opts.eventRecorder.Eventf(opts.parentObject, nil, v1.EventTypeWarning, resourceutil.ConfigureWorkflowCompletedFailedReason, resourceutil.ConfigureWorkflowCompletedFailedReason,
+			"A %s/%s Pipeline has failed: %s", opts.workflowType, pipeline.WorkflowAction, pipeline.Name)
 	}
-
-	return false, cleanup(opts, opts.namespace)
-}
-
-func setFailedConditionAndEvents(opts Opts, state *workflowState, pipeline v1alpha1.PipelineJobResources) (bool, error) {
-	if !opts.SkipConditions {
-		resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
-		resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
-
-		state.desiredPipelinePhase = v1alpha1.WorkflowPhaseFailed
-		state.desiredPipelineJob = state.mostRecentJob
-
-		if _, err := reconcileWorkflowStatus(opts, state); err != nil {
-			return false, err
+	if err := resourceutil.MarkCurrentPipelineAs(phase, opts.parentObject, opts.logger, state.mostRecentJob, opts.workflowKey()); err != nil {
+		return false, err
+	}
+	if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+		return false, err
+	}
+	if pipeline.WorkflowAction == v1alpha1.WorkflowActionDelete {
+		if phase == v1alpha1.WorkflowPhaseFailed {
+			return false, ErrDeletePipelineFailed
 		}
+		return false, cleanupJobs(opts, opts.namespace)
 	}
-	opts.eventRecorder.Eventf(opts.parentObject, nil, v1.EventTypeWarning, resourceutil.ConfigureWorkflowCompletedFailedReason, resourceutil.ConfigureWorkflowCompletedFailedReason, "A %s/configure Pipeline has failed: %s", opts.workflowType, pipeline.Name)
-	logging.Warn(opts.logger, "pipeline job failed; exiting workflow", "failedJob", state.mostRecentJob.Name, "pipeline", pipeline.Name)
-	return true, nil
+	return true, cleanupJobs(opts, opts.namespace)
 }
 
 func suspendJob(ctx context.Context, c client.Client, job *batchv1.Job) error {
@@ -430,10 +219,6 @@ func suspendJob(ctx context.Context, c client.Client, job *batchv1.Job) error {
 	patch := client.MergeFrom(job.DeepCopy())
 	job.Spec.Suspend = &trueBool
 	return c.Patch(ctx, job, patch)
-}
-
-func getLabelsForPipelineJob(pipeline v1alpha1.PipelineJobResources) map[string]string {
-	return pipeline.Job.DeepCopy().GetLabels()
 }
 
 func labelsForJobs(opts Opts) map[string]string {
@@ -448,20 +233,6 @@ func labelsForJobs(opts Opts) map[string]string {
 			// only set resource request namespace label when workflow running in different namespace from the resource requests
 			l[v1alpha1.ResourceNamespaceLabel] = opts.parentObject.GetNamespace()
 		}
-	}
-	l[v1alpha1.PromiseNameLabel] = promiseName
-	return l
-}
-
-// TODO: this part will be deprecated when we stop using the legacy labels
-func legacyLabelsForJobs(opts Opts) map[string]string {
-	l := map[string]string{
-		v1alpha1.WorkTypeLabel: opts.workflowType,
-	}
-	promiseName := opts.parentObject.GetName()
-	if opts.workflowType == v1alpha1.WorkTypeResource {
-		promiseName = opts.parentObject.GetLabels()[v1alpha1.PromiseNameLabel]
-		l[v1alpha1.ResourceNameLabel] = opts.parentObject.GetName()
 	}
 	l[v1alpha1.PromiseNameLabel] = promiseName
 	return l
@@ -507,26 +278,7 @@ func jobIsForPipeline(pipeline v1alpha1.PipelineJobResources, job *batchv1.Job) 
 		return false
 	}
 
-	if jobLabels[v1alpha1.KratixPipelineHashLabel] != pipelineLabels[v1alpha1.KratixPipelineHashLabel] {
-		return false
-	}
-
 	return jobLabels[v1alpha1.PipelineNameLabel] == pipelineLabels[v1alpha1.PipelineNameLabel]
-}
-
-// Bool indicates wether the job belongs to the pipeline, or is unrelated
-func jobToPipelineIndex(opts Opts, mostRecentJob *batchv1.Job) (int, bool) {
-	if mostRecentJob == nil || isManualReconciliation(opts.parentObject.GetLabels()) {
-		return 0, false
-	}
-
-	for i := 0; i < len(opts.Resources); i++ {
-		if jobIsForPipeline(opts.Resources[i], mostRecentJob) {
-			return i, true
-		}
-	}
-
-	return 0, false
 }
 
 func isFailed(job *batchv1.Job) bool {
@@ -535,15 +287,11 @@ func isFailed(job *batchv1.Job) bool {
 	}
 
 	for _, condition := range job.Status.Conditions {
-		if condition.Type == batchv1.JobFailed || condition.Type == batchv1.JobSuspended {
+		if condition.Status == v1.ConditionTrue && (condition.Type == batchv1.JobFailed || condition.Type == batchv1.JobSuspended) {
 			return true
 		}
 	}
 	return false
-}
-
-func isCompleted(job *batchv1.Job) bool {
-	return !isRunning(job) && !isFailed(job)
 }
 
 func isRunning(job *batchv1.Job) bool {
@@ -556,7 +304,7 @@ func isRunning(job *batchv1.Job) bool {
 	}
 
 	for _, condition := range job.Status.Conditions {
-		if condition.Type == batchv1.JobComplete || condition.Type == batchv1.JobSuspended || condition.Type == batchv1.JobFailed {
+		if condition.Status == v1.ConditionTrue && (condition.Type == batchv1.JobComplete || condition.Type == batchv1.JobSuspended || condition.Type == batchv1.JobFailed) {
 			return false
 		}
 	}
@@ -593,9 +341,7 @@ func cleanup(opts Opts, namespace string) error {
 	return nil
 }
 
-// cleanupJobs prunes the job history of every pipeline in the workflow. It runs
-// both when the workflow completes and when a pipeline fails, so that a workflow
-// that never succeeds still respects numberOfJobsToKeep.
+// cleanupJobs prunes finished Jobs for each pipeline.
 func cleanupJobs(opts Opts, namespace string) error {
 	for _, pipeline := range opts.Resources {
 		l := labelsForAllWorkflowJobs(pipeline)
@@ -629,6 +375,9 @@ func pruneJobs(opts Opts, jobsForPipeline []batchv1.Job) error {
 	// Delete all but the last n jobs; n defaults to 5 and can be configured by env var for the operator
 	for i := 0; i < len(jobsForPipeline)-opts.numberOfJobsToKeep; i++ {
 		job := jobsForPipeline[i]
+		if isRunning(&job) {
+			continue
+		}
 		logging.Debug(opts.logger,
 			"deleting old job",
 			"name", job.GetName(),
@@ -646,7 +395,7 @@ func pruneJobs(opts Opts, jobsForPipeline []batchv1.Job) error {
 	return nil
 }
 
-func createConfigurePipeline(opts Opts, state *workflowState, resources v1alpha1.PipelineJobResources) (passiveRequeue bool, err error) {
+func createPipeline(opts Opts, state *workflowState, resources v1alpha1.PipelineJobResources) (passiveRequeue bool, err error) {
 	logging.Info(opts.logger, "triggering pipeline", "workflowAction", resources.WorkflowAction)
 	var objectToDelete []client.Object
 	if objectToDelete, err = getObjectsToDelete(opts, resources); err != nil {
@@ -665,16 +414,26 @@ func createConfigurePipeline(opts Opts, state *workflowState, resources v1alpha1
 		}
 	}
 
-	if err = setPipelineStartingStatus(opts, state.pipelineIndex, opts.parentObject, resources.Job); err != nil {
+	if state.restart {
+		if err := resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.Resources, opts.workflowKey()); err != nil {
+			return false, err
+		}
+	}
+
+	if err = setPipelineStartingStatus(opts, opts.parentObject, resources.Job); err != nil {
 		return false, err
 	}
 
 	deleteResources(opts, objectToDelete...)
 	applyResources(opts, append(resources.GetObjects(), resources.Job)...)
 
-	opts.eventRecorder.Eventf(opts.parentObject, nil, "Normal", "PipelineStarted", "PipelineStarted", "Configure Pipeline started: %s", resources.Name)
+	action := "Configure"
+	if resources.WorkflowAction == v1alpha1.WorkflowActionDelete {
+		action = "Delete"
+	}
+	opts.eventRecorder.Eventf(opts.parentObject, nil, "Normal", "PipelineStarted", "PipelineStarted", "%s Pipeline started: %s", action, resources.Name)
 
-	return true, nil
+	return true, cleanupJobs(opts, opts.namespace)
 }
 
 func removeManualReconciliationLabel(opts Opts) error {
@@ -698,69 +457,16 @@ func removeLabel(opts Opts, labelKey string) error {
 	return nil
 }
 
-func setPipelineStartingStatus(opts Opts, pipelineIndex int, obj *unstructured.Unstructured, job *batchv1.Job) error {
-	if opts.SkipConditions {
-		return nil
-	}
-
-	var updated bool
-
-	currentMessage := resourceutil.GetStatus(obj, "message")
-	if currentMessage != "Pending" {
-		logging.Debug(opts.logger, "updating status message to Pending", "previousMessage", currentMessage)
+func setPipelineStartingStatus(opts Opts, obj *unstructured.Unstructured, job *batchv1.Job) error {
+	if opts.coreConfigure() {
 		resourceutil.SetStatus(obj, opts.logger, "message", "Pending")
-		updated = true
-	}
-
-	reconciled := resourceutil.GetCondition(obj, resourceutil.ReconciledCondition)
-	if reconciled == nil || reconciled.Status != v1.ConditionUnknown || reconciled.Reason != "WorkflowPending" {
-		logging.Debug(opts.logger, "updating Reconciled condition to WorkflowPending")
 		resourceutil.MarkReconciledPending(obj, "WorkflowPending")
-		updated = true
-	}
-
-	if shouldMarkConfigureWorkflowAsRunning(obj) {
-		logging.Debug(opts.logger, "marking ConfigureWorkflowCompleted as running")
 		resourceutil.MarkConfigureWorkflowAsRunning(opts.logger, obj)
-		updated = true
 	}
-
-	if resourceutil.GetCurrentPipelinePhase(obj, job) != v1alpha1.WorkflowPhaseRunning {
-		logging.Debug(opts.logger, "marking pipeline phase as Running", "pipelineIndex", pipelineIndex)
-		if err := resourceutil.MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseRunning, obj, opts.logger, job); err != nil {
-			return err
-		}
-		updated = true
+	if err := resourceutil.MarkCurrentPipelineAsRunning(obj, opts.logger, job, opts.workflowKey()); err != nil {
+		return err
 	}
-
-	if updated {
-		if err := opts.client.Status().Update(opts.ctx, obj); err != nil {
-			logging.Error(opts.logger, err, "failed to update object status")
-			return err
-		}
-	}
-	return nil
-}
-
-func shouldMarkConfigureWorkflowAsRunning(obj *unstructured.Unstructured) bool {
-	condition := resourceutil.GetCondition(obj, resourceutil.ConfigureWorkflowCompletedCondition)
-	if condition == nil {
-		return true
-	}
-	if condition.Status != v1.ConditionFalse {
-		return true
-	}
-	return condition.Reason != resourceutil.PipelinesInProgressReason
-}
-
-func getMostRecentDeletePipelineJob(opts Opts, namespace string, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {
-	labels := getLabelsForPipelineJob(pipeline)
-	jobs, err := getJobsWithLabels(opts, labels, namespace)
-	if err != nil || len(jobs) == 0 {
-		return nil, err
-	}
-	resourceutil.SortJobsByCreationDateTime(jobs, false)
-	return &jobs[0], nil
+	return opts.client.Status().Update(opts.ctx, obj)
 }
 
 func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {

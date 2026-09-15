@@ -182,7 +182,29 @@ type KratixPromiseStatus struct {
 	LastAvailableTime *metav1.Time `json:"lastAvailableTime,omitempty"`
 
 	// Status of the Workflow execution
-	Workflows WorkflowStatus `json:"workflows,omitempty"`
+	Workflows WorkflowStatuses `json:"workflows,omitempty"`
+}
+
+type WorkflowStatuses map[string]WorkflowStatus
+
+func (w *WorkflowStatuses) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	*w = WorkflowStatuses{}
+	for key, value := range fields {
+		// Old Promise workflow status is discarded; its workflows run once on upgrade.
+		if key == "pipelines" || key == "suspendedGeneration" || key == "lastSuccessfulConfigureWorkflowTime" {
+			continue
+		}
+		var status WorkflowStatus
+		if err := json.Unmarshal(value, &status); err != nil {
+			return err
+		}
+		(*w)[key] = status
+	}
+	return nil
 }
 
 type WorkflowStatus struct {
@@ -190,12 +212,14 @@ type WorkflowStatus struct {
 	Pipelines []WorkflowPipelineStatus `json:"pipelines,omitempty"`
 
 	// Generation at which the workflow was suspended
-	SuspendedGeneration int64 `json:"suspendedGeneration,omitempty"`
+	SuspendedGeneration                 int64  `json:"suspendedGeneration,omitempty"`
+	LastSuccessfulConfigureWorkflowTime string `json:"lastSuccessfulConfigureWorkflowTime,omitempty"`
 }
 
 type WorkflowPipelineStatus struct {
 	// Name of the workflow
 	Name string `json:"name,omitempty"`
+	Hash string `json:"hash,omitempty"`
 
 	// Phase of the workflow
 	Phase string `json:"phase,omitempty"`
@@ -529,9 +553,8 @@ const (
 )
 
 func (p *Promise) ClearPipelineExecutionStatus() bool {
-	changed := len(p.Status.Kratix.Workflows.Pipelines) != 0
-
-	p.Status.Kratix.Workflows.Pipelines = nil
+	changed := len(p.Status.Kratix.Workflows["configure"].Pipelines) != 0
+	delete(p.Status.Kratix.Workflows, "configure")
 	return changed
 }
 

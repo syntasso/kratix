@@ -417,20 +417,20 @@ var _ = Describe("Conditions", func() {
 				rr.SetKind("Redis")
 				rr.Object["status"] = map[string]interface{}{
 					"kratix": map[string]interface{}{
-						"workflows": map[string]interface{}{
+						"workflows": map[string]interface{}{"configure": map[string]interface{}{
 							"pipelines": []interface{}{
 								map[string]interface{}{
 									"name":  "first-pipeline",
 									"phase": v1alpha1.WorkflowPhasePending,
 								},
 							},
-						},
+						}},
 					},
 				}
 
 				pipelines = []v1alpha1.PipelineJobResources{
-					{Name: "first-pipeline"},
-					{Name: "second-pipeline"},
+					{Name: "first-pipeline", Job: &batchv1.Job{}},
+					{Name: "second-pipeline", Job: &batchv1.Job{}},
 				}
 
 				job = &batchv1.Job{
@@ -444,10 +444,10 @@ var _ = Describe("Conditions", func() {
 			})
 
 			It("marks the current pipeline as succeeded for a resource request", func() {
-				err := resourceutil.MarkCurrentPipelineAsSucceeded(rr, logger, job)
+				err := resourceutil.MarkCurrentPipelineAsSucceeded(rr, logger, job, "configure")
 				Expect(err).NotTo(HaveOccurred())
 
-				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
+				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "configure", "pipelines")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(found).To(BeTrue())
 				Expect(workflows).To(HaveLen(1))
@@ -458,10 +458,10 @@ var _ = Describe("Conditions", func() {
 			})
 
 			It("marks the current pipeline with an explicit phase for a resource request", func() {
-				err := resourceutil.MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseFailed, rr, logger, job)
+				err := resourceutil.MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseFailed, rr, logger, job, "configure")
 				Expect(err).NotTo(HaveOccurred())
 
-				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
+				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "configure", "pipelines")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(found).To(BeTrue())
 				Expect(workflows).To(HaveLen(1))
@@ -474,16 +474,16 @@ var _ = Describe("Conditions", func() {
 			It("resets resource request pipelines to pending", func() {
 				rr.Object["status"] = map[string]any{
 					"kratix": map[string]any{
-						"workflows": map[string]any{
+						"workflows": map[string]any{"configure": map[string]any{
 							"suspendedGeneration": int64(2),
-						},
+						}},
 					},
 				}
 
-				err := resourceutil.ResetPipelineStatusToPending(rr, pipelines)
+				err := resourceutil.ResetPipelineStatusToPending(rr, pipelines, "configure")
 				Expect(err).NotTo(HaveOccurred())
 
-				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
+				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "configure", "pipelines")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(found).To(BeTrue())
 				Expect(workflows).To(HaveLen(2))
@@ -497,7 +497,7 @@ var _ = Describe("Conditions", func() {
 					HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
 					HaveKeyWithValue("lastTransitionTime", Not(BeNil())),
 				))
-				_, found, err = unstructured.NestedInt64(rr.Object, "status", "kratix", "workflows", "suspendedGeneration")
+				_, found, err = unstructured.NestedInt64(rr.Object, "status", "kratix", "workflows", "configure", "suspendedGeneration")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(found).To(BeFalse())
 			})
@@ -505,16 +505,16 @@ var _ = Describe("Conditions", func() {
 			It("finds the index of a pipeline with the requested phase", func() {
 				rr.Object["status"] = map[string]any{
 					"kratix": map[string]any{
-						"workflows": map[string]any{
+						"workflows": map[string]any{"configure": map[string]any{
 							"pipelines": []any{
 								map[string]any{"name": "first-pipeline", "phase": v1alpha1.WorkflowPhaseSucceeded},
 								map[string]any{"name": "second-pipeline", "phase": "Suspended"},
 							},
-						},
+						}},
 					},
 				}
 
-				index, err := resourceutil.GetSuspendedPipelineIndex(rr)
+				index, err := resourceutil.GetSuspendedPipelineIndex(rr, "configure")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(index).To(Equal(1))
 			})

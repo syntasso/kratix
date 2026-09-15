@@ -243,18 +243,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	if updated, err := r.ensureConfigureWorkflowStatus(ctx, rr, pipelineResources); updated || err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(ctx, logger, rr,
-		pipelineResources); passiveRequeue || requeueResult != nil || err != nil {
-		if requeueResult != nil {
-			return *requeueResult, err
-		}
-		return ctrl.Result{}, err
-	}
-
 	namespace := rr.GetNamespace()
 	if promise.WorkflowPipelineNamespaceSet() {
 		namespace = promise.Spec.Workflows.Config.PipelineNamespace
@@ -270,6 +258,22 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		r.NumberOfJobsToKeep,
 		namespace,
 	)
+
+	if migrated, err := workflow.MigrateStatus(jobOpts); migrated || err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if updated, err := r.ensureConfigureWorkflowStatus(ctx, rr, pipelineResources); updated || err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(ctx, logger, rr,
+		pipelineResources); passiveRequeue || requeueResult != nil || err != nil {
+		if requeueResult != nil {
+			return *requeueResult, err
+		}
+		return ctrl.Result{}, err
+	}
 
 	passiveRequeue, err := reconcileConfigure(jobOpts)
 	if err != nil {
@@ -754,8 +758,13 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 		return false, nil, nil
 	}
 
-	resourceSpecChanged := resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration") != 0 &&
-		rr.GetGeneration() > resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration")
+	workflowKey := "configure"
+	if !rr.GetDeletionTimestamp().IsZero() {
+		workflowKey = "delete"
+	}
+	suspendedGeneration, _, _ := unstructured.NestedInt64(rr.Object, "status", "kratix", "workflows", workflowKey, "suspendedGeneration")
+	resourceSpecChanged := suspendedGeneration != 0 &&
+		rr.GetGeneration() > suspendedGeneration
 
 	if isManualReconcile(rr) || resourceSpecChanged {
 		if resourceSpecChanged {
@@ -777,7 +786,7 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(rr), updatedRR); err != nil {
 			return true, nil, err
 		}
-		if err := resourceutil.ResetPipelineStatusToPending(updatedRR, pipelineResources); err != nil {
+		if err := resourceutil.ResetPipelineStatusToPending(updatedRR, pipelineResources, workflowKey); err != nil {
 			return true, nil, err
 		}
 		return true, nil, r.Client.Status().Update(ctx, updatedRR)
@@ -1159,19 +1168,19 @@ func removeWorkflowCounters(rr *unstructured.Unstructured) bool {
 }
 
 func ensureRRKratixWorkflowStatusIsSetup(rr *unstructured.Unstructured, pipelines []v1alpha1.PipelineJobResources) (bool, error) {
-	existingPipelines, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
+	existingPipelines, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "configure", "pipelines")
 	if err != nil {
 		return false, err
 	}
 
 	if !found || len(existingPipelines) != len(pipelines) {
-		return true, resourceutil.ResetPipelineStatusToPending(rr, pipelines)
+		return true, resourceutil.ResetPipelineStatusToPending(rr, pipelines, "configure")
 	}
 
 	for i, pipeline := range pipelines {
 		pipelineStatus, ok := existingPipelines[i].(map[string]any)
 		if !ok || pipelineStatus["name"] != pipeline.Name {
-			return true, resourceutil.ResetPipelineStatusToPending(rr, pipelines)
+			return true, resourceutil.ResetPipelineStatusToPending(rr, pipelines, "configure")
 		}
 	}
 
@@ -1197,11 +1206,15 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 			return ctrl.Result{}, err
 		}
 
+		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
+		if migrated, err := workflow.MigrateStatus(jobOpts); migrated || err != nil {
+			return ctrl.Result{}, err
+		}
+
 		if handled, result, err := r.handleSuspendedDeleteWorkflow(o, resourceRequest, pipelineResources); handled {
 			return result, err
 		}
 
-		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
 			r.handleDeletePipelineFailure(o, promise, resourceRequest, err)
@@ -1765,7 +1778,11 @@ func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clust
 }
 
 func nextRetryAtForResource(rr *unstructured.Unstructured) (time.Time, error) {
-	pipelines, err := resourceutil.GetResourceRequestStatusPipelines(rr)
+	workflowKey := "configure"
+	if !rr.GetDeletionTimestamp().IsZero() {
+		workflowKey = "delete"
+	}
+	pipelines, err := resourceutil.GetResourceRequestStatusPipelines(rr, workflowKey)
 	if err != nil {
 		return time.Time{}, err
 	}
