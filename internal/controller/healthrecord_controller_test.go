@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -431,6 +432,63 @@ var _ = Describe("HealthRecordController", func() {
 			err = fakeK8sClient.Get(ctx, healthRecordName, record)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("not found"))
+		})
+	})
+
+	When("two healthRecords for the same resource are deleted together", func() {
+		var second *v1alpha1.HealthRecord
+		var firstName, secondName types.NamespacedName
+
+		BeforeEach(func() {
+			second = &v1alpha1.HealthRecord{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: v1alpha1.GroupVersion.String(),
+					Kind:       "HealthRecord",
+				},
+				ObjectMeta: metav1.ObjectMeta{Name: "another-name", Namespace: "default"},
+				Data: v1alpha1.HealthRecordData{
+					PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
+					ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
+					State:       "ready",
+					LastRun:     now,
+					Details:     details,
+				},
+			}
+			Expect(fakeK8sClient.Create(ctx, second)).To(Succeed())
+
+			// Both listed on the resource, each carrying the finalizer.
+			_, err := t.reconcileUntilCompletion(reconciler, healthRecord)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = t.reconcileUntilCompletion(reconciler, second)
+			Expect(err).NotTo(HaveOccurred())
+
+			firstName = types.NamespacedName{Name: healthRecord.GetName(), Namespace: healthRecord.GetNamespace()}
+			secondName = types.NamespacedName{Name: second.GetName(), Namespace: second.GetNamespace()}
+
+			Expect(fakeK8sClient.Get(ctx, firstName, healthRecord)).To(Succeed())
+			Expect(fakeK8sClient.Get(ctx, secondName, second)).To(Succeed())
+			Expect(fakeK8sClient.Delete(ctx, healthRecord)).To(Succeed())
+			Expect(fakeK8sClient.Delete(ctx, second)).To(Succeed())
+		})
+
+		// Alternating single passes, not one record to completion: completing
+		// one tidies up before the other starts, which hides the bug.
+		It("removes both finalizers rather than each re-adding the other", func() {
+			gone := func(name types.NamespacedName) bool {
+				return apierrors.IsNotFound(fakeK8sClient.Get(ctx, name, &v1alpha1.HealthRecord{}))
+			}
+
+			Eventually(func(g Gomega) {
+				for _, name := range []types.NamespacedName{firstName, secondName} {
+					if gone(name) {
+						continue
+					}
+					_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: name})
+					g.Expect(err).NotTo(HaveOccurred())
+				}
+				g.Expect(gone(firstName)).To(BeTrue(), "the first record never lost its finalizer")
+				g.Expect(gone(secondName)).To(BeTrue(), "the second record never lost its finalizer")
+			}).Should(Succeed())
 		})
 	})
 
