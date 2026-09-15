@@ -92,108 +92,218 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 	return reconcileWorkflow(opts)
 }
 
-type workflowState struct {
-	pipelineIndex   int
-	phase           string
-	currentJob      *batchv1.Job
-	runningJob      *batchv1.Job
-	restart         bool
+// pipelineStatus is one entry from status.kratix.workflows.<key>.pipelines.
+type pipelineStatus struct {
+	name  string
+	phase string
+	// hash stays an any so that a missing hash is still different from an empty
+	// one, which is how the comparison against the Job label has always behaved.
+	hash any
+	job  string
+}
+
+// workflowProgress is everything read from the cluster before deciding what to do
+// next. It holds plain values only, so decideNextAction needs no client.
+type workflowProgress struct {
+	pipelines []pipelineStatus
+	// malformedStatus is true when a status entry could not be read, which means
+	// status cannot be trusted and the workflow has to start again.
+	malformedStatus bool
+	// jobs are all Jobs for the parent object. They span every pipeline, both
+	// workflow actions, and earlier runs.
+	jobs            []batchv1.Job
 	manualReconcile bool
+	runFromStart    bool
+	paused          bool
+}
+
+type nextAction string
+
+const (
+	waitForRunningJob   nextAction = "waitForRunningJob"
+	suspendRunningJob   nextAction = "suspendRunningJob"
+	stayPaused          nextAction = "stayPaused"
+	finishWorkflow      nextAction = "finishWorkflow"
+	failCurrentPipeline nextAction = "failCurrentPipeline"
+	recordFinishedJob   nextAction = "recordFinishedJob"
+	startPipeline       nextAction = "startPipeline"
+)
+
+// workflowDecision is the one thing reconcileWorkflow should do this pass. Only the
+// fields named against each action are set; the rest stay nil or false.
+type workflowDecision struct {
+	action nextAction
+	// pipeline is set for failCurrentPipeline, recordFinishedJob and startPipeline.
+	pipeline *v1alpha1.PipelineJobResources
+	// jobToSuspend is set for suspendRunningJob only.
+	jobToSuspend *batchv1.Job
+	// jobToRecord is set for recordFinishedJob only. It has always finished,
+	// because that action is only chosen when no Job is running.
+	jobToRecord *batchv1.Job
+	// restart is set for startPipeline only, when every pipeline starts again.
+	restart bool
 }
 
 func reconcileWorkflow(opts Opts) (bool, error) {
 	if migrated, err := MigrateStatus(opts); migrated || err != nil {
 		return migrated, err
 	}
-	state, err := determineWorkflowState(opts)
+	progress, err := readWorkflowProgress(opts)
 	if err != nil {
 		return false, err
 	}
-	if state.runningJob != nil {
-		if state.manualReconcile {
-			return true, suspendJob(opts.ctx, opts.client, state.runningJob)
-		}
+
+	decision := decideNextAction(opts, progress)
+	switch decision.action {
+	case waitForRunningJob, stayPaused:
 		return true, nil
-	}
-	if state.pipelineIndex == len(opts.Resources) {
+	case suspendRunningJob:
+		return true, suspendJob(opts.ctx, opts.client, decision.jobToSuspend)
+	case finishWorkflow:
 		if opts.Resources[0].WorkflowAction == v1alpha1.WorkflowActionDelete {
 			return false, cleanupJobs(opts, opts.namespace)
 		}
 		return false, cleanup(opts, opts.namespace)
-	}
-	if opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true" && !state.restart {
-		return true, nil
-	}
-	return executeReconcileAction(opts, state, opts.Resources[state.pipelineIndex])
-}
-
-func determineWorkflowState(opts Opts) (*workflowState, error) {
-	pipelines, _, err := unstructured.NestedSlice(opts.parentObject.Object,
-		"status", "kratix", "workflows", opts.workflowKey(), "pipelines")
-	if err != nil {
-		return nil, err
-	}
-	state := &workflowState{
-		pipelineIndex:   len(opts.Resources),
-		manualReconcile: isManualReconciliation(opts.parentObject.GetLabels()),
-	}
-	state.restart = state.manualReconcile || isWorkflowRestart(opts.parentObject.GetLabels()) || len(pipelines) != len(opts.Resources)
-	var jobName string
-	if !state.restart {
-		for i, resource := range opts.Resources {
-			pipeline, ok := pipelines[i].(map[string]any)
-			if !ok || pipeline["name"] != resource.Name ||
-				(pipeline["phase"] != v1alpha1.WorkflowPhasePending && pipeline["hash"] != resource.Job.Labels[v1alpha1.KratixResourceHashLabel]) {
-				state.restart = true
-				break
-			}
-			if state.pipelineIndex == len(opts.Resources) && pipeline["phase"] != v1alpha1.WorkflowPhaseSucceeded {
-				state.pipelineIndex = i
-				state.phase, _ = pipeline["phase"].(string)
-				jobName, _ = pipeline["job"].(string)
-			}
-		}
-	}
-	if state.restart {
-		state.pipelineIndex = 0
-		state.phase = v1alpha1.WorkflowPhasePending
-		jobName = ""
-	}
-
-	jobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
-	if err != nil {
-		return nil, err
-	}
-	for i := range jobs {
-		job := &jobs[i]
-		if isRunning(job) && state.runningJob == nil {
-			state.runningJob = job
-		}
-		if job.Name == jobName {
-			state.currentJob = job
-		}
-	}
-	return state, nil
-}
-
-func executeReconcileAction(opts Opts, state *workflowState, pipeline v1alpha1.PipelineJobResources) (bool, error) {
-	if !state.restart && state.phase == v1alpha1.WorkflowPhaseFailed {
-		if pipeline.WorkflowAction == v1alpha1.WorkflowActionDelete {
+	case failCurrentPipeline:
+		if decision.pipeline.WorkflowAction == v1alpha1.WorkflowActionDelete {
 			return false, ErrDeletePipelineFailed
 		}
 		return true, cleanupJobs(opts, opts.namespace)
+	case recordFinishedJob:
+		return recordFinishedPipelineJob(opts, decision)
+	case startPipeline:
+		return createPipeline(opts, decision)
 	}
-	if !state.restart && state.phase == v1alpha1.WorkflowPhaseRunning && state.currentJob != nil {
-		return handleCurrentPipelineJob(opts, state, pipeline)
-	}
-
-	return createPipeline(opts, state, pipeline)
+	return false, fmt.Errorf("unhandled workflow decision %q", decision.action)
 }
 
-func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1.PipelineJobResources) (bool, error) {
+// readWorkflowProgress does all of the reading. It makes no decisions.
+func readWorkflowProgress(opts Opts) (workflowProgress, error) {
+	entries, _, err := unstructured.NestedSlice(opts.parentObject.Object,
+		"status", "kratix", "workflows", opts.workflowKey(), "pipelines")
+	if err != nil {
+		return workflowProgress{}, err
+	}
+
+	parentLabels := opts.parentObject.GetLabels()
+	progress := workflowProgress{
+		pipelines:       make([]pipelineStatus, 0, len(entries)),
+		manualReconcile: isManualReconciliation(parentLabels),
+		runFromStart:    isWorkflowRestart(parentLabels),
+		paused:          workflowIsPaused(opts.parentObject),
+	}
+	for _, entry := range entries {
+		fields, ok := entry.(map[string]any)
+		if !ok {
+			progress.malformedStatus = true
+			progress.pipelines = append(progress.pipelines, pipelineStatus{})
+			continue
+		}
+		pipeline := pipelineStatus{hash: fields["hash"]}
+		pipeline.name, _ = fields["name"].(string)
+		pipeline.phase, _ = fields["phase"].(string)
+		pipeline.job, _ = fields["job"].(string)
+		progress.pipelines = append(progress.pipelines, pipeline)
+	}
+
+	if progress.jobs, err = getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace); err != nil {
+		return workflowProgress{}, err
+	}
+	return progress, nil
+}
+
+// decideNextAction picks the single next action from what was read. It is pure, so
+// the whole state machine can be read in one place.
+func decideNextAction(opts Opts, progress workflowProgress) workflowDecision {
+	// Never start anything while a Job is still going. That Job may belong to a
+	// different pipeline, a different workflow action, or an earlier run.
+	if runningJob := firstUnfinishedJob(progress.jobs); runningJob != nil {
+		if progress.manualReconcile {
+			return workflowDecision{action: suspendRunningJob, jobToSuspend: runningJob}
+		}
+		return workflowDecision{action: waitForRunningJob}
+	}
+
+	if progress.manualReconcile || progress.runFromStart || !statusMatchesPipelines(progress, opts.Resources) {
+		return workflowDecision{action: startPipeline, pipeline: &opts.Resources[0], restart: true}
+	}
+
+	index, found := firstUnfinishedPipeline(progress.pipelines)
+	if !found {
+		return workflowDecision{action: finishWorkflow}
+	}
+	if progress.paused {
+		return workflowDecision{action: stayPaused}
+	}
+
+	pipeline := &opts.Resources[index]
+	status := progress.pipelines[index]
+
+	if status.phase == v1alpha1.WorkflowPhaseFailed {
+		return workflowDecision{action: failCurrentPipeline, pipeline: pipeline}
+	}
+	if status.phase == v1alpha1.WorkflowPhaseRunning {
+		if job := findJobByName(progress.jobs, status.job); job != nil {
+			return workflowDecision{action: recordFinishedJob, pipeline: pipeline, jobToRecord: job}
+		}
+	}
+	return workflowDecision{action: startPipeline, pipeline: pipeline}
+}
+
+// statusMatchesPipelines reports whether status still describes the pipelines we
+// were given. A pipeline that has not started yet is allowed a stale hash.
+func statusMatchesPipelines(progress workflowProgress, resources []v1alpha1.PipelineJobResources) bool {
+	if progress.malformedStatus || len(progress.pipelines) != len(resources) {
+		return false
+	}
+	for i, resource := range resources {
+		pipeline := progress.pipelines[i]
+		if pipeline.name != resource.Name {
+			return false
+		}
+		if pipeline.phase != v1alpha1.WorkflowPhasePending &&
+			pipeline.hash != resource.Job.Labels[v1alpha1.KratixResourceHashLabel] {
+			return false
+		}
+	}
+	return true
+}
+
+func firstUnfinishedPipeline(pipelines []pipelineStatus) (int, bool) {
+	for i, pipeline := range pipelines {
+		if pipeline.phase != v1alpha1.WorkflowPhaseSucceeded {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func firstUnfinishedJob(jobs []batchv1.Job) *batchv1.Job {
+	for i := range jobs {
+		if isRunning(&jobs[i]) {
+			return &jobs[i]
+		}
+	}
+	return nil
+}
+
+func findJobByName(jobs []batchv1.Job, name string) *batchv1.Job {
+	if name == "" {
+		return nil
+	}
+	for i := range jobs {
+		if jobs[i].Name == name {
+			return &jobs[i]
+		}
+	}
+	return nil
+}
+
+func recordFinishedPipelineJob(opts Opts, decision workflowDecision) (bool, error) {
+	pipeline := *decision.pipeline
 	patch := client.MergeFromWithOptions(opts.parentObject.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	phase := v1alpha1.WorkflowPhaseSucceeded
-	if isFailed(state.currentJob) {
+	if isFailed(decision.jobToRecord) {
 		phase = v1alpha1.WorkflowPhaseFailed
 		if opts.coreConfigure() {
 			resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
@@ -202,7 +312,7 @@ func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1
 		opts.eventRecorder.Eventf(opts.parentObject, nil, v1.EventTypeWarning, resourceutil.ConfigureWorkflowCompletedFailedReason, resourceutil.ConfigureWorkflowCompletedFailedReason,
 			"A %s/%s Pipeline has failed: %s", opts.workflowType, pipeline.WorkflowAction, pipeline.Name)
 	}
-	if err := resourceutil.MarkCurrentPipelineAs(phase, opts.parentObject, opts.logger, state.currentJob, opts.workflowKey()); err != nil {
+	if err := resourceutil.MarkCurrentPipelineAs(phase, opts.parentObject, opts.logger, decision.jobToRecord, opts.workflowKey()); err != nil {
 		return false, err
 	}
 	if err := opts.client.Status().Patch(opts.ctx, opts.parentObject, patch); err != nil {
@@ -375,7 +485,8 @@ func pruneJobs(opts Opts, jobsForPipeline []batchv1.Job) error {
 	return nil
 }
 
-func createPipeline(opts Opts, state *workflowState, resources v1alpha1.PipelineJobResources) (passiveRequeue bool, err error) {
+func createPipeline(opts Opts, decision workflowDecision) (passiveRequeue bool, err error) {
+	resources := *decision.pipeline
 	logging.Info(opts.logger, "triggering pipeline", "workflowAction", resources.WorkflowAction)
 	var objectToDelete []client.Object
 	if objectToDelete, err = getObjectsToDelete(opts, resources); err != nil {
@@ -394,7 +505,7 @@ func createPipeline(opts Opts, state *workflowState, resources v1alpha1.Pipeline
 		}
 	}
 
-	if state.restart {
+	if decision.restart {
 		if err := resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.Resources, opts.workflowKey()); err != nil {
 			return false, err
 		}
@@ -469,6 +580,10 @@ func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string)
 		return nil, err
 	}
 	return jobs.Items, nil
+}
+
+func workflowIsPaused(parentObject *unstructured.Unstructured) bool {
+	return parentObject.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true"
 }
 
 func isManualReconciliation(labels map[string]string) bool {
