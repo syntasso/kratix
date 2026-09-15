@@ -220,6 +220,7 @@ type WorkflowPipelineStatus struct {
 	// Name of the workflow
 	Name string `json:"name,omitempty"`
 	Hash string `json:"hash,omitempty"`
+	Job  string `json:"job,omitempty"`
 
 	// Phase of the workflow
 	Phase string `json:"phase,omitempty"`

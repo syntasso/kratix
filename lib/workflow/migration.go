@@ -35,6 +35,7 @@ func MigrateStatus(opts Opts) (bool, error) {
 		for _, job := range jobs {
 			if job.Labels[v1alpha1.WorkflowActionLabel] == key && pipeline["name"] == job.Labels[v1alpha1.PipelineNameLabel] {
 				pipeline["hash"] = job.Labels[v1alpha1.KratixResourceHashLabel]
+				pipeline["job"] = job.Name
 				break
 			}
 		}

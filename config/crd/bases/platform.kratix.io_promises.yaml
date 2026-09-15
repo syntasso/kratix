@@ -270,6 +270,8 @@ spec:
                                 type: integer
                               hash:
                                 type: string
+                              job:
+                                type: string
                               lastTransitionTime:
                                 description: Last transition time of the workflow
                                 format: date-time

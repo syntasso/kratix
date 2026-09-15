@@ -95,7 +95,7 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 type workflowState struct {
 	pipelineIndex   int
 	phase           string
-	mostRecentJob   *batchv1.Job
+	currentJob      *batchv1.Job
 	runningJob      *batchv1.Job
 	restart         bool
 	manualReconcile bool
@@ -138,6 +138,7 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 		manualReconcile: isManualReconciliation(opts.parentObject.GetLabels()),
 	}
 	state.restart = state.manualReconcile || isWorkflowRestart(opts.parentObject.GetLabels()) || len(pipelines) != len(opts.Resources)
+	var jobName string
 	if !state.restart {
 		for i, resource := range opts.Resources {
 			pipeline, ok := pipelines[i].(map[string]any)
@@ -149,26 +150,27 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 			if state.pipelineIndex == len(opts.Resources) && pipeline["phase"] != v1alpha1.WorkflowPhaseSucceeded {
 				state.pipelineIndex = i
 				state.phase, _ = pipeline["phase"].(string)
+				jobName, _ = pipeline["job"].(string)
 			}
 		}
 	}
 	if state.restart {
 		state.pipelineIndex = 0
 		state.phase = v1alpha1.WorkflowPhasePending
+		jobName = ""
 	}
 
 	jobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
 	if err != nil {
 		return nil, err
 	}
-	resourceutil.SortJobsByCreationDateTime(jobs, false)
 	for i := range jobs {
 		job := &jobs[i]
 		if isRunning(job) && state.runningJob == nil {
 			state.runningJob = job
 		}
-		if state.pipelineIndex < len(opts.Resources) && state.mostRecentJob == nil && jobIsForPipeline(opts.Resources[state.pipelineIndex], job) {
-			state.mostRecentJob = job
+		if job.Name == jobName {
+			state.currentJob = job
 		}
 	}
 	return state, nil
@@ -181,7 +183,7 @@ func executeReconcileAction(opts Opts, state *workflowState, pipeline v1alpha1.P
 		}
 		return true, cleanupJobs(opts, opts.namespace)
 	}
-	if !state.restart && state.phase == v1alpha1.WorkflowPhaseRunning && state.mostRecentJob != nil {
+	if !state.restart && state.phase == v1alpha1.WorkflowPhaseRunning && state.currentJob != nil {
 		return handleCurrentPipelineJob(opts, state, pipeline)
 	}
 
@@ -189,8 +191,9 @@ func executeReconcileAction(opts Opts, state *workflowState, pipeline v1alpha1.P
 }
 
 func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1.PipelineJobResources) (bool, error) {
+	patch := client.MergeFromWithOptions(opts.parentObject.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	phase := v1alpha1.WorkflowPhaseSucceeded
-	if isFailed(state.mostRecentJob) {
+	if isFailed(state.currentJob) {
 		phase = v1alpha1.WorkflowPhaseFailed
 		if opts.coreConfigure() {
 			resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
@@ -199,10 +202,10 @@ func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1
 		opts.eventRecorder.Eventf(opts.parentObject, nil, v1.EventTypeWarning, resourceutil.ConfigureWorkflowCompletedFailedReason, resourceutil.ConfigureWorkflowCompletedFailedReason,
 			"A %s/%s Pipeline has failed: %s", opts.workflowType, pipeline.WorkflowAction, pipeline.Name)
 	}
-	if err := resourceutil.MarkCurrentPipelineAs(phase, opts.parentObject, opts.logger, state.mostRecentJob, opts.workflowKey()); err != nil {
+	if err := resourceutil.MarkCurrentPipelineAs(phase, opts.parentObject, opts.logger, state.currentJob, opts.workflowKey()); err != nil {
 		return false, err
 	}
-	if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+	if err := opts.client.Status().Patch(opts.ctx, opts.parentObject, patch); err != nil {
 		return false, err
 	}
 	if pipeline.WorkflowAction == v1alpha1.WorkflowActionDelete {
@@ -256,29 +259,6 @@ func labelsForAllWorkflowJobs(pipeline v1alpha1.PipelineJobResources) map[string
 		labels[v1alpha1.WorkflowTypeLabel] = pipelineLabels[v1alpha1.WorkflowTypeLabel]
 	}
 	return labels
-}
-
-func jobIsForPipeline(pipeline v1alpha1.PipelineJobResources, job *batchv1.Job) bool {
-	if job == nil {
-		return false
-	}
-
-	jobLabels := job.GetLabels()
-	pipelineLabels := pipeline.Job.GetLabels()
-
-	if jobLabels[v1alpha1.KratixResourceHashLabel] != pipelineLabels[v1alpha1.KratixResourceHashLabel] {
-		return false
-	}
-
-	if jobLabels[v1alpha1.WorkflowTypeLabel] != pipelineLabels[v1alpha1.WorkflowTypeLabel] {
-		return false
-	}
-
-	if jobLabels[v1alpha1.WorkflowActionLabel] != pipelineLabels[v1alpha1.WorkflowActionLabel] {
-		return false
-	}
-
-	return jobLabels[v1alpha1.PipelineNameLabel] == pipelineLabels[v1alpha1.PipelineNameLabel]
 }
 
 func isFailed(job *batchv1.Job) bool {

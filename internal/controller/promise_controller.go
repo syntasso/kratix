@@ -2109,6 +2109,7 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 													Type: "string",
 												},
 												"hash": {Type: "string"},
+												"job":  {Type: "string"},
 												"phase": {
 													Type: "string",
 												},

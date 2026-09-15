@@ -167,10 +167,49 @@ var _ = Describe("Workflow Reconciler", func() {
 			Entry("advances past a succeeded pipeline", 1, "Pending", "", 1),
 			Entry("recreates a missing running Job", 1, "Running", "", 1),
 			Entry("waits for the running Job", 1, "Running", "running Job", 1),
+			Entry("restarts after a spec change during a run", 1, "Running", "spec", 0),
+			Entry("restarts after a spec change following failure", 1, "Failed", "spec", 0),
 			Entry("restarts after a spec change", 2, "", "spec", 0),
 			Entry("restarts after the reconciliation interval", 2, "", "interval", 0),
 			Entry("stays completed without a new run", 2, "", "", -1),
 			Entry("preserves failure until a new run", 1, "Failed", "", -1),
+		)
+
+		DescribeTable("recreates the current run even when an earlier Job remains", func(action v1alpha1.Action, failed bool) {
+			resource, err := pipelines[0].ForPromise(&promise, action).Resources(nil)
+			Expect(err).NotTo(HaveOccurred())
+			resources := []v1alpha1.PipelineJobResources{resource}
+			key := string(action)
+			reconcileWorkflow := workflow.ReconcileConfigure
+			if action == v1alpha1.WorkflowActionDelete {
+				reconcileWorkflow = workflow.ReconcileDelete
+			}
+			Expect(fakeK8sClient.Create(ctx, resource.Job)).To(Succeed())
+			if failed {
+				markJobAsFailed(resource.Job.Name)
+			} else {
+				markJobAsComplete(resource.Job.Name)
+			}
+			resetWorkflowPipelineJobs(resources)
+			Expect(resourceutil.ResetPipelineStatusToPending(uPromise, resources, key)).To(Succeed())
+			Expect(resourceutil.MarkCurrentPipelineAsRunning(uPromise, logger, resource.Job, key)).To(Succeed())
+			Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
+			resetWorkflowPipelineJobs(resources)
+			opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, resources, "promise", 5, namespace)
+			requeue, err := reconcileWorkflow(opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(requeue).To(BeTrue())
+			Expect(listJobs(namespace)).To(HaveLen(2))
+			Expect(resourceutil.GetCurrentPipelinePhase(uPromise, resource.Job, key)).To(Equal(v1alpha1.WorkflowPhaseRunning))
+			markJobAsComplete(resource.Job.Name)
+			_, err = reconcileWorkflow(opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resourceutil.GetCurrentPipelinePhase(uPromise, resource.Job, key)).To(Equal(v1alpha1.WorkflowPhaseSucceeded))
+		},
+			Entry("configure with an earlier success", v1alpha1.WorkflowActionConfigure, false),
+			Entry("configure with an earlier failure", v1alpha1.WorkflowActionConfigure, true),
+			Entry("delete with an earlier success", v1alpha1.WorkflowActionDelete, false),
+			Entry("delete with an earlier failure", v1alpha1.WorkflowActionDelete, true),
 		)
 
 		DescribeTable("migrates recorded progress", func(retainJob bool, expectedPipeline int) {
@@ -225,10 +264,24 @@ var _ = Describe("Workflow Reconciler", func() {
 				_, err := reconcileWorkflow(opts)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(listJobs(namespace)).To(ConsistOf(HaveField("Name", resource.Job.Name)))
-				markJobAsComplete(resource.Job.Name)
+				jobName := resource.Job.Name
+				resetWorkflowPipelineJobs(resources)
+				_, err = reconcileWorkflow(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(listJobs(namespace)).To(ConsistOf(HaveField("Name", jobName)))
+				markJobAsComplete(jobName)
+				latest := &v1alpha1.Promise{}
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), latest)).To(Succeed())
+				latest.Status.Message = "Pipeline output"
+				Expect(fakeK8sClient.Status().Update(ctx, latest)).To(Succeed())
+				_, err = reconcileWorkflow(opts)
+				Expect(apierrors.IsConflict(err)).To(BeTrue())
+				Expect(listJobs(namespace)).To(HaveLen(1))
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), uPromise)).To(Succeed())
 				_, err = reconcileWorkflow(opts)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(listJobs(namespace)).To(BeEmpty())
+				Expect(resourceutil.GetStatus(uPromise, "message")).To(Equal("Pipeline output"))
 			}
 			requeue, err := reconcileWorkflow(opts)
 			Expect(err).NotTo(HaveOccurred())
@@ -568,6 +621,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				BeforeEach(func() {
 					fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)
 					promise.Status.Kratix.Workflows["configure"].Pipelines[0].Phase = v1alpha1.WorkflowPhaseRunning
+					promise.Status.Kratix.Workflows["configure"].Pipelines[0].Job = workflowPipelines[0].Job.Name
 					Expect(fakeK8sClient.Status().Update(ctx, &promise)).To(Succeed())
 
 					uPromise, err := promise.ToUnstructured()

@@ -129,7 +129,7 @@ var _ = Describe("PromiseController", func() {
 						Expect(ok).To(BeTrue(), ".status.kratix.workflows.lastSuccessfulConfigureWorkflowTime did not exist. Spec %v", kratixWorkflows)
 						Expect(lastSuccessfulConfigureWorkflowTime.Type).To(Equal("string"))
 						pipelines, ok := kratixWorkflows.AdditionalProperties.Schema.Properties["pipelines"]
-						Expect(ok).To(BeTrue(), ".status.kratix.workflows.pipelines did not exist. Spec %v", kratixWorkflows)
+						Expect(ok).To(BeTrue(), ".status.kratix.workflows.configure.pipelines did not exist. Spec %v", kratixWorkflows)
 						Expect(pipelines.Type).To(Equal("array"))
 						Expect(pipelines.Items).NotTo(BeNil())
 						Expect(pipelines.Items.Schema).NotTo(BeNil())
@@ -2324,7 +2324,7 @@ var _ = Describe("PromiseController", func() {
 	})
 
 	Describe(".status", func() {
-		Describe(".kratix.workflows.pipelines", func() {
+		Describe(".kratix.workflows.configure.pipelines", func() {
 			BeforeEach(func() {
 				// create promise with multiple workflows
 				promise = createPromise(promiseWithWorkflowPath)
@@ -2346,7 +2346,7 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 				})
 
-				It("removes .kratix.workflows.pipelines", func() {
+				It("removes .kratix.workflows.configure.pipelines", func() {
 					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 						funcs: []func(client.Object) error{autoMarkCRDAsEstablished}})
 					Expect(err).NotTo(HaveOccurred())

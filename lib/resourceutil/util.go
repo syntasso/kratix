@@ -424,7 +424,7 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger 
 	}
 
 	pipeline := workflows[pipelineIndex].(map[string]any)
-	if previousPhase, ok := pipeline["phase"].(string); ok && previousPhase == status {
+	if pipeline["phase"] == status && pipeline["job"] == job.Name && pipeline["hash"] == job.Labels[v1alpha1.KratixResourceHashLabel] {
 		return nil
 	}
 	if previousPhase, ok := pipeline["phase"].(string); ok &&
@@ -434,6 +434,7 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger 
 
 	pipeline["phase"] = status
 	pipeline["hash"] = job.Labels[v1alpha1.KratixResourceHashLabel]
+	pipeline["job"] = job.Name
 	pipeline["lastTransitionTime"] = metav1.Now().Format(time.RFC3339)
 	workflows[pipelineIndex] = pipeline
 	return unstructured.SetNestedSlice(rr.Object, workflows, "status", "kratix", "workflows", workflowKey, "pipelines")
