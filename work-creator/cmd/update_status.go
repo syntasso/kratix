@@ -93,7 +93,7 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 	}
 
 	if params.IsLastPipeline && !control.IfSuspendOrRetry() {
-		mergedStatus = lib.MarkAsCompleted(mergedStatus, params.WorkflowType)
+		mergedStatus = lib.MarkAsCompleted(mergedStatus, params.WorkflowType, string(params.WorkflowAction))
 	}
 
 	existingObj, mergedStatus, err = handleWorkflowControlFile(ctx, params,
@@ -126,7 +126,7 @@ func handleWorkflowControlFile(ctx context.Context, params *helpers.Parameters,
 	var err error
 
 	if !control.IfSuspendOrRetry() {
-		mergedStatus, err = lib.ClearPipelineSuspension(mergedStatus, params.PipelineName)
+		mergedStatus, err = lib.ClearPipelineSuspension(mergedStatus, string(params.WorkflowAction), params.PipelineName)
 		return existingObj, mergedStatus, err
 	}
 
@@ -148,7 +148,8 @@ func handleWorkflowControlFile(ctx context.Context, params *helpers.Parameters,
 		return nil, nil, err
 	}
 
-	mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message, retryAfterTimestamp, existingObj.GetGeneration())
+	mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, string(params.WorkflowAction), params.PipelineName,
+		control.Message, retryAfterTimestamp, existingObj.GetGeneration())
 	return existingObj, mergedStatus, err
 }
 

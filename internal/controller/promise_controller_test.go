@@ -128,8 +128,11 @@ var _ = Describe("PromiseController", func() {
 						lastSuccessfulConfigureWorkflowTime, ok := kratixWorkflows.Properties["lastSuccessfulConfigureWorkflowTime"]
 						Expect(ok).To(BeTrue(), ".status.kratix.workflows.lastSuccessfulConfigureWorkflowTime did not exist. Spec %v", kratixWorkflows)
 						Expect(lastSuccessfulConfigureWorkflowTime.Type).To(Equal("string"))
-						pipelines, ok := kratixWorkflows.Properties["pipelines"]
-						Expect(ok).To(BeTrue(), ".status.kratix.workflows.pipelines did not exist. Spec %v", kratixWorkflows)
+						configure, ok := kratixWorkflows.Properties["configure"]
+						Expect(ok).To(BeTrue(), ".status.kratix.workflows.configure did not exist. Spec %v", kratixWorkflows)
+						Expect(kratixWorkflows.Properties).To(HaveKey("delete"))
+						pipelines, ok := configure.Properties["pipelines"]
+						Expect(ok).To(BeTrue(), ".status.kratix.workflows.configure.pipelines did not exist. Spec %v", configure)
 						Expect(pipelines.Type).To(Equal("array"))
 						Expect(pipelines.Items).NotTo(BeNil())
 						Expect(pipelines.Items.Schema).NotTo(BeNil())
@@ -148,8 +151,8 @@ var _ = Describe("PromiseController", func() {
 						Expect(pipelines.Items.Schema.Properties["attempts"].Type).To(Equal("integer"))
 						Expect(pipelines.Items.Schema.Properties["attempts"].Format).To(Equal("int64"))
 						Expect(pipelines.Items.Schema.Properties["lastTransitionTime"].Type).To(Equal("string"))
-						suspendedGeneration, ok := kratixWorkflows.Properties["suspendedGeneration"]
-						Expect(ok).To(BeTrue(), ".status.kratix.workflows.suspendedGeneration did not exist. Spec %v", kratixWorkflows)
+						suspendedGeneration, ok := configure.Properties["suspendedGeneration"]
+						Expect(ok).To(BeTrue(), ".status.kratix.workflows.configure.suspendedGeneration did not exist. Spec %v", configure)
 						Expect(suspendedGeneration.Type).To(Equal("integer"))
 						Expect(suspendedGeneration.Format).To(Equal("int64"))
 
@@ -1467,8 +1470,10 @@ var _ = Describe("PromiseController", func() {
 						promise.SetLabels(labels)
 						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
-						promise.Status.Kratix.Workflows.Pipelines = []v1alpha1.WorkflowPipelineStatus{
-							{Name: "delete", Phase: v1alpha1.WorkflowPhaseSuspended, Message: "waiting for approval before deleting"},
+						promise.Status.Kratix.Workflows = map[string]v1alpha1.WorkflowStatus{
+							string(v1alpha1.WorkflowActionDelete): {Pipelines: []v1alpha1.WorkflowPipelineStatus{
+								{Name: "delete", Phase: v1alpha1.WorkflowPhaseSuspended, Message: "waiting for approval before deleting"},
+							}},
 						}
 						Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
 
@@ -1510,14 +1515,16 @@ var _ = Describe("PromiseController", func() {
 						promise.SetLabels(labels)
 						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
-						promise.Status.Kratix.Workflows.Pipelines = []v1alpha1.WorkflowPipelineStatus{
-							{
-								Name:        "delete",
-								Phase:       v1alpha1.WorkflowPhaseSuspended,
-								Message:     "waiting for gate configmap",
-								NextRetryAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+						setWorkflowStatus(promise, v1alpha1.WorkflowActionDelete, v1alpha1.WorkflowStatus{
+							Pipelines: []v1alpha1.WorkflowPipelineStatus{
+								{
+									Name:        "delete",
+									Phase:       v1alpha1.WorkflowPhaseSuspended,
+									Message:     "waiting for gate configmap",
+									NextRetryAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+								},
 							},
-						}
+						})
 						Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
 
 						controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
@@ -1558,13 +1565,15 @@ var _ = Describe("PromiseController", func() {
 						promise.SetLabels(labels)
 						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
-						promise.Status.Kratix.Workflows.Pipelines = []v1alpha1.WorkflowPipelineStatus{
-							{
-								Name:        "delete",
-								Phase:       v1alpha1.WorkflowPhaseSuspended,
-								NextRetryAt: time.Now().UTC().Add(-time.Hour).Format(time.RFC3339),
+						setWorkflowStatus(promise, v1alpha1.WorkflowActionDelete, v1alpha1.WorkflowStatus{
+							Pipelines: []v1alpha1.WorkflowPipelineStatus{
+								{
+									Name:        "delete",
+									Phase:       v1alpha1.WorkflowPhaseSuspended,
+									NextRetryAt: time.Now().UTC().Add(-time.Hour).Format(time.RFC3339),
+								},
 							},
-						}
+						})
 						Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
 
 						controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
@@ -2110,8 +2119,6 @@ var _ = Describe("PromiseController", func() {
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 				Expect(promise.Labels[v1alpha1.WorkflowSuspendedLabel]).To(BeEmpty())
 				Expect(promise.Labels[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
-				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
-				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
 			})
 
 			It("removes the suspend label when the promise spec has changed", func() {
@@ -2119,7 +2126,7 @@ var _ = Describe("PromiseController", func() {
 				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-				promise.Status.Kratix.Workflows.SuspendedGeneration = 1
+				setWorkflowStatus(promise, v1alpha1.WorkflowActionConfigure, v1alpha1.WorkflowStatus{SuspendedGeneration: 1})
 				Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
 
 				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
@@ -2129,8 +2136,6 @@ var _ = Describe("PromiseController", func() {
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 				Expect(promise.Labels[v1alpha1.WorkflowSuspendedLabel]).To(BeEmpty())
 				Expect(promise.Labels[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
-				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
-				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
 			})
 
 			When("the promise is unpaused while suspended", func() {
@@ -2180,8 +2185,9 @@ var _ = Describe("PromiseController", func() {
 
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 
-					promise.Status.Kratix.Workflows.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSuspended
-					promise.Status.Kratix.Workflows.Pipelines[0].NextRetryAt = retryAtTime
+					setConfigurePipelines(promise, []v1alpha1.WorkflowPipelineStatus{
+						{Name: "first-pipeline", Phase: v1alpha1.WorkflowPhaseSuspended, NextRetryAt: retryAtTime},
+					})
 					Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
 
 					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
@@ -2193,8 +2199,9 @@ var _ = Describe("PromiseController", func() {
 					retryAtTime := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 
-					promise.Status.Kratix.Workflows.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSuspended
-					promise.Status.Kratix.Workflows.Pipelines[0].NextRetryAt = retryAtTime
+					setConfigurePipelines(promise, []v1alpha1.WorkflowPipelineStatus{
+						{Name: "first-pipeline", Phase: v1alpha1.WorkflowPhaseSuspended, NextRetryAt: retryAtTime},
+					})
 					Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
 
 					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
@@ -2322,11 +2329,11 @@ var _ = Describe("PromiseController", func() {
 	})
 
 	Describe(".status", func() {
-		Describe(".kratix.workflows.pipelines", func() {
+		Describe(".kratix.workflows.configure.pipelines", func() {
 			BeforeEach(func() {
 				// create promise with multiple workflows
 				promise = createPromise(promiseWithWorkflowPath)
-				promise.Status.Kratix.Workflows.Pipelines = []v1alpha1.WorkflowPipelineStatus{
+				setConfigurePipelines(promise, []v1alpha1.WorkflowPipelineStatus{
 					{
 						Name:  "first-pipeline",
 						Phase: "Running",
@@ -2335,7 +2342,7 @@ var _ = Describe("PromiseController", func() {
 						Name:  "second-pipeline",
 						Phase: "Pending",
 					},
-				}
+				})
 			})
 
 			When("promise used to have configure pipelines but no longer does 😭", func() {
@@ -2350,48 +2357,7 @@ var _ = Describe("PromiseController", func() {
 					Expect(err).NotTo(HaveOccurred())
 
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					Expect(promise.Status.Kratix.Workflows.Pipelines).To(BeEmpty())
-				})
-			})
-
-			When("A pipeline name has changed", func() {
-				BeforeEach(func() {
-					promise.Spec.Workflows.Promise.Configure[0].SetName("new-pipeline-name")
-					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-				})
-
-				It("resets the status", func() {
-					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{autoMarkCRDAsEstablished}})
-					Expect(err).NotTo(HaveOccurred())
-
-					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					Expect(promise.Status.Kratix.Workflows.Pipelines).To(HaveLen(2))
-					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Name).To(Equal("new-pipeline-name"))
-					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Pending"))
-					Expect(promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime).NotTo(BeNil())
-					Expect(promise.Status.Kratix.Workflows.Pipelines[1].Name).To(Equal("second-pipeline"))
-					Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal("Pending"))
-					Expect(promise.Status.Kratix.Workflows.Pipelines[1].LastTransitionTime).NotTo(BeNil())
-				})
-			})
-
-			When("the number of pipelines has changed", func() {
-				BeforeEach(func() {
-					promise.Spec.Workflows.Promise.Configure = promise.Spec.Workflows.Promise.Configure[:1]
-					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-				})
-
-				It("resets the status", func() {
-					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{autoMarkCRDAsEstablished}})
-					Expect(err).NotTo(HaveOccurred())
-
-					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					Expect(promise.Status.Kratix.Workflows.Pipelines).To(HaveLen(1))
-					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Name).To(Equal("first-pipeline"))
-					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Pending"))
-					Expect(promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime).NotTo(BeNil())
+					Expect(promise.ConfigureWorkflowStatus().Pipelines).To(BeEmpty())
 				})
 			})
 
@@ -3197,4 +3163,17 @@ func aggregateEvents(events <-chan string) string {
 	}
 
 	return strings.Join(allEvents, "\n")
+}
+
+func setWorkflowStatus(promise *v1alpha1.Promise, workflow v1alpha1.Action, status v1alpha1.WorkflowStatus) {
+	if promise.Status.Kratix.Workflows == nil {
+		promise.Status.Kratix.Workflows = map[string]v1alpha1.WorkflowStatus{}
+	}
+	promise.Status.Kratix.Workflows[string(workflow)] = status
+}
+
+func setConfigurePipelines(promise *v1alpha1.Promise, pipelines []v1alpha1.WorkflowPipelineStatus) {
+	status := promise.ConfigureWorkflowStatus()
+	status.Pipelines = pipelines
+	setWorkflowStatus(promise, v1alpha1.WorkflowActionConfigure, status)
 }

@@ -408,117 +408,62 @@ var _ = Describe("Conditions", func() {
 			})
 		})
 
-		Describe("pipeline execution status", func() {
-			var job *batchv1.Job
-			var pipelines []v1alpha1.PipelineJobResources
-
+		Describe("pipeline status per workflow", func() {
 			BeforeEach(func() {
 				rr.SetAPIVersion("test.kratix.io/v1alpha1")
 				rr.SetKind("Redis")
-				rr.Object["status"] = map[string]interface{}{
-					"kratix": map[string]interface{}{
-						"workflows": map[string]interface{}{
-							"pipelines": []interface{}{
-								map[string]interface{}{
-									"name":  "first-pipeline",
-									"phase": v1alpha1.WorkflowPhasePending,
-								},
-							},
-						},
+			})
+
+			It("keeps a separate record for each workflow", func() {
+				Expect(resourceutil.SetPipelineStatuses(rr, "configure", []v1alpha1.WorkflowPipelineStatus{
+					{Name: "first-pipeline", Phase: v1alpha1.WorkflowPhaseSucceeded, Hash: "abc"},
+				})).To(Succeed())
+				Expect(resourceutil.SetPipelineStatuses(rr, "delete", []v1alpha1.WorkflowPipelineStatus{
+					{Name: "clean-up", Phase: v1alpha1.WorkflowPhaseRunning},
+				})).To(Succeed())
+
+				Expect(resourceutil.GetPipelineStatuses(rr, "configure")).To(Equal([]v1alpha1.WorkflowPipelineStatus{
+					{Name: "first-pipeline", Phase: v1alpha1.WorkflowPhaseSucceeded, Hash: "abc"},
+				}))
+				Expect(resourceutil.GetPipelineStatuses(rr, "delete")).To(Equal([]v1alpha1.WorkflowPipelineStatus{
+					{Name: "clean-up", Phase: v1alpha1.WorkflowPhaseRunning},
+				}))
+			})
+
+			It("returns nothing for a workflow that has not run", func() {
+				Expect(resourceutil.GetPipelineStatuses(rr, "configure")).To(BeEmpty())
+			})
+
+			It("keeps what the pipeline itself recorded", func() {
+				Expect(unstructured.SetNestedSlice(rr.Object, []any{
+					map[string]any{
+						"name":        "first-pipeline",
+						"phase":       v1alpha1.WorkflowPhaseSuspended,
+						"message":     "waiting for approval",
+						"attempts":    int64(2),
+						"nextRetryAt": "2026-10-14T16:16:00Z",
 					},
-				}
+				}, "status", "kratix", "workflows", "configure", "pipelines")).To(Succeed())
 
-				pipelines = []v1alpha1.PipelineJobResources{
-					{Name: "first-pipeline"},
-					{Name: "second-pipeline"},
-				}
-
-				job = &batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "job-1",
-						Labels: map[string]string{
-							v1alpha1.PipelineNameLabel: "first-pipeline",
-						},
+				Expect(resourceutil.GetPipelineStatuses(rr, "configure")).To(Equal([]v1alpha1.WorkflowPipelineStatus{
+					{
+						Name:        "first-pipeline",
+						Phase:       v1alpha1.WorkflowPhaseSuspended,
+						Message:     "waiting for approval",
+						Attempts:    2,
+						NextRetryAt: "2026-10-14T16:16:00Z",
 					},
-				}
+				}))
 			})
 
-			It("marks the current pipeline as succeeded for a resource request", func() {
-				err := resourceutil.MarkCurrentPipelineAsSucceeded(rr, logger, job)
-				Expect(err).NotTo(HaveOccurred())
+			It("forgets that the workflow was suspended", func() {
+				Expect(unstructured.SetNestedField(rr.Object, int64(7),
+					"status", "kratix", "workflows", "configure", "suspendedGeneration")).To(Succeed())
+				Expect(resourceutil.GetSuspendedGeneration(rr, "configure")).To(Equal(int64(7)))
 
-				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
-				Expect(err).NotTo(HaveOccurred())
-				Expect(found).To(BeTrue())
-				Expect(workflows).To(HaveLen(1))
-
-				pipeline := workflows[0].(map[string]interface{})
-				Expect(pipeline["phase"]).To(Equal(v1alpha1.WorkflowPhaseSucceeded))
-				Expect(pipeline["lastTransitionTime"]).NotTo(BeNil())
+				resourceutil.ClearSuspendedGeneration(rr, "configure")
+				Expect(resourceutil.GetSuspendedGeneration(rr, "configure")).To(Equal(int64(0)))
 			})
-
-			It("marks the current pipeline with an explicit phase for a resource request", func() {
-				err := resourceutil.MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseFailed, rr, logger, job)
-				Expect(err).NotTo(HaveOccurred())
-
-				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
-				Expect(err).NotTo(HaveOccurred())
-				Expect(found).To(BeTrue())
-				Expect(workflows).To(HaveLen(1))
-
-				pipeline := workflows[0].(map[string]interface{})
-				Expect(pipeline["phase"]).To(Equal(v1alpha1.WorkflowPhaseFailed))
-				Expect(pipeline["lastTransitionTime"]).NotTo(BeNil())
-			})
-
-			It("resets resource request pipelines to pending", func() {
-				rr.Object["status"] = map[string]any{
-					"kratix": map[string]any{
-						"workflows": map[string]any{
-							"suspendedGeneration": int64(2),
-						},
-					},
-				}
-
-				err := resourceutil.ResetPipelineStatusToPending(rr, pipelines)
-				Expect(err).NotTo(HaveOccurred())
-
-				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
-				Expect(err).NotTo(HaveOccurred())
-				Expect(found).To(BeTrue())
-				Expect(workflows).To(HaveLen(2))
-				Expect(workflows[0]).To(SatisfyAll(
-					HaveKeyWithValue("name", "first-pipeline"),
-					HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
-					HaveKeyWithValue("lastTransitionTime", Not(BeNil())),
-				))
-				Expect(workflows[1]).To(SatisfyAll(
-					HaveKeyWithValue("name", "second-pipeline"),
-					HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
-					HaveKeyWithValue("lastTransitionTime", Not(BeNil())),
-				))
-				_, found, err = unstructured.NestedInt64(rr.Object, "status", "kratix", "workflows", "suspendedGeneration")
-				Expect(err).NotTo(HaveOccurred())
-				Expect(found).To(BeFalse())
-			})
-
-			It("finds the index of a pipeline with the requested phase", func() {
-				rr.Object["status"] = map[string]any{
-					"kratix": map[string]any{
-						"workflows": map[string]any{
-							"pipelines": []any{
-								map[string]any{"name": "first-pipeline", "phase": v1alpha1.WorkflowPhaseSucceeded},
-								map[string]any{"name": "second-pipeline", "phase": "Suspended"},
-							},
-						},
-					},
-				}
-
-				index, err := resourceutil.GetSuspendedPipelineIndex(rr)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(index).To(Equal(1))
-			})
-
 		})
 
 	})
@@ -596,11 +541,10 @@ var _ = Describe("Conditions", func() {
 			rr = &unstructured.Unstructured{Object: map[string]any{}}
 		})
 
-		It("can set and get int64 fields under status.kratix.workflows", func() {
-			err := resourceutil.SetKratixWorkflowsInt64Status(rr, "suspendedGeneration", 7)
-			Expect(err).NotTo(HaveOccurred())
+		It("can set and get string fields under status.kratix.workflows", func() {
+			Expect(resourceutil.SetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime", "2026-10-14T16:16:00Z")).To(Succeed())
 
-			Expect(resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration")).To(Equal(int64(7)))
+			Expect(resourceutil.GetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime")).To(Equal("2026-10-14T16:16:00Z"))
 		})
 	})
 })

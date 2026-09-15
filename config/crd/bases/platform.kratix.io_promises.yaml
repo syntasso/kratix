@@ -257,36 +257,50 @@ spec:
                       if installed via one
                     type: string
                   workflows:
-                    description: Status of the Workflow execution
-                    properties:
-                      pipelines:
-                        description: Status of the Pipeline execution
-                        items:
-                          properties:
-                            attempts:
-                              format: int64
-                              type: integer
-                            lastTransitionTime:
-                              description: Last transition time of the workflow
-                              format: date-time
-                              type: string
-                            message:
-                              description: Message from the suspended pipeline
-                              type: string
-                            name:
-                              description: Name of the workflow
-                              type: string
-                            nextRetryAt:
-                              type: string
-                            phase:
-                              description: Phase of the workflow
-                              type: string
-                          type: object
-                        type: array
-                      suspendedGeneration:
-                        description: Generation at which the workflow was suspended
-                        format: int64
-                        type: integer
+                    additionalProperties:
+                      properties:
+                        pipelines:
+                          description: Status of the Pipeline execution
+                          items:
+                            properties:
+                              attempts:
+                                format: int64
+                                type: integer
+                              hash:
+                                description: |-
+                                  Hash of the spec and of the pipeline definition this pipeline last ran
+                                  for. A pipeline runs again when the hash no longer matches.
+                                type: string
+                              job:
+                                description: |-
+                                  Name of the Job of the run in progress. The workflow waits for this Job,
+                                  so that a Job left behind by an earlier run is not taken for this one.
+                                type: string
+                              lastTransitionTime:
+                                description: Last transition time of the workflow
+                                format: date-time
+                                type: string
+                              message:
+                                description: Message from the suspended pipeline
+                                type: string
+                              name:
+                                description: Name of the workflow
+                                type: string
+                              nextRetryAt:
+                                type: string
+                              phase:
+                                description: Phase of the workflow
+                                type: string
+                            type: object
+                          type: array
+                        suspendedGeneration:
+                          description: Generation at which the workflow was suspended
+                          format: int64
+                          type: integer
+                      type: object
+                    description: |-
+                      Status of each workflow, keyed by the workflow it belongs to: "configure",
+                      "delete", or a key chosen by a controller that runs its own workflows.
                     type: object
                 type: object
               lastAvailableTime:
