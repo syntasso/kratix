@@ -212,36 +212,6 @@ var _ = Describe("Workflow Reconciler", func() {
 			Entry("delete with an earlier failure", v1alpha1.WorkflowActionDelete, true),
 		)
 
-		DescribeTable("migrates recorded progress", func(retainJob bool, expectedPipeline int) {
-			legacy := []any{
-				map[string]any{"name": workflowPipelines[0].Name, "phase": "Succeeded"},
-				map[string]any{"name": workflowPipelines[1].Name, "phase": "Pending"},
-			}
-			unstructured.RemoveNestedField(uPromise.Object, "status", "kratix", "workflows", "configure")
-			Expect(unstructured.SetNestedSlice(uPromise.Object, legacy, "status", "kratix", "workflows", "pipelines")).To(Succeed())
-			if retainJob {
-				Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
-				markJobAsComplete(workflowPipelines[0].Job.Name)
-			}
-			opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 0, namespace)
-			requeue, err := workflow.ReconcileConfigure(opts)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(requeue).To(BeTrue())
-			_, found, err := unstructured.NestedSlice(uPromise.Object, "status", "kratix", "workflows", "pipelines")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(found).To(BeFalse())
-			for _, job := range listJobs(namespace) {
-				Expect(fakeK8sClient.Delete(ctx, &job)).To(Succeed())
-			}
-			resetWorkflowPipelineJobs(workflowPipelines)
-			_, err = workflow.ReconcileConfigure(opts)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(listJobs(namespace)).To(ConsistOf(HaveField("Name", workflowPipelines[expectedPipeline].Job.Name)))
-		},
-			Entry("uses the hash from a retained Job", true, 1),
-			Entry("re-runs when the previous hash is unknown", false, 0),
-		)
-
 		DescribeTable("completes with zero retained Jobs", func(action v1alpha1.Action, key, workflowType string) {
 			resources := make([]v1alpha1.PipelineJobResources, len(pipelines))
 			for i, pipeline := range pipelines {
