@@ -7,26 +7,14 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-// preKeyedStatusFields are the workflow status fields that older Kratix versions
-// wrote straight under status.kratix.workflows, before status was keyed by
-// workflow action.
+// preKeyedStatusFields were written straight under status.kratix.workflows before
+// the status was keyed by workflow action.
 var preKeyedStatusFields = []string{"pipelines", "suspendedGeneration", "lastSuccessfulConfigureWorkflowTime"}
 
-// MigrateStatus removes the pre-keyed workflow status, rebuilds the keyed status
-// from the Jobs still on the cluster, and requeues.
-//
-// The old status cannot be read. The keyed CRD schema types
-// status.kratix.workflows as a map of objects, so the apiserver prunes the old
-// flat entries to empty objects before the controller ever sees them. The Jobs are
-// not pruned, and their labels carry the pipeline name and the resource hash, so
-// they are used as the source of truth instead.
-//
-// A pipeline with no Job left is recorded as Pending, so it runs again. That is the
-// right answer: without a Job there is no evidence the pipeline ever ran.
-//
-// The old fields have to go either way. A flat pipelines list is invalid under the
-// keyed schema, and on clusters without CRD validation ratcheting it makes every
-// later status write fail, which wedges the resource.
+// MigrateStatus removes the pre-keyed workflow status, rebuilds it from the Jobs
+// still on the cluster, and requeues. The old status cannot be read, because the
+// apiserver prunes it to empty objects against the keyed schema. A pipeline with no
+// Job left is recorded as Pending, so it runs again.
 func MigrateStatus(opts Opts) (bool, error) {
 	if opts.workflowType != "promise" && opts.workflowType != "resource" {
 		return false, nil
@@ -61,9 +49,7 @@ func MigrateStatus(opts Opts) (bool, error) {
 	return true, opts.client.Status().Update(opts.ctx, parent)
 }
 
-// pipelineStatusFromJobs works out what each pipeline did from its most recent Job.
-// The entries come back in the order the pipelines run, which is the order the
-// workflow engine expects to read them back in.
+// pipelineStatusFromJobs returns an entry per pipeline, in the order they run.
 func pipelineStatusFromJobs(opts Opts, jobs []batchv1.Job) []any {
 	resourceutil.SortJobsByCreationDateTime(jobs, false)
 	action := string(opts.Resources[0].WorkflowAction)
