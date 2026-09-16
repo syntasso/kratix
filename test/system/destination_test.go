@@ -240,6 +240,12 @@ var _ = Describe("Destination filepath modes", Label("destination"), func() {
 					)
 				})
 
+				By("storing the file with a previewable content type", func() {
+					Eventually(func() string {
+						return bucketContentType("aggregated-yaml/catalog.yaml")
+					}).Should(Equal("application/yaml"))
+				})
+
 				By("removing the part associated with a resource when the resource gets deleted", func() {
 					platform.EventuallyKubectlDelete("aggregates", "req-1")
 
@@ -448,6 +454,15 @@ func bucketLs(dir string, recursive bool) string {
 	}
 
 	return strings.Join(paths, "\n")
+}
+
+// bucketContentType returns the content type stored against the object at path.
+func bucketContentType(path string) string {
+	GinkgoHelper()
+	info, err := bucketClient().StatObject(context.Background(), bucketName,
+		strings.TrimPrefix(path, "/"), minio.GetObjectOptions{})
+	Expect(err).ToNot(HaveOccurred())
+	return info.ContentType
 }
 
 // bucketCat returns the contents of the object at path.

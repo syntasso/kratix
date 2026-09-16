@@ -183,7 +183,8 @@ func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, 
 		}
 
 		logging.Debug(log, "writing object to bucket")
-		uploadInfo, err := b.RepoClient.PutObject(ctx, b.BucketName, objectFullPath, reader, reader.Size(), minio.PutObjectOptions{})
+		uploadInfo, err := b.RepoClient.PutObject(ctx, b.BucketName, objectFullPath, reader, reader.Size(),
+			minio.PutObjectOptions{ContentType: ContentTypeFor(objectFullPath)})
 		if err != nil {
 			logging.Error(log, err, "error writing object to bucket")
 			return "", err
