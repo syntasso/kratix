@@ -1117,6 +1117,55 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
+		When("the last pipeline never finishes and the workflow keeps restarting", func() {
+			numberOfJobsToKeep := 2
+			restartsOverTheLimit := numberOfJobsToKeep + 2
+
+			runWorkflowLeavingTheLastPipelineRunning := func() {
+				GinkgoHelper()
+
+				workflowPipelines, uPromise := setupTest(promise, pipelines)
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise,
+					workflowPipelines, "promise", numberOfJobsToKeep, namespace)
+
+				By("running the first pipeline to success", func() {
+					reconcileConfigure(opts)
+					markJobAsComplete(workflowPipelines[0].Job.GetName())
+					setParentPipelinesSucceeded(uPromise, workflowPipelines, 1)
+				})
+
+				By("starting the last pipeline, which never finishes", func() {
+					reconcileConfigure(opts)
+				})
+			}
+
+			suspendTheRunningPipeline := func() {
+				GinkgoHelper()
+
+				labelPromiseForManualReconciliation(promise.Name)
+				workflowPipelines, uPromise := setupTest(promise, pipelines)
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise,
+					workflowPipelines, "promise", numberOfJobsToKeep, namespace)
+
+				By("suspending the job that is still running", func() {
+					reconcileConfigure(opts)
+					markJobsAsSuspended()
+				})
+			}
+
+			It("keeps no more than numberOfJobsToKeep jobs per pipeline", func() {
+				runWorkflowLeavingTheLastPipelineRunning()
+
+				for range restartsOverTheLimit {
+					suspendTheRunningPipeline()
+					runWorkflowLeavingTheLastPipelineRunning()
+				}
+
+				Expect(jobNamesForPipeline("pipeline-1")).To(HaveLen(numberOfJobsToKeep))
+				Expect(jobNamesForPipeline("pipeline-2")).To(HaveLen(numberOfJobsToKeep))
+			})
+		})
+
 		When("a pipeline no longer exists in the workflow", func() {
 			numberOfJobsToKeep := 2
 
@@ -2854,6 +2903,23 @@ func markJobAsFailed(name string) {
 	markJobAs(batchv1.JobFailed, name)
 }
 
+// Kratix sets spec.suspend; in a cluster the Job controller then reports the
+// Suspended condition.
+func markJobsAsSuspended() {
+	GinkgoHelper()
+	for _, job := range listJobs(namespace) {
+		if job.Spec.Suspend != nil && *job.Spec.Suspend && len(job.Status.Conditions) == 0 {
+			markJobAs(batchv1.JobSuspended, job.GetName())
+		}
+	}
+}
+
+func reconcileConfigure(opts workflow.Opts) {
+	GinkgoHelper()
+	_, err := workflow.ReconcileConfigure(opts)
+	Expect(err).NotTo(HaveOccurred())
+}
+
 func markJobAsCompleteWithSuspend(name string, parentObject *unstructured.Unstructured) {
 	markJobAsComplete(name)
 	parentObject.SetLabels(map[string]string{v1alpha1.WorkflowSuspendedLabel: "true"})
@@ -2878,6 +2944,7 @@ func markJobAs(conditionType batchv1.JobConditionType, name string) {
 		job.Status.Succeeded = 1
 	case batchv1.JobFailed:
 		job.Status.Failed = 1
+	case batchv1.JobSuspended:
 	default:
 		Fail("unsupported condition type")
 	}
