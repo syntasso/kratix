@@ -1196,6 +1196,56 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(jobNamesForPipeline("removed-pipeline")).To(ConsistOf(
 					"removed-pipeline-job-2", "removed-pipeline-job-3"))
 			})
+
+			When("the jobs of one pipeline cannot be deleted", func() {
+				It("still prunes the pipelines it can, without failing the reconciliation", func() {
+					createOldJobsFor := func(pipelineName string) {
+						GinkgoHelper()
+
+						removedPipeline := v1alpha1.Pipeline{
+							ObjectMeta: metav1.ObjectMeta{Name: pipelineName},
+							Spec: v1alpha1.PipelineSpec{
+								Containers: []v1alpha1.Container{{Name: "container-1", Image: "busybox"}},
+							},
+						}
+
+						for i := range numberOfJobsToKeep + 2 {
+							resources, err := removedPipeline.ForPromise(&promise, v1alpha1.WorkflowActionConfigure).Resources(nil)
+							Expect(err).NotTo(HaveOccurred())
+							resources.Job.SetName(fmt.Sprintf("%s-job-%d", pipelineName, i))
+							resources.Job.SetCreationTimestamp(nextTimestamp())
+							Expect(fakeK8sClient.Create(ctx, resources.Job)).To(Succeed())
+							markJobAsComplete(resources.Job.GetName())
+						}
+					}
+
+					By("leaving old jobs behind for two pipelines that no longer exist", func() {
+						createOldJobsFor("undeletable-pipeline")
+						createOldJobsFor("removed-pipeline")
+					})
+
+					failingClient := interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+						Delete: func(ctx context.Context, c client.WithWatch, obj client.Object,
+							opts ...client.DeleteOption) error {
+							if strings.HasPrefix(obj.GetName(), "undeletable-pipeline-job") {
+								return fmt.Errorf("cannot delete job")
+							}
+							return c.Delete(ctx, obj, opts...)
+						},
+					})
+
+					newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
+					opts := workflow.NewOpts(ctx, failingClient, eventRecorder, logger, uPromise,
+						newWorkflowPipelines, "promise", numberOfJobsToKeep, namespace)
+
+					_, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(jobNamesForPipeline("removed-pipeline")).To(ConsistOf(
+						"removed-pipeline-job-2", "removed-pipeline-job-3"))
+					Expect(jobNamesForPipeline("undeletable-pipeline")).To(HaveLen(numberOfJobsToKeep + 2))
+				})
+			})
 		})
 
 		When("all pipelines have executed", func() {

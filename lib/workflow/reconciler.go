@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -454,10 +455,12 @@ func cleanupJobs(opts Opts, namespace string) error {
 		return err
 	}
 
+	// Pruning is best-effort housekeeping: a pipeline we cannot prune is logged
+	// and skipped so the pipelines we can prune still get cleaned up. The next
+	// reconciliation tries again.
 	for pipelineName, jobsForPipeline := range groupJobsByPipelineName(jobsForWorkflow) {
 		if err := pruneJobs(opts, jobsForPipeline); err != nil {
 			logging.Error(opts.logger, err, "failed to delete old jobs", "pipeline", pipelineName)
-			return err
 		}
 	}
 
@@ -486,6 +489,7 @@ func pruneJobs(opts Opts, jobsForPipeline []batchv1.Job) error {
 	jobsForPipeline = resourceutil.SortJobsByCreationDateTime(jobsForPipeline, true)
 
 	// Delete all but the last n jobs; n defaults to 5 and can be configured by env var for the operator
+	var errs []error
 	for i := 0; i < len(jobsForPipeline)-opts.numberOfJobsToKeep; i++ {
 		job := jobsForPipeline[i]
 		if isRunning(&job) {
@@ -499,13 +503,14 @@ func pruneJobs(opts Opts, jobsForPipeline []batchv1.Job) error {
 			"status", overAllJobStatus(&job))
 		if err := opts.client.Delete(opts.ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
 			if !errors.IsNotFound(err) {
+				// Carry on with the remaining jobs; the next reconciliation retries this one.
 				logging.Warn(opts.logger, "failed to delete job; will retry", "job", job.GetName(), "error", err)
-				return nil
+				errs = append(errs, err)
 			}
 		}
 	}
 
-	return nil
+	return stderrors.Join(errs...)
 }
 
 func createPipeline(opts Opts, decision Decision) (passiveRequeue bool, err error) {
