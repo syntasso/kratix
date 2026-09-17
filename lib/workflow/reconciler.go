@@ -441,23 +441,36 @@ func cleanup(opts Opts, namespace string) error {
 	return nil
 }
 
-// cleanupJobs prunes finished Jobs for each pipeline.
+// cleanupJobs prunes finished Jobs for every pipeline the workflow has run,
+// including pipelines that have since been renamed or removed.
 func cleanupJobs(opts Opts, namespace string) error {
-	for _, pipeline := range opts.Resources {
-		l := labelsForAllWorkflowJobs(pipeline)
-		l[v1alpha1.PipelineNameLabel] = pipeline.Name
-		jobsForPipeline, err := getJobsWithLabels(opts, l, namespace)
-		if err != nil {
-			logging.Error(opts.logger, err, "failed to list jobs for pipeline", "pipeline", pipeline.Name)
-			return err
-		}
+	if len(opts.Resources) == 0 {
+		return nil
+	}
+
+	jobsForWorkflow, err := getJobsWithLabels(opts, labelsForAllWorkflowJobs(opts.Resources[0]), namespace)
+	if err != nil {
+		logging.Error(opts.logger, err, "failed to list jobs for workflow")
+		return err
+	}
+
+	for pipelineName, jobsForPipeline := range groupJobsByPipelineName(jobsForWorkflow) {
 		if err := pruneJobs(opts, jobsForPipeline); err != nil {
-			logging.Error(opts.logger, err, "failed to delete old jobs")
+			logging.Error(opts.logger, err, "failed to delete old jobs", "pipeline", pipelineName)
 			return err
 		}
 	}
 
 	return nil
+}
+
+func groupJobsByPipelineName(jobs []batchv1.Job) map[string][]batchv1.Job {
+	jobsByPipelineName := map[string][]batchv1.Job{}
+	for _, job := range jobs {
+		pipelineName := job.GetLabels()[v1alpha1.PipelineNameLabel]
+		jobsByPipelineName[pipelineName] = append(jobsByPipelineName[pipelineName], job)
+	}
+	return jobsByPipelineName
 }
 
 func pruneJobs(opts Opts, jobsForPipeline []batchv1.Job) error {

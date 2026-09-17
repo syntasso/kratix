@@ -1117,6 +1117,38 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
+		When("a pipeline no longer exists in the workflow", func() {
+			numberOfJobsToKeep := 2
+
+			It("deletes the oldest jobs left behind by that pipeline", func() {
+				removedPipeline := v1alpha1.Pipeline{
+					ObjectMeta: metav1.ObjectMeta{Name: "removed-pipeline"},
+					Spec: v1alpha1.PipelineSpec{
+						Containers: []v1alpha1.Container{{Name: "container-1", Image: "busybox"}},
+					},
+				}
+
+				for i := range numberOfJobsToKeep + 2 {
+					resources, err := removedPipeline.ForPromise(&promise, v1alpha1.WorkflowActionConfigure).Resources(nil)
+					Expect(err).NotTo(HaveOccurred())
+					resources.Job.SetName(fmt.Sprintf("removed-pipeline-job-%d", i))
+					resources.Job.SetCreationTimestamp(nextTimestamp())
+					Expect(fakeK8sClient.Create(ctx, resources.Job)).To(Succeed())
+					markJobAsComplete(resources.Job.GetName())
+				}
+
+				newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise,
+					newWorkflowPipelines, "promise", numberOfJobsToKeep, namespace)
+
+				_, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(jobNamesForPipeline("removed-pipeline")).To(ConsistOf(
+					"removed-pipeline-job-2", "removed-pipeline-job-3"))
+			})
+		})
+
 		When("all pipelines have executed", func() {
 			var updatedWorkflows []v1alpha1.PipelineJobResources
 
@@ -2877,6 +2909,16 @@ func listJobs(namespace string) []batchv1.Job {
 	err := fakeK8sClient.List(ctx, jobList, client.InNamespace(namespace))
 	Expect(err).NotTo(HaveOccurred())
 	return jobList.Items
+}
+
+func jobNamesForPipeline(pipelineName string) []string {
+	names := []string{}
+	for _, job := range listJobs(namespace) {
+		if job.GetLabels()[v1alpha1.PipelineNameLabel] == pipelineName {
+			names = append(names, job.GetName())
+		}
+	}
+	return names
 }
 
 func findByName(jobs []batchv1.Job, name string) bool {
