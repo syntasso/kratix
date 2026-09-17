@@ -345,7 +345,7 @@ func (p *PipelineFactory) pipelineJob(
 	if ttlSecondsAfterFinished == nil {
 		ttlSecondsAfterFinished = KratixConfigJobTTLSecondsAfterFinished
 	}
-	ttlSecondsAfterFinished = minimumJobTTLSecondsAfterFinished(ttlSecondsAfterFinished)
+	ttlSecondsAfterFinished, _ = ApplyMinimumJobTTLSecondsAfterFinished(ttlSecondsAfterFinished)
 
 	restartPolicy := p.Pipeline.Spec.RestartPolicy
 	if restartPolicy == "" {

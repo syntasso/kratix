@@ -588,17 +588,17 @@ func getKratixConfigJobTTLSecondsAfterFinished(kratixConfig *KratixConfig) *int3
 		return nil
 	}
 
-	ttlSecondsAfterFinished := *kratixConfig.Workflows.JobOptions.DefaultTTLSecondsAfterFinished
-	if ttlSecondsAfterFinished < platformv1alpha1.MinimumJobTTLSecondsAfterFinished {
+	configuredTTLSecondsAfterFinished := kratixConfig.Workflows.JobOptions.DefaultTTLSecondsAfterFinished
+	ttlSecondsAfterFinished, minimumApplied := platformv1alpha1.ApplyMinimumJobTTLSecondsAfterFinished(configuredTTLSecondsAfterFinished)
+	if minimumApplied {
 		logging.Warn(setupLog,
 			"workflows.jobOptions.defaultTTLSecondsAfterFinished is below the minimum; using the minimum",
-			"configuredTTLSecondsAfterFinished", ttlSecondsAfterFinished,
+			"configuredTTLSecondsAfterFinished", *configuredTTLSecondsAfterFinished,
 			"minimumTTLSecondsAfterFinished", platformv1alpha1.MinimumJobTTLSecondsAfterFinished,
 		)
-		return ptr.To(platformv1alpha1.MinimumJobTTLSecondsAfterFinished)
 	}
 
-	return ptr.To(ttlSecondsAfterFinished)
+	return ttlSecondsAfterFinished
 }
 
 // dryRunEnabled reports whether featureFlags.dryRun is set. Off unless the

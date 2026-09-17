@@ -251,15 +251,16 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 				pipelineLogger.Error(fmtErr, "error parsing pipelines")
 				return nil, fmtErr
 			}
-			ttlSecondsAfterFinished := p.Spec.JobOptions.TTLSecondsAfterFinished
-			if ttlSecondsAfterFinished != nil && *ttlSecondsAfterFinished < MinimumJobTTLSecondsAfterFinished {
+			configuredTTLSecondsAfterFinished := p.Spec.JobOptions.TTLSecondsAfterFinished
+			ttlSecondsAfterFinished, minimumApplied := ApplyMinimumJobTTLSecondsAfterFinished(configuredTTLSecondsAfterFinished)
+			if minimumApplied {
 				logging.Warn(pipelineLogger,
 					"spec.jobOptions.ttlSecondsAfterFinished is below the minimum; using the minimum",
-					"configuredTTLSecondsAfterFinished", *ttlSecondsAfterFinished,
+					"configuredTTLSecondsAfterFinished", *configuredTTLSecondsAfterFinished,
 					"minimumTTLSecondsAfterFinished", MinimumJobTTLSecondsAfterFinished,
 				)
-				p.Spec.JobOptions.TTLSecondsAfterFinished = ptr.To(MinimumJobTTLSecondsAfterFinished)
 			}
+			p.Spec.JobOptions.TTLSecondsAfterFinished = ttlSecondsAfterFinished
 			ps = append(ps, p)
 		} else {
 			return nil, fmt.Errorf("unsupported pipeline %q with APIVersion \"%s/%s\"",
@@ -269,11 +270,11 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 	return ps, nil
 }
 
-func minimumJobTTLSecondsAfterFinished(ttlSecondsAfterFinished *int32) *int32 {
-	if ttlSecondsAfterFinished != nil && *ttlSecondsAfterFinished < MinimumJobTTLSecondsAfterFinished {
-		return ptr.To(MinimumJobTTLSecondsAfterFinished)
+func ApplyMinimumJobTTLSecondsAfterFinished(ttlSecondsAfterFinished *int32) (*int32, bool) {
+	if ttlSecondsAfterFinished == nil || *ttlSecondsAfterFinished >= MinimumJobTTLSecondsAfterFinished {
+		return ttlSecondsAfterFinished, false
 	}
-	return ttlSecondsAfterFinished
+	return ptr.To(MinimumJobTTLSecondsAfterFinished), true
 }
 
 // ForPromise defines the PipelineFactory fields for a Promise.
