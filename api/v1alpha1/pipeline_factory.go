@@ -343,7 +343,7 @@ func (p *PipelineFactory) pipelineJob(
 	}
 	ttlSecondsAfterFinished := p.Pipeline.Spec.JobOptions.TTLSecondsAfterFinished
 	if ttlSecondsAfterFinished == nil {
-		ttlSecondsAfterFinished = DefaultJobTTLSecondsAfterFinished
+		ttlSecondsAfterFinished = KratixConfigJobTTLSecondsAfterFinished
 	}
 	ttlSecondsAfterFinished = minimumJobTTLSecondsAfterFinished(ttlSecondsAfterFinished)
 

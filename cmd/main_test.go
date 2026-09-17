@@ -156,13 +156,13 @@ var _ = Describe("getReconcileAfterFailure", func() {
 	})
 })
 
-var _ = Describe("getDefaultJobTTLSecondsAfterFinished", func() {
+var _ = Describe("getKratixConfigJobTTLSecondsAfterFinished", func() {
 	It("returns nil when config is nil", func() {
-		Expect(getDefaultJobTTLSecondsAfterFinished(nil)).To(BeNil())
+		Expect(getKratixConfigJobTTLSecondsAfterFinished(nil)).To(BeNil())
 	})
 
 	It("returns nil when the value is not set", func() {
-		Expect(getDefaultJobTTLSecondsAfterFinished(&KratixConfig{})).To(BeNil())
+		Expect(getKratixConfigJobTTLSecondsAfterFinished(&KratixConfig{})).To(BeNil())
 	})
 
 	It("returns the configured value", func() {
@@ -173,7 +173,7 @@ var _ = Describe("getDefaultJobTTLSecondsAfterFinished", func() {
 			},
 		}
 
-		jobTTL := getDefaultJobTTLSecondsAfterFinished(config)
+		jobTTL := getKratixConfigJobTTLSecondsAfterFinished(config)
 		Expect(jobTTL).ToNot(BeNil())
 		Expect(*jobTTL).To(Equal(configuredTTL))
 	})
@@ -186,7 +186,7 @@ var _ = Describe("getDefaultJobTTLSecondsAfterFinished", func() {
 			},
 		}
 
-		jobTTL := getDefaultJobTTLSecondsAfterFinished(config)
+		jobTTL := getKratixConfigJobTTLSecondsAfterFinished(config)
 		Expect(jobTTL).ToNot(BeNil())
 		Expect(*jobTTL).To(Equal(int32(120)))
 	})

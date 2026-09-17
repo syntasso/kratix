@@ -238,7 +238,7 @@ func main() {
 			platformv1alpha1.DefaultResourceRequirements = kratixConfig.Workflows.DefaultContainerResources
 		}
 	}
-	platformv1alpha1.DefaultJobTTLSecondsAfterFinished = getDefaultJobTTLSecondsAfterFinished(kratixConfig)
+	platformv1alpha1.KratixConfigJobTTLSecondsAfterFinished = getKratixConfigJobTTLSecondsAfterFinished(kratixConfig)
 
 	podTTLAfterFinished := getPodTTLAfterFinished(kratixConfig)
 	resourceBindingDefaultVersion := getResourceBindingDefaultVersion(kratixConfig)
@@ -583,7 +583,7 @@ func getPodTTLAfterFinished(kratixConfig *KratixConfig) *time.Duration {
 	return &ttl
 }
 
-func getDefaultJobTTLSecondsAfterFinished(kratixConfig *KratixConfig) *int32 {
+func getKratixConfigJobTTLSecondsAfterFinished(kratixConfig *KratixConfig) *int32 {
 	if kratixConfig == nil || kratixConfig.Workflows.JobOptions.DefaultTTLSecondsAfterFinished == nil {
 		return nil
 	}

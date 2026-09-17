@@ -99,7 +99,7 @@ var (
 	DefaultUserProvidedContainersSecurityContext *corev1.SecurityContext
 	DefaultImagePullPolicy                       corev1.PullPolicy
 	DefaultJobBackoffLimit                       *int32
-	DefaultJobTTLSecondsAfterFinished            *int32
+	KratixConfigJobTTLSecondsAfterFinished       *int32
 )
 
 // PipelineSpec defines the desired state of Pipeline.
