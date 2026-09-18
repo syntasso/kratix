@@ -3,6 +3,8 @@ kind: GitStateStore
 metadata:
   name: destination-git-recovery-store
 spec:
+  # gitea serves a self-signed certificate
+  insecure: true
   authMethod: basicAuth
   branch: main
   gitAuthor:
