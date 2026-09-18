@@ -2311,7 +2311,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				})
 			})
 
-			When("the promise has no configure pipeline", func() {
+			When("there is no configure pipeline", func() {
 				BeforeEach(func() {
 					// Simulate a prior successful reconcile that set rrPromiseVersion,
 					// then the pipeline was removed in a new promise version.
@@ -2364,6 +2364,23 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(binding.Status.FailedVersion).To(BeEmpty(),
 						"stale FailedVersion from a prior pipeline failure should be cleared")
 				})
+
+				When("manual reconciliation label is added", func() {
+					It("removes the label", func() {
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						resourceLabels := resReq.GetLabels()
+						resourceLabels[resourceutil.ManualReconciliationLabel] = "true"
+						resReq.SetLabels(resourceLabels)
+						Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+						_, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						Expect(resReq.GetLabels()).NotTo(HaveKey(resourceutil.ManualReconciliationLabel))
+					})
+				})
+
 			})
 		})
 
