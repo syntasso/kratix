@@ -51,19 +51,15 @@ func rafSetTimeouts() {
 	kubeutils.SetTimeoutAndInterval(4*time.Minute, 2*time.Second)
 }
 
-// The specs are grouped by the Kratix config they need, so each config is
-// applied (and the controller restarted) once per group rather than once per
-// spec. The default config is not restored between groups — every group applies
-// its own config in BeforeAll, and the suite restores the default once at the
-// end (SynchronizedAfterSuite).
+// Specs are grouped by the Kratix config they need: each group applies its
+// config once in BeforeAll and restarts the controller. The suite restores the
+// default config in SynchronizedAfterSuite.
 var _ = Describe("Reconcile after failure", Label("config-mutating"), Serial, Ordered, func() {
 	BeforeAll(func() {
 		rafSetTimeouts()
 		platform.Kubectl("apply", "-f", filepath.Join(rafAssetsPath, "kratix-config-retry.yaml"))
 		restartController()
 	})
-
-	BeforeEach(rafSetTimeouts)
 
 	When("a resource workflow fails and reconcileAfterFailure uses its default value", func() {
 		BeforeEach(func() {
@@ -225,8 +221,6 @@ var _ = Describe("Reconcile after failure disabled", Label("config-mutating"), S
 		platform.Kubectl("apply", "-f", filepath.Join(rafAssetsPath, "kratix-config-no-retry.yaml"))
 		restartController()
 	})
-
-	BeforeEach(rafSetTimeouts)
 
 	When("a resource workflow fails and reconcileAfterFailure is false", func() {
 		BeforeEach(func() {

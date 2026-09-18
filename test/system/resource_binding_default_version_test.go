@@ -66,8 +66,6 @@ var _ = Describe("ResourceBinding Default Version pinned", Label("config-mutatin
 		}).Should(ContainSubstring("Available"))
 	})
 
-	// The default config is not restored here: the suite restores it once at
-	// the end, after all config-mutating Serial specs have run.
 	AfterEach(func() {
 		platform.EventuallyKubectlDelete(rbVersionPromiseKind, rbVersionRequestName)
 		platform.EventuallyKubectlDelete("promise", rbVersionPromiseName)

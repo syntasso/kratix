@@ -62,8 +62,8 @@ var _ = Describe("Reconciliation", func() {
 			}).Should(ContainSubstring("Paused"))
 
 			By("not running any workflow while paused")
-			// Reconciliation is event-driven here (the global re-reconcile
-			// interval is hours), so a short window is enough to catch a
+			// Reconciliation is event-driven and the global re-reconcile
+			// interval is hours, so 30s is long enough to catch a
 			// wrongly-triggered workflow.
 			Consistently(func() string {
 				return platform.Kubectl("get", "pods", "-l", podLabels, "-o", goTemplate)

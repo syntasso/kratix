@@ -58,9 +58,8 @@ var _ = SynchronizedBeforeSuite(func() {
 	kratixConfigPath = "./assets/kratix-config.yaml"
 })
 
-// Config-mutating Serial specs no longer restore the default config after
-// every spec (each of them applies its own config in BeforeEach anyway), so
-// restore it once here, after everything has run.
+// Config-mutating specs apply their own config and leave it in place, so the
+// default is restored here once the whole suite has run.
 var _ = SynchronizedAfterSuite(func() {}, func() {
 	platform.Kubectl("apply", "-f", kratixConfigPath)
 	restartController()
