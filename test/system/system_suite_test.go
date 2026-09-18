@@ -41,8 +41,8 @@ var _ = SynchronizedBeforeSuite(func() {
 	platform.Kubectl("patch", "deployment", "kratix-platform-controller-manager",
 		"-n", "kratix-platform-system", "--type=strategic", "-p",
 		`{"spec":{"template":{"spec":{"containers":[{"name":"manager","resources":{"limits":{"cpu":"2","memory":"1Gi"},"requests":{"cpu":"200m","memory":"256Mi"}}}]}}}}`)
-	platform.Kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
-	platform.Kubectl("wait", "-n", "kratix-platform-system", "deployments", "-l", "control-plane=controller-manager", "--for=condition=Available")
+	// The patch rolls the deployment; this polls the webhook until it answers.
+	restartController()
 
 }, func() {
 	//this runs before each test
