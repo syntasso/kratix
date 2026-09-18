@@ -275,6 +275,12 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
+	// Nothing consumes the label on this path, so left in place it would outlive this
+	// reconcile and trigger an unasked-for run whenever a configure workflow is added.
+	if len(pipelineResources) == 0 && isManualReconcile(rr) {
+		return ctrl.Result{}, r.removeManualReconcileLabel(ctx, rr)
+	}
+
 	passiveRequeue, err := reconcileConfigure(jobOpts)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -1449,6 +1455,14 @@ func (r *DynamicResourceRequestController) restartOnReconciliationInterval(
 func (r *DynamicResourceRequestController) updateManualReconcileToTrue(ctx context.Context, rr *unstructured.Unstructured) error {
 	resourceLabels := rr.GetLabels()
 	resourceLabels[resourceutil.ManualReconciliationLabel] = "true"
+	rr.SetLabels(resourceLabels)
+
+	return r.Client.Update(ctx, rr)
+}
+
+func (r *DynamicResourceRequestController) removeManualReconcileLabel(ctx context.Context, rr *unstructured.Unstructured) error {
+	resourceLabels := rr.GetLabels()
+	delete(resourceLabels, resourceutil.ManualReconciliationLabel)
 	rr.SetLabels(resourceLabels)
 
 	return r.Client.Update(ctx, rr)
