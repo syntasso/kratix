@@ -328,6 +328,8 @@ func getStateStore(authType, repo string) *v1alpha1.GitStateStoreSpec {
 		AuthMethod: authType,
 		URL:        repo,
 		Branch:     "main",
+		// github presents a publicly trusted cert, so validate it
+		Insecure: false,
 		GitAuthor: v1alpha1.GitAuthor{
 			Email: "test@example.com",
 			Name:  "a-user",

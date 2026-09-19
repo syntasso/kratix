@@ -34,6 +34,12 @@ type GitStateStoreSpec struct {
 	// URL of the git repository.
 	URL string `json:"url,omitempty"`
 
+	// Toggle to turn off or on TLS verification when connecting to the repository.
+	// Only applies to HTTPS connections.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:=true
+	Insecure bool `json:"insecure"`
+
 	StateStoreCoreFields `json:",inline"`
 
 	// Branch of the git repository; default to main.

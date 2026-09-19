@@ -97,6 +97,18 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 			WaitReady("destination", destinationName)
 
 			if os.Getenv("LRE") != "true" {
+				// gitea serves a self-signed cert, so validating it must fail
+				By("failing when TLS validation is enabled", func() {
+					platform.Kubectl("patch", "gitstatestore", stateStoreName, "--type=merge", "-p", `{"spec":{"insecure":false}}`)
+
+					ExpectNotReady("gitstatestore", stateStoreName)
+					ExpectEvent("gitstatestore", stateStoreName, "unable to clone repository", "certificate")
+				})
+
+				platform.Kubectl("apply", "-f", stateStoreYAML)
+				WaitReady("gitstatestore", stateStoreName)
+				WaitReady("destination", destinationName)
+
 				// update the underlying state store secret with invalid credentials (non-LRE only)
 				platform.Kubectl("patch", "secret", "gitea-credentials", "--type=merge", "-p", `{"stringData":{"username":"invalid"}}`)
 
