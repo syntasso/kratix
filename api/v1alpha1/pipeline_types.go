@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/ptr"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -51,8 +52,9 @@ const (
 	KratixClusterScopedEnvVar   = "KRATIX_CLUSTER_SCOPED"
 	KratixDryRunEnvVar          = "KRATIX_DRY_RUN"
 
-	KratixCrdPlural     = "KRATIX_CRD_PLURAL"
-	KratixClusterScoped = "KRATIX_CLUSTER_SCOPED"
+	KratixCrdPlural                         = "KRATIX_CRD_PLURAL"
+	KratixClusterScoped                     = "KRATIX_CLUSTER_SCOPED"
+	MinimumJobTTLSecondsAfterFinished int32 = 120
 
 	WorkflowTypeLabel   = KratixPrefix + "workflow-type"
 	WorkflowActionLabel = KratixPrefix + "workflow-action"
@@ -97,6 +99,7 @@ var (
 	DefaultUserProvidedContainersSecurityContext *corev1.SecurityContext
 	DefaultImagePullPolicy                       corev1.PullPolicy
 	DefaultJobBackoffLimit                       *int32
+	KratixConfigJobTTLSecondsAfterFinished       *int32
 )
 
 // PipelineSpec defines the desired state of Pipeline.
@@ -138,6 +141,8 @@ type Permission struct {
 type JobOptions struct {
 	// Number of retries before marking the pipeline Job as failed
 	BackoffLimit *int32 `json:"backoffLimit,omitempty"`
+	// Number of seconds to retain the pipeline Job after it finishes
+	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
 }
 
 // Container defines a single pipeline step container
@@ -246,6 +251,16 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 				pipelineLogger.Error(fmtErr, "error parsing pipelines")
 				return nil, fmtErr
 			}
+			configuredTTLSecondsAfterFinished := p.Spec.JobOptions.TTLSecondsAfterFinished
+			ttlSecondsAfterFinished, minimumApplied := ApplyMinimumJobTTLSecondsAfterFinished(configuredTTLSecondsAfterFinished)
+			if minimumApplied {
+				logging.Warn(pipelineLogger,
+					"spec.jobOptions.ttlSecondsAfterFinished is below the minimum; using the minimum",
+					"configuredTTLSecondsAfterFinished", *configuredTTLSecondsAfterFinished,
+					"minimumTTLSecondsAfterFinished", MinimumJobTTLSecondsAfterFinished,
+				)
+			}
+			p.Spec.JobOptions.TTLSecondsAfterFinished = ttlSecondsAfterFinished
 			ps = append(ps, p)
 		} else {
 			return nil, fmt.Errorf("unsupported pipeline %q with APIVersion \"%s/%s\"",
@@ -253,6 +268,13 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 		}
 	}
 	return ps, nil
+}
+
+func ApplyMinimumJobTTLSecondsAfterFinished(ttlSecondsAfterFinished *int32) (*int32, bool) {
+	if ttlSecondsAfterFinished == nil || *ttlSecondsAfterFinished >= MinimumJobTTLSecondsAfterFinished {
+		return ttlSecondsAfterFinished, false
+	}
+	return ptr.To(MinimumJobTTLSecondsAfterFinished), true
 }
 
 // ForPromise defines the PipelineFactory fields for a Promise.

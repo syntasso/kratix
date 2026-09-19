@@ -62,6 +62,12 @@ var _ = Describe("Kratix Config", func() {
 				Expect(jobYaml).NotTo(ContainSubstring("backoffLimit: 6"))
 			})
 
+			By("using the job TTL defined in the promise workflow", func() {
+				jobYaml := platform.EventuallyKubectl("get", "jobs", "--selector", firstPipelineLabels, "-o=yaml")
+				Expect(jobYaml).To(ContainSubstring("ttlSecondsAfterFinished: 1800"))
+				Expect(jobYaml).NotTo(ContainSubstring("ttlSecondsAfterFinished: 3600"))
+			})
+
 			By("executing the second pipeline pod", func() {
 				Eventually(func() string {
 					return platform.EventuallyKubectl("get", "pods", "--selector", secondPipelineLabels)
@@ -78,6 +84,12 @@ var _ = Describe("Kratix Config", func() {
 				jobYaml := platform.EventuallyKubectl("get", "jobs", "--selector", secondPipelineLabels, "-o=yaml")
 				Expect(jobYaml).To(ContainSubstring("backoffLimit: 4"))
 				Expect(jobYaml).NotTo(ContainSubstring("backoffLimit: 6"))
+			})
+
+			By("using the default job TTL defined in the kratix config", func() {
+				jobYaml := platform.EventuallyKubectl("get", "jobs", "--selector", secondPipelineLabels, "-o=yaml")
+				Expect(jobYaml).To(ContainSubstring("ttlSecondsAfterFinished: 3600"))
+				Expect(jobYaml).NotTo(ContainSubstring("ttlSecondsAfterFinished: 1800"))
 			})
 		})
 	})

@@ -41,6 +41,7 @@ spec:
           spec:
             jobOptions:
               backoffLimit: 3
+              ttlSecondsAfterFinished: 1800
             containers:
               - image: busybox
                 name: do-nothing-with-care

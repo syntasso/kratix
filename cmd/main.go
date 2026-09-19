@@ -125,8 +125,9 @@ type Workflows struct {
 }
 
 type JobOptions struct {
-	DefaultBackoffLimit        *int32 `json:"defaultBackoffLimit,omitempty"`
-	PodTTLSecondsAfterFinished *int32 `json:"podTTLSecondsAfterFinished,omitempty"`
+	DefaultBackoffLimit            *int32 `json:"defaultBackoffLimit,omitempty"`
+	DefaultTTLSecondsAfterFinished *int32 `json:"defaultTTLSecondsAfterFinished,omitempty"`
+	PodTTLSecondsAfterFinished     *int32 `json:"podTTLSecondsAfterFinished,omitempty"`
 }
 
 // LeaderElectionConfig duration default can be found in:
@@ -237,6 +238,7 @@ func main() {
 			platformv1alpha1.DefaultResourceRequirements = kratixConfig.Workflows.DefaultContainerResources
 		}
 	}
+	platformv1alpha1.KratixConfigJobTTLSecondsAfterFinished = getKratixConfigJobTTLSecondsAfterFinished(kratixConfig)
 
 	podTTLAfterFinished := getPodTTLAfterFinished(kratixConfig)
 	resourceBindingDefaultVersion := getResourceBindingDefaultVersion(kratixConfig)
@@ -579,6 +581,24 @@ func getPodTTLAfterFinished(kratixConfig *KratixConfig) *time.Duration {
 
 	ttl := time.Duration(podTTLSecondsAfterFinished) * time.Second
 	return &ttl
+}
+
+func getKratixConfigJobTTLSecondsAfterFinished(kratixConfig *KratixConfig) *int32 {
+	if kratixConfig == nil || kratixConfig.Workflows.JobOptions.DefaultTTLSecondsAfterFinished == nil {
+		return nil
+	}
+
+	configuredTTLSecondsAfterFinished := kratixConfig.Workflows.JobOptions.DefaultTTLSecondsAfterFinished
+	ttlSecondsAfterFinished, minimumApplied := platformv1alpha1.ApplyMinimumJobTTLSecondsAfterFinished(configuredTTLSecondsAfterFinished)
+	if minimumApplied {
+		logging.Warn(setupLog,
+			"workflows.jobOptions.defaultTTLSecondsAfterFinished is below the minimum; using the minimum",
+			"configuredTTLSecondsAfterFinished", *configuredTTLSecondsAfterFinished,
+			"minimumTTLSecondsAfterFinished", platformv1alpha1.MinimumJobTTLSecondsAfterFinished,
+		)
+	}
+
+	return ttlSecondsAfterFinished
 }
 
 // dryRunEnabled reports whether featureFlags.dryRun is set. Off unless the
