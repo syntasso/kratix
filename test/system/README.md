@@ -32,3 +32,9 @@ following guidance for adding new specs:
 
 Labels group specs so CI can split the suite across runners, so put them on the
 top-level Describe and keep a feature's specs together.
+
+The controller reads the `kratix` ConfigMap only at boot, so a spec that changes
+it must also `restartController()`. Nothing puts the default back afterwards: a
+Serial spec runs with whatever config the previous one left, and only Serial
+specs are exposed, since the parallel pool always runs first. If your spec
+depends on the default config, apply `assets/kratix-config.yaml` yourself.

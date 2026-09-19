@@ -52,8 +52,8 @@ func rafSetTimeouts() {
 }
 
 // Specs are grouped by the Kratix config they need: each group applies its
-// config once in BeforeAll and restarts the controller. The suite restores the
-// default config in SynchronizedAfterSuite.
+// config once in BeforeAll and restarts the controller. BeforeSuite restores
+// the default on the next run.
 var _ = Describe("Reconcile after failure", Label("config-mutating"), Serial, Ordered, func() {
 	BeforeAll(func() {
 		rafSetTimeouts()

@@ -58,12 +58,6 @@ var _ = SynchronizedBeforeSuite(func() {
 	kratixConfigPath = "./assets/kratix-config.yaml"
 })
 
-// Config-mutating specs leave their config behind, so restore the default here.
-// No restart: it would replace the pod CI collects the failure logs from.
-var _ = SynchronizedAfterSuite(func() {}, func() {
-	platform.Kubectl("apply", "-f", kratixConfigPath)
-})
-
 func getEnvOrDefault(envVar, defaultValue string) string {
 	value := os.Getenv(envVar)
 	if value == "" {
