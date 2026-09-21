@@ -1117,6 +1117,137 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
+		When("the last pipeline never finishes and the workflow keeps restarting", func() {
+			numberOfJobsToKeep := 2
+			restartsOverTheLimit := numberOfJobsToKeep + 2
+
+			runWorkflowLeavingTheLastPipelineRunning := func() {
+				GinkgoHelper()
+
+				workflowPipelines, uPromise := setupTest(promise, pipelines)
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise,
+					workflowPipelines, "promise", numberOfJobsToKeep, namespace)
+
+				By("running the first pipeline to success", func() {
+					reconcileConfigure(opts)
+					markJobAsComplete(workflowPipelines[0].Job.GetName())
+					setParentPipelinesSucceeded(uPromise, workflowPipelines, 1)
+				})
+
+				By("starting the last pipeline, which never finishes", func() {
+					reconcileConfigure(opts)
+				})
+			}
+
+			suspendTheRunningPipeline := func() {
+				GinkgoHelper()
+
+				labelPromiseForManualReconciliation(promise.Name)
+				workflowPipelines, uPromise := setupTest(promise, pipelines)
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise,
+					workflowPipelines, "promise", numberOfJobsToKeep, namespace)
+
+				By("suspending the job that is still running", func() {
+					reconcileConfigure(opts)
+					markJobsAsSuspended()
+				})
+			}
+
+			It("keeps no more than numberOfJobsToKeep jobs per pipeline", func() {
+				runWorkflowLeavingTheLastPipelineRunning()
+
+				for range restartsOverTheLimit {
+					suspendTheRunningPipeline()
+					runWorkflowLeavingTheLastPipelineRunning()
+				}
+
+				Expect(jobNamesForPipeline("pipeline-1")).To(HaveLen(numberOfJobsToKeep))
+				Expect(jobNamesForPipeline("pipeline-2")).To(HaveLen(numberOfJobsToKeep))
+			})
+		})
+
+		When("a pipeline no longer exists in the workflow", func() {
+			numberOfJobsToKeep := 2
+
+			It("deletes the oldest jobs left behind by that pipeline", func() {
+				removedPipeline := v1alpha1.Pipeline{
+					ObjectMeta: metav1.ObjectMeta{Name: "removed-pipeline"},
+					Spec: v1alpha1.PipelineSpec{
+						Containers: []v1alpha1.Container{{Name: "container-1", Image: "busybox"}},
+					},
+				}
+
+				for i := range numberOfJobsToKeep + 2 {
+					resources, err := removedPipeline.ForPromise(&promise, v1alpha1.WorkflowActionConfigure).Resources(nil)
+					Expect(err).NotTo(HaveOccurred())
+					resources.Job.SetName(fmt.Sprintf("removed-pipeline-job-%d", i))
+					resources.Job.SetCreationTimestamp(nextTimestamp())
+					Expect(fakeK8sClient.Create(ctx, resources.Job)).To(Succeed())
+					markJobAsComplete(resources.Job.GetName())
+				}
+
+				newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise,
+					newWorkflowPipelines, "promise", numberOfJobsToKeep, namespace)
+
+				_, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(jobNamesForPipeline("removed-pipeline")).To(ConsistOf(
+					"removed-pipeline-job-2", "removed-pipeline-job-3"))
+			})
+
+			When("the jobs of one pipeline cannot be deleted", func() {
+				It("still prunes the pipelines it can, without failing the reconciliation", func() {
+					createOldJobsFor := func(pipelineName string) {
+						GinkgoHelper()
+
+						removedPipeline := v1alpha1.Pipeline{
+							ObjectMeta: metav1.ObjectMeta{Name: pipelineName},
+							Spec: v1alpha1.PipelineSpec{
+								Containers: []v1alpha1.Container{{Name: "container-1", Image: "busybox"}},
+							},
+						}
+
+						for i := range numberOfJobsToKeep + 2 {
+							resources, err := removedPipeline.ForPromise(&promise, v1alpha1.WorkflowActionConfigure).Resources(nil)
+							Expect(err).NotTo(HaveOccurred())
+							resources.Job.SetName(fmt.Sprintf("%s-job-%d", pipelineName, i))
+							resources.Job.SetCreationTimestamp(nextTimestamp())
+							Expect(fakeK8sClient.Create(ctx, resources.Job)).To(Succeed())
+							markJobAsComplete(resources.Job.GetName())
+						}
+					}
+
+					By("leaving old jobs behind for two pipelines that no longer exist", func() {
+						createOldJobsFor("undeletable-pipeline")
+						createOldJobsFor("removed-pipeline")
+					})
+
+					failingClient := interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+						Delete: func(ctx context.Context, c client.WithWatch, obj client.Object,
+							opts ...client.DeleteOption) error {
+							if strings.HasPrefix(obj.GetName(), "undeletable-pipeline-job") {
+								return fmt.Errorf("cannot delete job")
+							}
+							return c.Delete(ctx, obj, opts...)
+						},
+					})
+
+					newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
+					opts := workflow.NewOpts(ctx, failingClient, eventRecorder, logger, uPromise,
+						newWorkflowPipelines, "promise", numberOfJobsToKeep, namespace)
+
+					_, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(jobNamesForPipeline("removed-pipeline")).To(ConsistOf(
+						"removed-pipeline-job-2", "removed-pipeline-job-3"))
+					Expect(jobNamesForPipeline("undeletable-pipeline")).To(HaveLen(numberOfJobsToKeep + 2))
+				})
+			})
+		})
+
 		When("all pipelines have executed", func() {
 			var updatedWorkflows []v1alpha1.PipelineJobResources
 
@@ -2822,6 +2953,23 @@ func markJobAsFailed(name string) {
 	markJobAs(batchv1.JobFailed, name)
 }
 
+// Kratix sets spec.suspend; in a cluster the Job controller then reports the
+// Suspended condition.
+func markJobsAsSuspended() {
+	GinkgoHelper()
+	for _, job := range listJobs(namespace) {
+		if job.Spec.Suspend != nil && *job.Spec.Suspend && len(job.Status.Conditions) == 0 {
+			markJobAs(batchv1.JobSuspended, job.GetName())
+		}
+	}
+}
+
+func reconcileConfigure(opts workflow.Opts) {
+	GinkgoHelper()
+	_, err := workflow.ReconcileConfigure(opts)
+	Expect(err).NotTo(HaveOccurred())
+}
+
 func markJobAsCompleteWithSuspend(name string, parentObject *unstructured.Unstructured) {
 	markJobAsComplete(name)
 	parentObject.SetLabels(map[string]string{v1alpha1.WorkflowSuspendedLabel: "true"})
@@ -2846,6 +2994,7 @@ func markJobAs(conditionType batchv1.JobConditionType, name string) {
 		job.Status.Succeeded = 1
 	case batchv1.JobFailed:
 		job.Status.Failed = 1
+	case batchv1.JobSuspended:
 	default:
 		Fail("unsupported condition type")
 	}
@@ -2877,6 +3026,16 @@ func listJobs(namespace string) []batchv1.Job {
 	err := fakeK8sClient.List(ctx, jobList, client.InNamespace(namespace))
 	Expect(err).NotTo(HaveOccurred())
 	return jobList.Items
+}
+
+func jobNamesForPipeline(pipelineName string) []string {
+	names := []string{}
+	for _, job := range listJobs(namespace) {
+		if job.GetLabels()[v1alpha1.PipelineNameLabel] == pipelineName {
+			names = append(names, job.GetName())
+		}
+	}
+	return names
 }
 
 func findByName(jobs []batchv1.Job, name string) bool {
