@@ -894,6 +894,11 @@ func (r *PromiseReconciler) removeReconcileResourcesLabel(ctx context.Context, p
 	return nil
 }
 
+func (r *PromiseReconciler) removeManualReconciliationLabel(ctx context.Context, promise *v1alpha1.Promise) error {
+	delete(promise.Labels, resourceutil.ManualReconciliationLabel)
+	return r.Client.Update(ctx, promise)
+}
+
 func updateConditionOnPromise(promise *v1alpha1.Promise, latestCondition metav1.Condition) bool {
 	return meta.SetStatusCondition(&promise.Status.Conditions, latestCondition)
 }
@@ -995,12 +1000,14 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	pipelineCount := r.getWorkflowsCount(promise)
 
 	if pipelineCount == 0 {
-		/* Promise Configure Workflows were removed, wipe any workflow statuses */
+		if promise.Labels[resourceutil.ManualReconciliationLabel] == "true" {
+			return false, nil, r.removeManualReconciliationLabel(o.ctx, promise)
+		}
+
 		if changed := promise.ClearPipelineExecutionStatus(); changed {
 			return false, nil, r.Client.Status().Update(o.ctx, promise)
 		}
 
-		// No workflow to run, abort
 		return false, nil, nil
 	}
 

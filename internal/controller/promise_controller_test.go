@@ -2356,6 +2356,28 @@ var _ = Describe("PromiseController", func() {
 				})
 			})
 
+			When("promise has no configure workflow", func() {
+				BeforeEach(func() {
+					promise.Spec.Workflows.Promise.Configure = nil
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+				})
+
+				When("manual reconciliation label is added", func() {
+					It("removes the label", func() {
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
+						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+						_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+							funcs: []func(client.Object) error{autoMarkCRDAsEstablished}})
+						Expect(err).NotTo(HaveOccurred())
+
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						Expect(promise.GetLabels()).NotTo(HaveKey(resourceutil.ManualReconciliationLabel))
+					})
+				})
+			})
+
 			When("A pipeline name has changed", func() {
 				BeforeEach(func() {
 					promise.Spec.Workflows.Promise.Configure[0].SetName("new-pipeline-name")
