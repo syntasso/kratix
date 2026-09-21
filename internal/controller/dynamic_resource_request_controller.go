@@ -820,11 +820,7 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 			"nextRetryAt", nextRetryAtTime, "requeueAfter", requeueAfterDuration)
 	}
 
-	suspended, err := r.setWorkflowSuspendedStatusCondition(ctx, rr)
-	if suspended {
-		r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, workflowSuspendedReason, workflowSuspendedReason, "%s", msg)
-	}
-	return true, result, err
+	return true, result, r.setWorkflowSuspendedStatusCondition(ctx, rr, msg)
 }
 
 func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured,
@@ -1097,17 +1093,17 @@ func (r *DynamicResourceRequestController) setPausedReconciliationStatusConditio
 	return nil
 }
 
-// setWorkflowSuspendedStatusCondition reports whether it changed the resource request.
-func (r *DynamicResourceRequestController) setWorkflowSuspendedStatusCondition(ctx context.Context, rr *unstructured.Unstructured) (bool, error) {
+func (r *DynamicResourceRequestController) setWorkflowSuspendedStatusCondition(ctx context.Context, rr *unstructured.Unstructured, eventMsg string) error {
 	reconciled := resourceutil.GetCondition(rr, resourceutil.ReconciledCondition)
 	if reconciled == nil ||
 		reconciled.Status != v1.ConditionUnknown ||
 		reconciled.Reason != workflowSuspendedReason ||
 		reconciled.Message != "Suspended" {
 		resourceutil.MarkReconciledSuspended(rr)
-		return true, r.Client.Status().Update(ctx, rr)
+		r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, workflowSuspendedReason, workflowSuspendedReason, "%s", eventMsg)
+		return r.Client.Status().Update(ctx, rr)
 	}
-	return false, nil
+	return nil
 }
 
 func (r *DynamicResourceRequestController) setDeleteWorkflowSuspendedCondition(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured) error {

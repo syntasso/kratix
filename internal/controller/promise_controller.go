@@ -177,11 +177,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation", pauseReconciliationLabel)
 		logging.Info(r.Log, msg)
-		paused, err := r.setPausedReconciliationStatusConditions(ctx, promise)
-		if paused {
-			r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, pausedReconciliationReason, pausedReconciliationReason, "%s", msg)
-		}
-		return ctrl.Result{}, err
+		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, promise, msg)
 	}
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
@@ -442,15 +438,18 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 	return ctrl.Result{}, nil
 }
 
-// setPausedReconciliationStatusConditions reports whether it changed the Promise.
-func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
-	return r.setPromiseUnavailableStatusConditions(
+func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.Context, promise *v1alpha1.Promise, eventMsg string) error {
+	paused, err := r.setPromiseUnavailableStatusConditions(
 		ctx,
 		promise,
 		promiseAvailablePausedStatusCondition(),
 		promiseReconciledPausedCondition(),
 		"Paused",
 	)
+	if paused {
+		r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, pausedReconciliationReason, pausedReconciliationReason, "%s", eventMsg)
+	}
+	return err
 }
 
 func (r *PromiseReconciler) setDeleteWorkflowSuspendedCondition(o opts, promise *v1alpha1.Promise) error {
@@ -470,15 +469,18 @@ func (r *PromiseReconciler) setDeleteWorkflowSuspendedCondition(o opts, promise 
 	return nil
 }
 
-// setWorkflowSuspendedStatusCondition reports whether it changed the Promise.
-func (r *PromiseReconciler) setWorkflowSuspendedStatusCondition(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
-	return r.setPromiseUnavailableStatusConditions(
+func (r *PromiseReconciler) setWorkflowSuspendedStatusCondition(ctx context.Context, promise *v1alpha1.Promise, eventMsg string) error {
+	suspended, err := r.setPromiseUnavailableStatusConditions(
 		ctx,
 		promise,
 		promiseAvailableSuspendedStatusCondition(),
 		promiseReconciledSuspendedCondition(),
 		"Suspended",
 	)
+	if suspended {
+		r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, workflowSuspendedReason, workflowSuspendedReason, "%s", eventMsg)
+	}
+	return err
 }
 
 func (r *PromiseReconciler) setPromiseUnavailableStatusConditions(
@@ -1157,11 +1159,7 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 		logging.Info(r.Log, "scheduling next reconciliation", "retryAfter", retryAtTime, "requeueAfter", requeueAfterDuration)
 	}
 
-	suspended, err := r.setWorkflowSuspendedStatusCondition(o.ctx, promise)
-	if suspended {
-		r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, workflowSuspendedReason, workflowSuspendedReason, "%s", msg)
-	}
-	return shouldRequeue, result, err
+	return shouldRequeue, result, r.setWorkflowSuspendedStatusCondition(o.ctx, promise, msg)
 }
 
 // Either its not set, or its changed, either number of pipelines has changed, or names have changed
