@@ -177,8 +177,11 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation", pauseReconciliationLabel)
 		logging.Info(r.Log, msg)
-		r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, pausedReconciliationReason, pausedReconciliationReason, "%s", msg)
-		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, promise)
+		paused, err := r.setPausedReconciliationStatusConditions(ctx, promise)
+		if paused {
+			r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, pausedReconciliationReason, pausedReconciliationReason, "%s", msg)
+		}
+		return ctrl.Result{}, err
 	}
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
@@ -439,7 +442,8 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 	return ctrl.Result{}, nil
 }
 
-func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.Context, promise *v1alpha1.Promise) error {
+// setPausedReconciliationStatusConditions reports whether it changed the Promise.
+func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
 	return r.setPromiseUnavailableStatusConditions(
 		ctx,
 		promise,
@@ -466,7 +470,8 @@ func (r *PromiseReconciler) setDeleteWorkflowSuspendedCondition(o opts, promise 
 	return nil
 }
 
-func (r *PromiseReconciler) setWorkflowSuspendedStatusCondition(ctx context.Context, promise *v1alpha1.Promise) error {
+// setWorkflowSuspendedStatusCondition reports whether it changed the Promise.
+func (r *PromiseReconciler) setWorkflowSuspendedStatusCondition(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
 	return r.setPromiseUnavailableStatusConditions(
 		ctx,
 		promise,
@@ -482,7 +487,7 @@ func (r *PromiseReconciler) setPromiseUnavailableStatusConditions(
 	availableCondition metav1.Condition,
 	reconciledCondition metav1.Condition,
 	expectedReconciledMessage string,
-) error {
+) (bool, error) {
 	var updated bool
 	available := promise.GetCondition(v1alpha1.PromiseStatusAvailable)
 	if available == nil ||
@@ -502,10 +507,10 @@ func (r *PromiseReconciler) setPromiseUnavailableStatusConditions(
 	}
 
 	if !updated {
-		return nil
+		return false, nil
 	}
 
-	return r.Client.Status().Update(ctx, promise)
+	return true, r.Client.Status().Update(ctx, promise)
 }
 
 func resetPromiseWorkflowPipelinesToPending(promise *v1alpha1.Promise) {
@@ -867,10 +872,14 @@ func (r *PromiseReconciler) refreshRequirementsStatus(ctx context.Context, promi
 		return false
 	}
 
-	latestCondition, latestRequirements := r.evaluateRequirements(ctx, promise)
+	latestCondition, latestRequirements, notes := r.evaluateRequirements(ctx, promise)
 
 	requirementsFieldChanged := updateRequirementsStatusOnPromise(promise, promise.Status.RequiredPromises, latestRequirements)
 	conditionsFieldChanged := updateConditionOnPromise(promise, latestCondition)
+
+	if conditionsFieldChanged {
+		r.publishRequirementsEvent(promise, latestCondition, notes)
+	}
 
 	return conditionsFieldChanged || requirementsFieldChanged
 }
@@ -912,7 +921,20 @@ func updateRequirementsStatusOnPromise(promise *v1alpha1.Promise, oldReqs, newRe
 	return true
 }
 
-func (r *PromiseReconciler) evaluateRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequiredPromiseStatus) {
+// publishRequirementsEvent announces the requirements condition once, when it changes.
+// The reason comes off the condition so each outcome keeps its own event reason, and the
+// per-requirement notes keep the detail the old per-requirement events carried.
+func (r *PromiseReconciler) publishRequirementsEvent(promise *v1alpha1.Promise, condition metav1.Condition, notes []string) {
+	if condition.Status == metav1.ConditionTrue {
+		if len(promise.Spec.RequiredPromises) > 0 {
+			r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, "RequirementsFulfilled", "RequirementsFulfilled", "All required promises are available")
+		}
+		return
+	}
+	r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, condition.Reason, condition.Reason, "%s", strings.Join(notes, "; "))
+}
+
+func (r *PromiseReconciler) evaluateRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequiredPromiseStatus, []string) {
 	condition := metav1.Condition{
 		Type:               v1alpha1.PromiseRequirementsFulfilledCondition,
 		Status:             metav1.ConditionTrue,
@@ -922,15 +944,16 @@ func (r *PromiseReconciler) evaluateRequirements(ctx context.Context, promise *v
 	}
 
 	var requirements []v1alpha1.RequiredPromiseStatus
+	var notes []string
 	for _, req := range promise.Spec.RequiredPromises {
-		requirements = append(requirements, r.evaluateRequirement(ctx, promise, req, &condition))
+		status, note := r.evaluateRequirement(ctx, promise, req, &condition)
+		requirements = append(requirements, status)
+		if note != "" {
+			notes = append(notes, note)
+		}
 	}
 
-	if condition.Status == metav1.ConditionTrue && len(promise.Spec.RequiredPromises) > 0 {
-		r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, "RequirementsFulfilled", "RequirementsFulfilled", "All required promises are available")
-	}
-
-	return condition, requirements
+	return condition, requirements, notes
 }
 
 func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
@@ -947,28 +970,31 @@ func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, pro
 	return r.updatePromiseStatus(ctx, promise)
 }
 
-func (r *PromiseReconciler) evaluateRequirement(ctx context.Context, promise *v1alpha1.Promise, req v1alpha1.RequiredPromise, condition *metav1.Condition) v1alpha1.RequiredPromiseStatus {
+// evaluateRequirement returns the requirement's status and, when it is not fulfilled, a
+// note describing why, for the single event published once the condition changes.
+func (r *PromiseReconciler) evaluateRequirement(ctx context.Context, promise *v1alpha1.Promise, req v1alpha1.RequiredPromise, condition *metav1.Condition) (v1alpha1.RequiredPromiseStatus, string) {
 	required := &v1alpha1.Promise{}
 	err := r.Client.Get(ctx, types.NamespacedName{Name: req.Name}, required)
 
 	var state string
+	var note string
 	switch {
 	case apierrors.IsNotFound(err):
 		state = requirementStateNotInstalled
 		updateConditionNotFulfilled(condition, "RequirementsNotInstalled", "Requirements not fulfilled")
-		r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, "RequirementsNotInstalled", "RequirementsNotInstalled", "%s", fmt.Sprintf("Required Promise %s not installed or unknown state", req.Name))
+		note = fmt.Sprintf("Required Promise %s not installed or unknown state", req.Name)
 
 	case err != nil:
 		state = requirementUnknownInstallationState
 		updateConditionNotFulfilled(condition, "RequirementsNotInstalled", "Unable to determine if requirements are fulfilled")
-		r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, "RequirementsNotInstalled", "RequirementsNotInstalled", "%s", fmt.Sprintf("Required Promise %s not installed or unknown state", required.Name))
+		note = fmt.Sprintf("Required Promise %s not installed or unknown state", required.Name)
 
 	default:
 		var reason string
 		state, reason = r.evaluateRequirementAgainstRevisions(ctx, req, required)
 		if reason != "" {
 			updateConditionNotFulfilled(condition, reason, "Requirements not fulfilled")
-			r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, reason, reason, "%s", fmt.Sprintf("Waiting for required Promise %s: %s ", required.Name, state))
+			note = fmt.Sprintf("Waiting for required Promise %s: %s", required.Name, state)
 		}
 
 		r.markRequiredPromiseAsRequired(ctx, req.Version, promise, required)
@@ -978,7 +1004,7 @@ func (r *PromiseReconciler) evaluateRequirement(ctx context.Context, promise *v1
 		Name:    req.Name,
 		Version: req.Version,
 		State:   state,
-	}
+	}, note
 }
 
 func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, promise *v1alpha1.Promise, unstructuredPromise *unstructured.Unstructured) (bool, *ctrl.Result, error) {
@@ -1107,7 +1133,6 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 
 	msg := fmt.Sprintf("'%s' label set to 'true' for promise; skipping reconciliation", v1alpha1.WorkflowSuspendedLabel)
 	logging.Info(r.Log, msg)
-	r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, workflowSuspendedReason, workflowSuspendedReason, "%s", msg)
 
 	retryAtTime, err := nextRetryAt(*promise)
 	if err != nil {
@@ -1132,7 +1157,11 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 		logging.Info(r.Log, "scheduling next reconciliation", "retryAfter", retryAtTime, "requeueAfter", requeueAfterDuration)
 	}
 
-	return shouldRequeue, result, r.setWorkflowSuspendedStatusCondition(o.ctx, promise)
+	suspended, err := r.setWorkflowSuspendedStatusCondition(o.ctx, promise)
+	if suspended {
+		r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, workflowSuspendedReason, workflowSuspendedReason, "%s", msg)
+	}
+	return shouldRequeue, result, err
 }
 
 // Either its not set, or its changed, either number of pipelines has changed, or names have changed
@@ -1657,7 +1686,6 @@ func (r *PromiseReconciler) handlePromiseDeletePipelineFailure(o opts, promise *
 	if !stderrors.Is(err, workflow.ErrDeletePipelineFailed) {
 		return
 	}
-	r.EventRecorder.Eventf(promise, nil, "Warning", "Failed Pipeline", "Failed Pipeline", "%s", "The Delete Pipeline has failed")
 	condition := metav1.Condition{
 		Type:               string(resourceutil.DeleteWorkflowCompletedCondition),
 		Status:             metav1.ConditionFalse,
@@ -1665,7 +1693,10 @@ func (r *PromiseReconciler) handlePromiseDeletePipelineFailure(o opts, promise *
 		Reason:             resourceutil.DeleteWorkflowCompletedFailedReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	}
-	updateConditionOnPromise(promise, condition)
+	if !updateConditionOnPromise(promise, condition) {
+		return
+	}
+	r.EventRecorder.Eventf(promise, nil, "Warning", "Failed Pipeline", "Failed Pipeline", "%s", "The Delete Pipeline has failed")
 	if err := r.Client.Status().Update(o.ctx, promise); err != nil {
 		logging.Error(o.logger, err, "failed to update promise status", "promise", promise.GetName())
 	}

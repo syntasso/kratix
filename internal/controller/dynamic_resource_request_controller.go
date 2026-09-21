@@ -426,7 +426,6 @@ func (r *DynamicResourceRequestController) resolvePromiseRevisionForRR(
 	promise.Spec = promiseRevisionUsed.Spec.PromiseSpec
 	logging.Debug(baseLogger,
 		"Found PromiseRevision from ResourceRequest", "revision name", promiseRevisionUsed.Name)
-	r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "ReconcileStarted", "ReconcileStarted", "%s", fmt.Sprintf("reconciling resource request with promise revision %s", promiseRevisionUsed.Name))
 
 	return promiseRevisionUsed, binding.Spec.Version, nil
 }
@@ -800,7 +799,6 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 
 	msg := fmt.Sprintf("'%s' label set to 'true' for resource request; skipping reconciliation", v1alpha1.WorkflowSuspendedLabel)
 	logging.Info(logger, msg)
-	r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, workflowSuspendedReason, workflowSuspendedReason, "%s", msg)
 
 	nextRetryAtTime, err := nextRetryAtForResource(rr)
 	if err != nil {
@@ -822,7 +820,11 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 			"nextRetryAt", nextRetryAtTime, "requeueAfter", requeueAfterDuration)
 	}
 
-	return true, result, r.setWorkflowSuspendedStatusCondition(ctx, rr)
+	suspended, err := r.setWorkflowSuspendedStatusCondition(ctx, rr)
+	if suspended {
+		r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, workflowSuspendedReason, workflowSuspendedReason, "%s", msg)
+	}
+	return true, result, err
 }
 
 func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured,
@@ -1095,16 +1097,17 @@ func (r *DynamicResourceRequestController) setPausedReconciliationStatusConditio
 	return nil
 }
 
-func (r *DynamicResourceRequestController) setWorkflowSuspendedStatusCondition(ctx context.Context, rr *unstructured.Unstructured) error {
+// setWorkflowSuspendedStatusCondition reports whether it changed the resource request.
+func (r *DynamicResourceRequestController) setWorkflowSuspendedStatusCondition(ctx context.Context, rr *unstructured.Unstructured) (bool, error) {
 	reconciled := resourceutil.GetCondition(rr, resourceutil.ReconciledCondition)
 	if reconciled == nil ||
 		reconciled.Status != v1.ConditionUnknown ||
 		reconciled.Reason != workflowSuspendedReason ||
 		reconciled.Message != "Suspended" {
 		resourceutil.MarkReconciledSuspended(rr)
-		return r.Client.Status().Update(ctx, rr)
+		return true, r.Client.Status().Update(ctx, rr)
 	}
-	return nil
+	return false, nil
 }
 
 func (r *DynamicResourceRequestController) setDeleteWorkflowSuspendedCondition(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured) error {
@@ -1285,8 +1288,10 @@ func (r *DynamicResourceRequestController) handleDeletePipelineFailure(o opts, p
 	if !errors.Is(err, workflow.ErrDeletePipelineFailed) {
 		return
 	}
+	if !resourceutil.MarkDeleteWorkflowAsFailed(o.logger, resourceRequest) {
+		return
+	}
 	r.EventRecorder.Eventf(resourceRequest, nil, "Warning", "Failed Pipeline", "Failed Pipeline", "%s", "The Delete Pipeline has failed")
-	resourceutil.MarkDeleteWorkflowAsFailed(o.logger, resourceRequest)
 	if err := r.Client.Status().Update(o.ctx, resourceRequest); err != nil {
 		logging.Error(o.logger, err, "failed to update resource request status", "promise", promise.GetName(),
 			"namespace", resourceRequest.GetNamespace(), "resource", resourceRequest.GetName())

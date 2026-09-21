@@ -171,7 +171,9 @@ func MarkReconciledSuspended(obj *unstructured.Unstructured) {
 	})
 }
 
-func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured) {
+// MarkDeleteWorkflowAsFailed reports whether the condition changed, so callers only
+// announce the failure once rather than on every retried reconcile.
+func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured) bool {
 	condition := clusterv1.Condition{
 		Type:               DeleteWorkflowCompletedCondition,
 		Status:             v1.ConditionFalse,
@@ -179,8 +181,11 @@ func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructur
 		Reason:             DeleteWorkflowCompletedFailedReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	}
-	SetCondition(obj, &condition)
+	if !SetConditionIfChanged(obj, &condition) {
+		return false
+	}
 	logging.Warn(logger, "marking delete workflow as failed", "condition", condition.Type, "value", condition.Status, "reason", condition.Reason)
+	return true
 }
 
 func MarkDeleteWorkflowSuspended(logger logr.Logger, obj *unstructured.Unstructured) {
