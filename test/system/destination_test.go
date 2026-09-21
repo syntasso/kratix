@@ -16,6 +16,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 	"sigs.k8s.io/yaml"
 )
 
@@ -97,12 +98,16 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 			WaitReady("destination", destinationName)
 
 			if os.Getenv("LRE") != "true" {
-				// gitea serves a self-signed cert, so validating it must fail
+				// gitea's cert is not signed by a CA the platform trusts
 				By("failing when TLS validation is enabled", func() {
 					platform.Kubectl("patch", "gitstatestore", stateStoreName, "--type=merge", "-p", `{"spec":{"insecure":false}}`)
 
 					ExpectNotReady("gitstatestore", stateStoreName)
-					ExpectEvent("gitstatestore", stateStoreName, "unable to clone repository", "certificate")
+					ExpectEventContainingAll(
+						"gitstatestore", stateStoreName,
+						"unable to clone repository",
+						"TLS certificate validation failed",
+					)
 				})
 
 				platform.Kubectl("apply", "-f", stateStoreYAML)
@@ -487,6 +492,22 @@ func ExpectNotReady(kind, name string) {
 	Eventually(func() string {
 		return platform.Kubectl("get", kind, name)
 	}, "30s").Should(ContainSubstring("False"))
+}
+
+// ExpectEventContainingAll asserts the events contain every substring, unlike
+// ExpectEvent which is satisfied by any one of them. Kratix wraps the underlying
+// failure, so the substrings can span several lines of a single event message.
+func ExpectEventContainingAll(kind, name string, events ...string) {
+	GinkgoHelper()
+	matchers := make([]types.GomegaMatcher, 0, len(events))
+	for _, e := range events {
+		matchers = append(matchers, ContainSubstring(e))
+	}
+	Eventually(func() string {
+		describeOutput := platform.Kubectl("describe", kind, name)
+		_, eventOutput, _ := strings.Cut(describeOutput, "\nEvents:")
+		return eventOutput
+	}).Should(SatisfyAll(matchers...))
 }
 
 func ExpectEvent(kind, name string, events ...string) {

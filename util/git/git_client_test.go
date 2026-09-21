@@ -5,6 +5,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/syntasso/kratix/internal/ptr"
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -34,7 +35,7 @@ var _ = Describe("SetAuth", func() {
 			auth, err := SetAuth(v1alpha1.GitStateStoreSpec{
 				URL:        "https://github.com/syntasso/kratix",
 				AuthMethod: v1alpha1.BasicAuthMethod,
-				Insecure:   insecure,
+				Insecure:   ptr.To(insecure),
 				StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
 					SecretRef: &corev1.SecretReference{Name: "creds", Namespace: "default"},
 				},

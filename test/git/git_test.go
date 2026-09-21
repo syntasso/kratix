@@ -11,6 +11,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/syntasso/kratix/internal/ptr"
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -329,7 +330,7 @@ func getStateStore(authType, repo string) *v1alpha1.GitStateStoreSpec {
 		URL:        repo,
 		Branch:     "main",
 		// github presents a publicly trusted cert, so validate it
-		Insecure: false,
+		Insecure: ptr.False(),
 		GitAuthor: v1alpha1.GitAuthor{
 			Email: "test@example.com",
 			Name:  "a-user",

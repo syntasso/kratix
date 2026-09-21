@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +13,27 @@ import (
 	gitutil "github.com/syntasso/kratix/util/git"
 	corev1 "k8s.io/api/core/v1"
 )
+
+// tlsValidationFailures are how git and the Go HTTP client report a server certificate
+// they cannot verify. The underlying cause varies (self-signed, unknown CA, expired), and
+// the wording differs between the openssl and gnutls git builds.
+var tlsValidationFailures = []string{
+	"SSL certificate problem",
+	"server certificate verification failed",
+	"x509: certificate signed by unknown authority",
+	"tls: failed to verify certificate",
+}
+
+// withTLSValidationReason names the cause of a certificate failure, which the underlying
+// messages leave the reader to infer. The original error is kept for the detail it carries.
+func withTLSValidationReason(err error) error {
+	for _, failure := range tlsValidationFailures {
+		if strings.Contains(err.Error(), failure) {
+			return fmt.Errorf("TLS certificate validation failed: %w", err)
+		}
+	}
+	return err
+}
 
 type Repository struct {
 	sync.Mutex
@@ -141,7 +163,7 @@ func (c *repositoryCache) initGitRepository(logger logr.Logger, store StateStore
 
 	repoDir, err := gitWriter.Init(stateStore.Spec.Branch)
 	if err != nil {
-		return nil, NewInitialiseWriterError(fmt.Errorf("unable to clone repository: %w", err))
+		return nil, NewInitialiseWriterError(fmt.Errorf("unable to clone repository: %w", withTLSValidationReason(err)))
 	}
 
 	repo := &Repository{

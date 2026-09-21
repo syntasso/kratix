@@ -86,7 +86,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			RawRepoURL: stateStoreSpec.URL,
 			Root:       repoPath,
 			Auth:       auth,
-			Insecure:   stateStoreSpec.Insecure,
+			Insecure:   stateStoreSpec.TLSVerificationDisabled(),
 			Log:        logger,
 			Opts: []git.ClientOpts{
 				git.WithMinimumFetchInterval(config.minimumFetchInterval),

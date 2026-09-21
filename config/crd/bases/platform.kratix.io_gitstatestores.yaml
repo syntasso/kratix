@@ -82,10 +82,9 @@ spec:
                     type: string
                 type: object
               insecure:
-                default: true
                 description: |-
                   Toggle to turn off or on TLS verification when connecting to the repository.
-                  Only applies to HTTPS connections.
+                  Only applies to HTTPS connections. Defaults to true when unset.
                 type: boolean
               path:
                 description: |-
