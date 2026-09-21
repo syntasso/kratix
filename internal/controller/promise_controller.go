@@ -439,17 +439,15 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 }
 
 func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.Context, promise *v1alpha1.Promise, eventMsg string) error {
-	paused, err := r.setPromiseUnavailableStatusConditions(
+	return r.setPromiseUnavailableStatusConditions(
 		ctx,
 		promise,
 		promiseAvailablePausedStatusCondition(),
 		promiseReconciledPausedCondition(),
 		"Paused",
+		pausedReconciliationReason,
+		eventMsg,
 	)
-	if paused {
-		r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, pausedReconciliationReason, pausedReconciliationReason, "%s", eventMsg)
-	}
-	return err
 }
 
 func (r *PromiseReconciler) setDeleteWorkflowSuspendedCondition(o opts, promise *v1alpha1.Promise) error {
@@ -470,17 +468,15 @@ func (r *PromiseReconciler) setDeleteWorkflowSuspendedCondition(o opts, promise 
 }
 
 func (r *PromiseReconciler) setWorkflowSuspendedStatusCondition(ctx context.Context, promise *v1alpha1.Promise, eventMsg string) error {
-	suspended, err := r.setPromiseUnavailableStatusConditions(
+	return r.setPromiseUnavailableStatusConditions(
 		ctx,
 		promise,
 		promiseAvailableSuspendedStatusCondition(),
 		promiseReconciledSuspendedCondition(),
 		"Suspended",
+		workflowSuspendedReason,
+		eventMsg,
 	)
-	if suspended {
-		r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, workflowSuspendedReason, workflowSuspendedReason, "%s", eventMsg)
-	}
-	return err
 }
 
 func (r *PromiseReconciler) setPromiseUnavailableStatusConditions(
@@ -489,7 +485,9 @@ func (r *PromiseReconciler) setPromiseUnavailableStatusConditions(
 	availableCondition metav1.Condition,
 	reconciledCondition metav1.Condition,
 	expectedReconciledMessage string,
-) (bool, error) {
+	eventReason string,
+	eventMsg string,
+) error {
 	var updated bool
 	available := promise.GetCondition(v1alpha1.PromiseStatusAvailable)
 	if available == nil ||
@@ -509,10 +507,11 @@ func (r *PromiseReconciler) setPromiseUnavailableStatusConditions(
 	}
 
 	if !updated {
-		return false, nil
+		return nil
 	}
 
-	return true, r.Client.Status().Update(ctx, promise)
+	r.EventRecorder.Eventf(promise, nil, v1.EventTypeWarning, eventReason, eventReason, "%s", eventMsg)
+	return r.Client.Status().Update(ctx, promise)
 }
 
 func resetPromiseWorkflowPipelinesToPending(promise *v1alpha1.Promise) {
