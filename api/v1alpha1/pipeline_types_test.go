@@ -703,24 +703,6 @@ var _ = Describe("Pipeline", func() {
 					Expect(resources.Job.Spec.TTLSecondsAfterFinished).To(PointTo(Equal(int32(300))))
 				})
 
-				It("uses the minimum when the pipeline value is too low", func() {
-					pipeline.Spec.JobOptions.TTLSecondsAfterFinished = ptr.To(int32(60))
-
-					resources, err := factory.Resources(nil)
-
-					Expect(err).ToNot(HaveOccurred())
-					Expect(resources.Job.Spec.TTLSecondsAfterFinished).To(PointTo(Equal(v1alpha1.MinimumJobTTLSecondsAfterFinished)))
-				})
-
-				It("uses the minimum when the Kratix Config value is too low", func() {
-					v1alpha1.KratixConfigJobTTLSecondsAfterFinished = ptr.To(int32(60))
-
-					resources, err := factory.Resources(nil)
-
-					Expect(err).ToNot(HaveOccurred())
-					Expect(resources.Job.Spec.TTLSecondsAfterFinished).To(PointTo(Equal(v1alpha1.MinimumJobTTLSecondsAfterFinished)))
-				})
-
 				It("leaves the value unset when no TTL is configured", func() {
 					resources, err := factory.Resources(nil)
 
