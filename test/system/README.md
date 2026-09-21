@@ -38,3 +38,33 @@ it must also `restartController()`. Nothing puts the default back afterwards: a
 Serial spec runs with whatever config the previous one left, and only Serial
 specs are exposed, since the parallel pool always runs first. If your spec
 depends on the default config, apply `assets/kratix-config.yaml` yourself.
+
+## CI shards
+
+In CI the suite is split into three shards via `--label-filter`, each on its
+own runner with its own kind clusters:
+
+| Shard          | Filter                                                       | Contains                                            |
+| -------------- | ------------------------------------------------------------ | --------------------------------------------------- |
+| `config`       | `config-mutating`                                            | tests that change platform-wide config              |
+| `destinations` | `destination \|\| git-recovery \|\| compound-promise`        | tests that mutate shared state-store infrastructure |
+| `rest`         | `!config-mutating && !destination && !git-recovery && !compound-promise` | everything else                          |
+
+The `rest` filter is a pure negation, so a Describe with no label always runs
+there — a forgotten label can never drop a test from CI.
+
+`Serial` serialises specs within a shard, and each shard runs on its own
+clusters, so a wrong label costs shard balance, not correctness. If a shard
+grows past ~15 minutes of test time, rebalance by moving whole Describes
+(swap labels — never split a Describe across shards).
+
+### Running a shard locally
+
+```sh
+GINKGO_FLAGS="--label-filter='destination || git-recovery || compound-promise'" \
+  make -j4 run-system-test
+```
+
+The inner single quotes are required: the Makefile expands `GINKGO_FLAGS`
+unquoted, and an unquoted `&&` in the filter is split by the shell, making
+ginkgo fail with "Found no test suites".
