@@ -24,7 +24,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/go-logr/logr"
-	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/ptr"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -251,16 +250,6 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 				pipelineLogger.Error(fmtErr, "error parsing pipelines")
 				return nil, fmtErr
 			}
-			configuredTTLSecondsAfterFinished := p.Spec.JobOptions.TTLSecondsAfterFinished
-			ttlSecondsAfterFinished, minimumApplied := ApplyMinimumJobTTLSecondsAfterFinished(configuredTTLSecondsAfterFinished)
-			if minimumApplied {
-				logging.Warn(pipelineLogger,
-					"spec.jobOptions.ttlSecondsAfterFinished is below the minimum; using the minimum",
-					"configuredTTLSecondsAfterFinished", *configuredTTLSecondsAfterFinished,
-					"minimumTTLSecondsAfterFinished", MinimumJobTTLSecondsAfterFinished,
-				)
-			}
-			p.Spec.JobOptions.TTLSecondsAfterFinished = ttlSecondsAfterFinished
 			ps = append(ps, p)
 		} else {
 			return nil, fmt.Errorf("unsupported pipeline %q with APIVersion \"%s/%s\"",
@@ -268,13 +257,6 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 		}
 	}
 	return ps, nil
-}
-
-func ApplyMinimumJobTTLSecondsAfterFinished(ttlSecondsAfterFinished *int32) (*int32, bool) {
-	if ttlSecondsAfterFinished == nil || *ttlSecondsAfterFinished >= MinimumJobTTLSecondsAfterFinished {
-		return ttlSecondsAfterFinished, false
-	}
-	return ptr.To(MinimumJobTTLSecondsAfterFinished), true
 }
 
 // ForPromise defines the PipelineFactory fields for a Promise.
