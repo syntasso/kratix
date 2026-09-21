@@ -873,13 +873,13 @@ func (r *PromiseReconciler) refreshRequirementsStatus(ctx context.Context, promi
 		return false
 	}
 
-	latestCondition, latestRequirements, notes := r.evaluateRequirements(ctx, promise)
+	latestCondition, latestRequirements, eventMsg := r.evaluateRequirements(ctx, promise)
 
 	requirementsFieldChanged := updateRequirementsStatusOnPromise(promise, promise.Status.RequiredPromises, latestRequirements)
 	conditionsFieldChanged := updateConditionOnPromise(promise, latestCondition)
 
 	if conditionsFieldChanged {
-		r.publishRequirementsEvent(promise, latestCondition, notes)
+		r.publishRequirementsEvent(promise, latestCondition, eventMsg)
 	}
 
 	return conditionsFieldChanged || requirementsFieldChanged
@@ -923,19 +923,20 @@ func updateRequirementsStatusOnPromise(promise *v1alpha1.Promise, oldReqs, newRe
 }
 
 // publishRequirementsEvent announces the requirements condition once, when it changes.
-// The reason comes off the condition so each outcome keeps its own event reason, and the
-// per-requirement notes keep the detail the old per-requirement events carried.
-func (r *PromiseReconciler) publishRequirementsEvent(promise *v1alpha1.Promise, condition metav1.Condition, notes []string) {
+// The reason comes off the condition so each outcome keeps its own event reason.
+func (r *PromiseReconciler) publishRequirementsEvent(promise *v1alpha1.Promise, condition metav1.Condition, eventMsg string) {
 	if condition.Status == metav1.ConditionTrue {
 		if len(promise.Spec.RequiredPromises) > 0 {
 			r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, "RequirementsFulfilled", "RequirementsFulfilled", "All required promises are available")
 		}
 		return
 	}
-	r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, condition.Reason, condition.Reason, "%s", strings.Join(notes, "; "))
+	r.EventRecorder.Eventf(promise, nil, v1.EventTypeNormal, condition.Reason, condition.Reason, "%s", eventMsg)
 }
 
-func (r *PromiseReconciler) evaluateRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequiredPromiseStatus, []string) {
+// evaluateRequirements returns the requirements condition, each requirement's status, and
+// the event message describing every requirement that is not fulfilled.
+func (r *PromiseReconciler) evaluateRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequiredPromiseStatus, string) {
 	condition := metav1.Condition{
 		Type:               v1alpha1.PromiseRequirementsFulfilledCondition,
 		Status:             metav1.ConditionTrue,
@@ -945,16 +946,16 @@ func (r *PromiseReconciler) evaluateRequirements(ctx context.Context, promise *v
 	}
 
 	var requirements []v1alpha1.RequiredPromiseStatus
-	var notes []string
+	var unfulfilled []string
 	for _, req := range promise.Spec.RequiredPromises {
-		status, note := r.evaluateRequirement(ctx, promise, req, &condition)
+		status, msg := r.evaluateRequirement(ctx, promise, req, &condition)
 		requirements = append(requirements, status)
-		if note != "" {
-			notes = append(notes, note)
+		if msg != "" {
+			unfulfilled = append(unfulfilled, msg)
 		}
 	}
 
-	return condition, requirements, notes
+	return condition, requirements, strings.Join(unfulfilled, "; ")
 }
 
 func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
@@ -972,30 +973,30 @@ func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, pro
 }
 
 // evaluateRequirement returns the requirement's status and, when it is not fulfilled, a
-// note describing why, for the single event published once the condition changes.
+// message describing why, for the single event published once the condition changes.
 func (r *PromiseReconciler) evaluateRequirement(ctx context.Context, promise *v1alpha1.Promise, req v1alpha1.RequiredPromise, condition *metav1.Condition) (v1alpha1.RequiredPromiseStatus, string) {
 	required := &v1alpha1.Promise{}
 	err := r.Client.Get(ctx, types.NamespacedName{Name: req.Name}, required)
 
 	var state string
-	var note string
+	var msg string
 	switch {
 	case apierrors.IsNotFound(err):
 		state = requirementStateNotInstalled
 		updateConditionNotFulfilled(condition, "RequirementsNotInstalled", "Requirements not fulfilled")
-		note = fmt.Sprintf("Required Promise %s not installed or unknown state", req.Name)
+		msg = fmt.Sprintf("Required Promise %s not installed or unknown state", req.Name)
 
 	case err != nil:
 		state = requirementUnknownInstallationState
 		updateConditionNotFulfilled(condition, "RequirementsNotInstalled", "Unable to determine if requirements are fulfilled")
-		note = fmt.Sprintf("Required Promise %s not installed or unknown state", required.Name)
+		msg = fmt.Sprintf("Required Promise %s not installed or unknown state", required.Name)
 
 	default:
 		var reason string
 		state, reason = r.evaluateRequirementAgainstRevisions(ctx, req, required)
 		if reason != "" {
 			updateConditionNotFulfilled(condition, reason, "Requirements not fulfilled")
-			note = fmt.Sprintf("Waiting for required Promise %s: %s", required.Name, state)
+			msg = fmt.Sprintf("Waiting for required Promise %s: %s", required.Name, state)
 		}
 
 		r.markRequiredPromiseAsRequired(ctx, req.Version, promise, required)
@@ -1005,7 +1006,7 @@ func (r *PromiseReconciler) evaluateRequirement(ctx context.Context, promise *v1
 		Name:    req.Name,
 		Version: req.Version,
 		State:   state,
-	}, note
+	}, msg
 }
 
 func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, promise *v1alpha1.Promise, unstructuredPromise *unstructured.Unstructured) (bool, *ctrl.Result, error) {
