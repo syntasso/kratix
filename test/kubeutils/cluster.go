@@ -135,7 +135,7 @@ func (c Cluster) EventuallyKubectlDelete(args ...string) string {
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
 		g.EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit(0))
 		content = string(session.Out.Contents())
-	}, timeout, time.Millisecond).Should(Succeed())
+	}, timeout, interval).Should(Succeed())
 	return content
 }
 
