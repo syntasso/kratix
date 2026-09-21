@@ -36,8 +36,13 @@ var _ = SynchronizedBeforeSuite(func() {
 	kratixConfigPath = "./assets/kratix-config.yaml"
 
 	platform.Kubectl("apply", "-f", kratixConfigPath)
-	platform.Kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
-	platform.Kubectl("wait", "-n", "kratix-platform-system", "deployments", "-l", "control-plane=controller-manager", "--for=condition=Available")
+	// The manager ships with a 100m CPU / 256Mi limit, which throttles it badly
+	// under the suite's parallel load. Give it headroom for the tests.
+	platform.Kubectl("patch", "deployment", "kratix-platform-controller-manager",
+		"-n", "kratix-platform-system", "--type=strategic", "-p",
+		`{"spec":{"template":{"spec":{"containers":[{"name":"manager","resources":{"limits":{"cpu":"2","memory":"1Gi"},"requests":{"cpu":"200m","memory":"256Mi"}}}]}}}}`)
+	// The patch rolls the deployment; this polls the webhook until it answers.
+	restartController()
 
 }, func() {
 	//this runs before each test
