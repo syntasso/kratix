@@ -62,9 +62,12 @@ var _ = Describe("Reconciliation", func() {
 			}).Should(ContainSubstring("Paused"))
 
 			By("not running any workflow while paused")
+			// Reconciliation is event-driven and the global re-reconcile
+			// interval is hours, so 30s is long enough to catch a
+			// wrongly-triggered workflow.
 			Consistently(func() string {
 				return platform.Kubectl("get", "pods", "-l", podLabels, "-o", goTemplate)
-			}, 70*time.Second).Should(Equal(numberOfTriggeredPods))
+			}, 30*time.Second).Should(Equal(numberOfTriggeredPods))
 
 			By("rerunning promise workflows after unpaused")
 			platform.Kubectl("label", "promise", promiseName, "kratix.io/paused-")
