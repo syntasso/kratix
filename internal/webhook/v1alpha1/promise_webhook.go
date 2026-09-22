@@ -160,6 +160,10 @@ func validatePipelines(p *v1alpha1.Promise) error {
 					return err
 				}
 
+				if err = validateJobTTLSecondsAfterFinished(pipeline, string(workflowType), string(workflowAction)); err != nil {
+					return err
+				}
+
 				_, ok := pipelineNamesMap[pipeline.GetName()]
 				if ok {
 					return fmt.Errorf("duplicate pipeline name %q in workflow %q action %q", pipeline.GetName(), workflowType, workflowAction)
@@ -347,6 +351,21 @@ func validateCRDChanges(p, oldPromise *v1alpha1.Promise) error {
 		return fmt.Errorf("promises.platform.kratix.io %q was not valid:\n%s", p.Name, strings.Join(errors, "\n"))
 	}
 	return nil
+}
+
+// validateJobTTLSecondsAfterFinished rejects a pipeline TTL below the minimum, so a finished
+// pipeline Job is not deleted before Kratix has had a chance to read it.
+func validateJobTTLSecondsAfterFinished(pipeline v1alpha1.Pipeline, workflowType, workflowAction string) error {
+	ttlSecondsAfterFinished := pipeline.Spec.JobOptions.TTLSecondsAfterFinished
+	if ttlSecondsAfterFinished == nil {
+		return nil
+	}
+	if *ttlSecondsAfterFinished >= v1alpha1.MinimumJobTTLSecondsAfterFinished {
+		return nil
+	}
+	return fmt.Errorf("spec.jobOptions.ttlSecondsAfterFinished: Invalid value: %d: must be at least %d, in pipeline %q in workflow %q action %q",
+		*ttlSecondsAfterFinished, v1alpha1.MinimumJobTTLSecondsAfterFinished,
+		pipeline.GetName(), workflowType, workflowAction)
 }
 
 func validatePipelineLabels(pipeline v1alpha1.Pipeline, workflowType, workflowAction string) error {

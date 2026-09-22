@@ -155,3 +155,39 @@ var _ = Describe("getReconcileAfterFailure", func() {
 		Expect(getReconcileAfterFailure(config)).To(BeFalse())
 	})
 })
+
+var _ = Describe("getKratixConfigJobTTLSecondsAfterFinished", func() {
+	It("returns nil when config is nil", func() {
+		Expect(getKratixConfigJobTTLSecondsAfterFinished(nil)).To(BeNil())
+	})
+
+	It("returns nil when the value is not set", func() {
+		Expect(getKratixConfigJobTTLSecondsAfterFinished(&KratixConfig{})).To(BeNil())
+	})
+
+	It("returns the configured value", func() {
+		configuredTTL := int32(600)
+		config := &KratixConfig{
+			Workflows: Workflows{
+				JobOptions: JobOptions{DefaultTTLSecondsAfterFinished: &configuredTTL},
+			},
+		}
+
+		jobTTL := getKratixConfigJobTTLSecondsAfterFinished(config)
+		Expect(jobTTL).ToNot(BeNil())
+		Expect(*jobTTL).To(Equal(configuredTTL))
+	})
+
+	It("returns the minimum when the configured value is too low", func() {
+		configuredTTL := int32(60)
+		config := &KratixConfig{
+			Workflows: Workflows{
+				JobOptions: JobOptions{DefaultTTLSecondsAfterFinished: &configuredTTL},
+			},
+		}
+
+		jobTTL := getKratixConfigJobTTLSecondsAfterFinished(config)
+		Expect(jobTTL).ToNot(BeNil())
+		Expect(*jobTTL).To(Equal(int32(120)))
+	})
+})
