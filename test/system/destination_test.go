@@ -98,7 +98,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 			WaitReady("destination", destinationName)
 
 			if os.Getenv("LRE") != "true" {
-				// gitea's cert is not signed by a CA the platform trusts
+				// gitea's cert does not name the in-cluster hostname, so git rejects it
 				By("failing when TLS validation is enabled", func() {
 					platform.Kubectl("patch", "gitstatestore", stateStoreName, "--type=merge", "-p", `{"spec":{"insecure":false}}`)
 
@@ -106,7 +106,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 					ExpectEventContainingAll(
 						"gitstatestore", stateStoreName,
 						"unable to clone repository",
-						"SSL certificate problem",
+						"SSL: no alternative certificate subject name matches target hostname",
 					)
 				})
 
