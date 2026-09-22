@@ -34,6 +34,11 @@ type GitStateStoreSpec struct {
 	// URL of the git repository.
 	URL string `json:"url,omitempty"`
 
+	// Toggle to turn off or on TLS verification when connecting to the repository.
+	// Only applies to HTTPS connections. Defaults to true when unset.
+	// +kubebuilder:validation:Optional
+	Insecure *bool `json:"insecure,omitempty"`
+
 	StateStoreCoreFields `json:",inline"`
 
 	// Branch of the git repository; default to main.
@@ -49,6 +54,12 @@ type GitStateStoreSpec struct {
 	// Git author name and email used to commit this git state store; name defaults to 'kratix'
 	// +kubebuilder:default:={name: "kratix"}
 	GitAuthor GitAuthor `json:"gitAuthor,omitempty"`
+}
+
+// TLSVerificationDisabled reports whether TLS verification should be skipped.
+// An unset Insecure means skip, preserving the behaviour from before the field existed.
+func (s *GitStateStoreSpec) TLSVerificationDisabled() bool {
+	return s.Insecure == nil || *s.Insecure
 }
 
 // GitAuthor defines the author identity used for commits to the Git StateStore

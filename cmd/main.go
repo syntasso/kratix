@@ -446,6 +446,10 @@ func main() {
 		setupLog.Error(err, "unable to create webhook", "webhook", "BucketStateStore")
 		os.Exit(1)
 	}
+	if err = kratixWebhook.SetupGitStateStoreWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "GitStateStore")
+		os.Exit(1)
+	}
 	if err := (&controller.PromiseRevisionReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),

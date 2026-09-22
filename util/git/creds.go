@@ -176,7 +176,7 @@ func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte)
 			"",
 			"",
 			"",
-			false,
+			stateStoreSpec.TLSVerificationDisabled(),
 			NoopCredsStore{},
 			true,
 		)
@@ -192,7 +192,7 @@ func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte)
 			return nil, fmt.Errorf("failed to generate GitHub App JWT: %w", err)
 		}
 
-		_, err = GetGitHubInstallationToken(appCreds.ApiUrl, appCreds.InstallationID, j)
+		_, err = GetGitHubInstallationToken(appCreds.ApiUrl, appCreds.InstallationID, j, stateStoreSpec.TLSVerificationDisabled())
 		if err != nil {
 			return nil, fmt.Errorf("failed to get GitHub installation token: %w", err)
 		}
@@ -217,7 +217,7 @@ func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte)
 			"https://api.github.com",
 			"",
 			"",
-			false,
+			stateStoreSpec.TLSVerificationDisabled(),
 			"",
 			"",
 			NoopCredsStore{})

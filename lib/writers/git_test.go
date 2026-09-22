@@ -149,7 +149,7 @@ var _ = Describe("NewGitWriter", func() {
 		var (
 			jwtCalled, tokenCalled         bool
 			origGenerateGitHubAppJWT       func(string, string) (string, error)
-			origGetGitHubInstallationToken func(string, string, string) (string, error)
+			origGetGitHubInstallationToken func(string, string, string, bool) (string, error)
 		)
 		BeforeEach(func() {
 			jwtCalled = false
@@ -160,7 +160,7 @@ var _ = Describe("NewGitWriter", func() {
 				jwtCalled = true
 				return "jwt", nil
 			}
-			git.GetGitHubInstallationToken = func(apiURL, installationID, jwt string) (string, error) {
+			git.GetGitHubInstallationToken = func(apiURL, installationID, jwt string, insecure bool) (string, error) {
 				tokenCalled = true
 				return "token", nil
 			}
@@ -282,7 +282,7 @@ var _ = Describe("NewGitWriter", func() {
 				_ = json.NewEncoder(w).Encode(map[string]string{"token": "abc123"})
 			}))
 
-			tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt")
+			tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt", false)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tok).To(Equal("abc123"))
 		})
@@ -293,7 +293,7 @@ var _ = Describe("NewGitWriter", func() {
 				_ = json.NewEncoder(w).Encode(map[string]string{"message": "bad creds"})
 			}))
 
-			tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt")
+			tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt", false)
 			Expect(err).To(HaveOccurred())
 			Expect(tok).To(BeEmpty())
 			Expect(err.Error()).To(ContainSubstring("bad creds"))
@@ -305,7 +305,7 @@ var _ = Describe("NewGitWriter", func() {
 				_ = json.NewEncoder(w).Encode(map[string]string{"token": ""})
 			}))
 
-			tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt")
+			tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt", false)
 			Expect(err).To(HaveOccurred())
 			Expect(tok).To(BeEmpty())
 		})
