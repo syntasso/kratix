@@ -1,0 +1,5 @@
+apiVersion: platform.kratix.io/v1alpha1
+Kind: HealthDefinition
+spec:
+  promiseRef:
+    name: psql

@@ -33,6 +33,20 @@ func NonMessageStatusKeys(status map[string]any) []string {
 	return keys
 }
 
+// ResetHealthStatus marks the health of a Resource as unknown for the given
+// Promise version. Every other key under healthStatus, in particular
+// healthRecords, is preserved.
+func ResetHealthStatus(status map[string]any, promiseVersion string) map[string]any {
+	healthStatus, ok := status["healthStatus"].(map[string]any)
+	if !ok {
+		healthStatus = map[string]any{}
+	}
+	healthStatus["state"] = "unknown"
+	healthStatus["promiseVersion"] = promiseVersion
+	status["healthStatus"] = healthStatus
+	return status
+}
+
 // MarkAsCompleted takes a status map and returns a new status map with the
 // "ConfigureWorkflowCompleted" condition set to true. It will also update the
 // "message" field to "Resource requested" or "Promise configured" if the

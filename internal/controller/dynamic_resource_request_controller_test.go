@@ -1681,6 +1681,43 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
+		When("the binding pins a revision that differs from the Promise label", func() {
+			BeforeEach(func() {
+				promise.Labels[v1alpha1.PromiseVersionLabel] = "v3.0.0"
+				deletePipeline := promise.Spec.Workflows.Resource.Configure[0].DeepCopy()
+				deletePipeline.SetName("delete-pipeline")
+				promise.Spec.Workflows.Resource.Delete = []unstructured.Unstructured{*deletePipeline}
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+				createPromiseRevision(fakeK8sClient, promise, "v2.0.0")
+				createResourceBinding(fakeK8sClient, promise, resReq, "v2.0.0")
+			})
+
+			It("stamps the configure job with the revision version, not the label", func() {
+				_, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(reconcileConfigureOptsArg.Resources).To(HaveLen(1))
+				expectPromiseVersionOnEveryContainer(reconcileConfigureOptsArg.Resources[0].Job, "v2.0.0")
+			})
+
+			It("stamps the delete job with the revision version, not the label", func() {
+				setReconcileConfigureWorkflowToReturnFinished()
+				_, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
+				_, err = t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).To(MatchError("reconcile loop detected"))
+
+				setReconcileDeleteWorkflowToReturnFinished(resReq)
+				_, err = t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(reconcileDeleteOptsArg.Resources).To(HaveLen(1))
+				expectPromiseVersionOnEveryContainer(reconcileDeleteOptsArg.Resources[0].Job, "v2.0.0")
+			})
+		})
+
 		When("the resource name is too long to be a label value", func() {
 			It("can still generate a valid label value", func() {
 				longName := strings.Repeat("a", 70)
@@ -2540,6 +2577,28 @@ func addResourceRequestDeleteFinalizers(rr *unstructured.Unstructured) {
 		v1alpha1.KratixPrefix + "resource-binding-cleanup",
 	})
 	Expect(fakeK8sClient.Update(ctx, rr)).To(Succeed())
+}
+
+func expectPromiseVersionOnEveryContainer(job *batchv1.Job, version string) {
+	GinkgoHelper()
+	podSpec := job.Spec.Template.Spec
+	for _, c := range append(podSpec.InitContainers, podSpec.Containers...) {
+		if c.Name == "work-writer" {
+			Expect(flagValue(c.Args, "--promise-version")).To(Equal(version), c.Name)
+			continue
+		}
+		Expect(c.Env).To(ContainElement(v1.EnvVar{Name: "KRATIX_PROMISE_VERSION", Value: version}), c.Name)
+	}
+}
+
+// flagValue returns the arg following flag, or "<flag missing>" so a missing flag fails an Equal on any value.
+func flagValue(args []string, flag string) string {
+	for i, a := range args {
+		if a == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return "<flag missing>"
 }
 
 func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *unstructured.Unstructured, version string) {

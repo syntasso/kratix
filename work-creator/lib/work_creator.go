@@ -47,7 +47,7 @@ func buildWorkIdentifier(promiseName, resourceName, resourceNamespace, pipelineN
 	return fmt.Sprintf("%s-%s-%s", promiseName, resourceName, pipelineName)
 }
 
-func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, resourceNamespace, workflowType, pipelineName string) (retErr error) {
+func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, resourceNamespace, workflowType, pipelineName, promiseVersion string) (retErr error) {
 	ctx := context.Background()
 	traceParent, traceState := telemetry.TraceParentFromEnv()
 	extractedCtx, ok := telemetry.ContextWithTraceparent(ctx, traceParent, traceState)
@@ -99,6 +99,10 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		return err
 	}
 
+	if err := removeHealthDefinitionsMarker(rootDirectory); err != nil {
+		return err
+	}
+
 	workflowControl, err := ReadWorkflowControlFile(filepath.Join(rootDirectory, "metadata", "workflow-control.yaml"))
 	if err != nil {
 		return err
@@ -111,6 +115,8 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		return nil
 	}
 
+	stamper := newHealthDefinitionStamper(promiseVersion)
+
 	var workloadGroups []v1alpha1.WorkloadGroup
 	var directoriesToIgnoreForTheBaseScheduling []string
 	var defaultDestinationSelectors map[string]string
@@ -121,7 +127,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		if !isRootDirectory(directory) {
 			directoriesToIgnoreForTheBaseScheduling = append(directoriesToIgnoreForTheBaseScheduling, directory)
 
-			workloads, err := w.getWorkloadsFromDir(pipelineOutputDir, filepath.Join(pipelineOutputDir, directory), nil)
+			workloads, err := w.getWorkloadsFromDir(pipelineOutputDir, filepath.Join(pipelineOutputDir, directory), nil, stamper)
 
 			if err != nil {
 				return err
@@ -143,7 +149,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		}
 	}
 
-	workloads, err := w.getWorkloadsFromDir(pipelineOutputDir, pipelineOutputDir, directoriesToIgnoreForTheBaseScheduling)
+	workloads, err := w.getWorkloadsFromDir(pipelineOutputDir, pipelineOutputDir, directoriesToIgnoreForTheBaseScheduling, stamper)
 	if err != nil {
 		return err
 	}
@@ -206,6 +212,10 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		workloadGroups = append(workloadGroups, defaultWorkloadGroup)
 	}
 
+	if err := stamper.writeMarker(rootDirectory); err != nil {
+		return err
+	}
+
 	work := &v1alpha1.Work{}
 
 	work.Name = objectutil.GenerateObjectName(identifier)
@@ -262,7 +272,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 }
 
 // /kratix/output/     /kratix/output/   "bar"
-func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, rootDir string, directoriesToIgnoreAtTheRootLevel []string) ([]v1alpha1.Workload, error) {
+func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, rootDir string, directoriesToIgnoreAtTheRootLevel []string, stamper *healthDefinitionStamper) ([]v1alpha1.Workload, error) {
 	// decompress here
 	filesAndDirs, err := os.ReadDir(rootDir)
 	if err != nil {
@@ -277,7 +287,7 @@ func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, root
 		if info.IsDir() {
 			if !slices.Contains(directoriesToIgnoreAtTheRootLevel, info.Name()) {
 				dir := filepath.Join(rootDir, info.Name())
-				newWorkloads, err := w.getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, dir, nil)
+				newWorkloads, err := w.getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, dir, nil, stamper)
 				if err != nil {
 					return nil, err
 				}
@@ -292,6 +302,11 @@ func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, root
 			byteValue, err := io.ReadAll(file)
 			if err != nil {
 				return nil, err
+			}
+
+			byteValue, err = stamper.stamp(byteValue)
+			if err != nil {
+				return nil, fmt.Errorf("failed to stamp %s: %w", filePath, err)
 			}
 
 			// trim /kratix/output/ from the filepath

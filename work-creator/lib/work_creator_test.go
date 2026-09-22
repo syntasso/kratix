@@ -57,7 +57,7 @@ var _ = Describe("WorkCreator", func() {
 
 			BeforeEach(func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName)
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -87,7 +87,7 @@ var _ = Describe("WorkCreator", func() {
 
 			It("has the expected workloads", func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName)
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -117,7 +117,7 @@ var _ = Describe("WorkCreator", func() {
 
 				It("Should update the previously created work", func() {
 					mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete-updated")
-					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName)
+					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
 					Expect(err).ToNot(HaveOccurred())
 
 					newWorkResource := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -202,7 +202,7 @@ var _ = Describe("WorkCreator", func() {
 		When("workflow namespace and resource namespace are different", func() {
 			It("includes resource namespace when generating name for work", func() {
 				mockPipelineDirectory := filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "my-a-team", "resource", pipelineName)
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "my-a-team", "resource", pipelineName, "")
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -212,7 +212,7 @@ var _ = Describe("WorkCreator", func() {
 
 		Context("with empty metadata directory", func() {
 			BeforeEach(func() {
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name", "", "resource", pipelineName)
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
 				Expect(err).ToNot(HaveOccurred())
 			})
 
@@ -232,7 +232,7 @@ var _ = Describe("WorkCreator", func() {
 		Context("with empty namespace string", func() {
 			BeforeEach(func() {
 				expectedNamespace = "kratix-platform-system"
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "", "resource-name", "", "resource", pipelineName)
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "", "resource-name", "", "resource", pipelineName, "")
 				Expect(err).NotTo(HaveOccurred())
 			})
 
@@ -247,7 +247,7 @@ var _ = Describe("WorkCreator", func() {
 
 			BeforeEach(func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "empty-default-workload-group")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName)
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -282,7 +282,7 @@ var _ = Describe("WorkCreator", func() {
 
 		When("given a complete set of inputs for a Promise", func() {
 			BeforeEach(func() {
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "", "", "promise", pipelineName)
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "", "", "promise", pipelineName, "")
 				Expect(err).NotTo(HaveOccurred())
 			})
 
@@ -321,15 +321,116 @@ var _ = Describe("WorkCreator", func() {
 			})
 		})
 
+		Describe("HealthDefinition promise version", func() {
+			var healthDefinitionTree string
+
+			BeforeEach(func() {
+				healthDefinitionTree = copySamples("health-definition")
+			})
+
+			When("the promise is versioned", func() {
+				var workResource v1alpha1.Work
+
+				BeforeEach(func() {
+					err := workCreator.Execute(healthDefinitionTree, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
+					Expect(err).ToNot(HaveOccurred())
+					workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
+				})
+
+				It("stamps spec.promiseVersion on a HealthDefinition", func() {
+					Expect(string(decompressedWorkload(workResource, "healthdefinition.yaml"))).
+						To(Equal(string(readSample(healthDefinitionTree, "expected", "healthdefinition.yaml"))))
+				})
+
+				It("re-marshals only the HealthDefinition documents in a multi-document file", func() {
+					Expect(string(decompressedWorkload(workResource, "mixed.yaml"))).
+						To(Equal(string(readSample(healthDefinitionTree, "expected", "mixed.yaml"))))
+				})
+
+				It("ships files without a HealthDefinition byte for byte", func() {
+					for _, file := range []string{"not-yaml.txt", "configmap.yaml"} {
+						Expect(string(decompressedWorkload(workResource, file))).
+							To(Equal(string(readSample(healthDefinitionTree, "input", file))), file)
+					}
+				})
+
+				It("stamps HealthDefinitions in nested directories and per-directory groups", func() {
+					Expect(string(decompressedWorkload(workResource, "sub/healthdefinition.yaml"))).
+						To(Equal(string(readSample(healthDefinitionTree, "expected", "sub-healthdefinition.yaml"))))
+					Expect(string(decompressedWorkload(workResource, "scheduled/healthdefinition.yaml"))).
+						To(Equal(string(readSample(healthDefinitionTree, "expected", "scheduled-healthdefinition.yaml"))))
+				})
+
+				It("writes the marker file", func() {
+					marker, err := os.ReadFile(markerPath(healthDefinitionTree))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(string(marker)).To(Equal("promiseVersion: v2.0.0\n"))
+				})
+			})
+
+			When("the promise is versioned but nothing matches", func() {
+				var completeTree string
+
+				BeforeEach(func() {
+					completeTree = copySamples("complete")
+					Expect(os.WriteFile(markerPath(completeTree), []byte("promiseVersion: stale\n"), 0o644)).To(Succeed())
+					err := workCreator.Execute(completeTree, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				It("ships every workload byte for byte and removes the stale marker", func() {
+					expectWorkloadsUnchanged(getWork(expectedNamespace, promiseName, resourceName, pipelineName), completeTree)
+					_, err := os.Stat(markerPath(completeTree))
+					Expect(err).To(MatchError(os.ErrNotExist))
+				})
+			})
+
+			When("documents only resemble a HealthDefinition", func() {
+				It("ships them verbatim and writes no marker", func() {
+					lookalikes := copySamples("health-definition-lookalikes")
+					err := workCreator.Execute(lookalikes, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
+					Expect(err).ToNot(HaveOccurred())
+
+					expectWorkloadsUnchanged(getWork(expectedNamespace, promiseName, resourceName, pipelineName), lookalikes)
+					_, err = os.Stat(markerPath(lookalikes))
+					Expect(err).To(MatchError(os.ErrNotExist))
+				})
+			})
+
+			DescribeTable("when the promise is unversioned", func(promiseVersion string) {
+				Expect(os.WriteFile(markerPath(healthDefinitionTree), []byte("promiseVersion: stale\n"), 0o644)).To(Succeed())
+				err := workCreator.Execute(healthDefinitionTree, "promise-name", "default", "resource-name", "", "resource", pipelineName, promiseVersion)
+				Expect(err).ToNot(HaveOccurred())
+
+				expectWorkloadsUnchanged(getWork(expectedNamespace, promiseName, resourceName, pipelineName), healthDefinitionTree)
+				_, err = os.Stat(markerPath(healthDefinitionTree))
+				Expect(err).To(MatchError(os.ErrNotExist))
+			},
+				Entry("empty string", ""),
+				Entry(v1alpha1.UnversionedPromiseVersion, v1alpha1.UnversionedPromiseVersion),
+			)
+		})
+
 		Context("Workflow Control File", func() {
 			When("it suspends the pipeline", func() {
 				It("does not create a Work", func() {
-					err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-with-suspend"), "promise-name", "default", "resource-name", "", "resource", pipelineName)
+					err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-with-suspend"), "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
 					Expect(err).NotTo(HaveOccurred())
 
 					works := &v1alpha1.WorkList{}
 					Expect(k8sClient.List(context.Background(), works, &client.ListOptions{Namespace: expectedNamespace})).To(Succeed())
 					Expect(works.Items).To(BeEmpty())
+				})
+
+				It("removes a stale marker", func() {
+					tree := copySamples("complete-with-suspend")
+					Expect(os.WriteFile(markerPath(tree), []byte("promiseVersion: stale\n"), 0o644)).To(Succeed())
+
+					err := workCreator.Execute(tree, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
+					Expect(err).NotTo(HaveOccurred())
+
+					_, err = os.Stat(markerPath(tree))
+					Expect(err).To(MatchError(os.ErrNotExist))
 				})
 			})
 
@@ -337,13 +438,13 @@ var _ = Describe("WorkCreator", func() {
 				var initialWork v1alpha1.Work
 
 				BeforeEach(func() {
-					err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete"), "promise-name", "default", "resource-name", "", "resource", pipelineName)
+					err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete"), "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
 					Expect(err).NotTo(HaveOccurred())
 					initialWork = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
 				})
 
 				It("does not update an existing Work", func() {
-					err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-with-retry"), "promise-name", "default", "resource-name", "", "resource", pipelineName)
+					err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-with-retry"), "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
 					Expect(err).NotTo(HaveOccurred())
 
 					currentWork := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -405,4 +506,50 @@ func getWork(namespace, promiseName, resourceName, pipelineName string) v1alpha1
 	ExpectWithOffset(1, works.Items).To(HaveLen(1))
 
 	return works.Items[0]
+}
+
+// copySamples copies samples/<name> into a per-spec temp dir, with the
+// metadata directory every pipeline has, so specs never write into the repo.
+func copySamples(name string) string {
+	tree := GinkgoT().TempDir()
+	ExpectWithOffset(1, os.CopyFS(tree, os.DirFS(filepath.Join(getRootDirectory(), name)))).To(Succeed())
+	ExpectWithOffset(1, os.MkdirAll(filepath.Join(tree, "metadata"), 0o755)).To(Succeed())
+	return tree
+}
+
+func markerPath(tree string) string {
+	return filepath.Join(tree, "metadata", lib.HealthDefinitionsMarkerFile)
+}
+
+func readSample(parts ...string) []byte {
+	content, err := os.ReadFile(filepath.Join(parts...))
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	return content
+}
+
+func decompressedWorkload(work v1alpha1.Work, path string) []byte {
+	for _, group := range work.Spec.WorkloadGroups {
+		for _, workload := range group.Workloads {
+			if workload.Filepath == path {
+				content, err := compression.DecompressContent([]byte(workload.Content))
+				ExpectWithOffset(1, err).NotTo(HaveOccurred())
+				return content
+			}
+		}
+	}
+	Fail("workload not found: "+path, 1)
+	return nil
+}
+
+func expectWorkloadsUnchanged(work v1alpha1.Work, tree string) {
+	count := 0
+	for _, group := range work.Spec.WorkloadGroups {
+		for _, workload := range group.Workloads {
+			count++
+			content, err := compression.DecompressContent([]byte(workload.Content))
+			ExpectWithOffset(1, err).NotTo(HaveOccurred())
+			ExpectWithOffset(1, string(content)).To(Equal(string(readSample(tree, "input", workload.Filepath))), workload.Filepath)
+		}
+	}
+	ExpectWithOffset(1, count).To(BeNumerically(">", 0))
 }

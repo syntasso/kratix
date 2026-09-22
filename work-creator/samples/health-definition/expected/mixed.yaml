@@ -1,0 +1,48 @@
+# leading comment: dropped by any re-marshal
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: first
+  namespace: default
+data:
+  enabled: "true"
+  zeta: last
+  alpha: first
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: HealthDefinition
+metadata:
+  name: mixed-health
+  namespace: default
+spec:
+  promiseRef:
+    name: psql
+  promiseVersion: v2.0.0
+  schedule: '* * * * *'
+--- # separator comment: kept
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crlf
+data:
+  script: |
+    echo windows
+---
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: second # inline comment: dropped by any re-marshal
+data:
+  script: |
+    echo one
+    echo two
+---
+--- |
+  apiVersion: platform.kratix.io/v1alpha1
+  kind: HealthDefinition
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: last

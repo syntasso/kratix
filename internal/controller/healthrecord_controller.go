@@ -159,12 +159,7 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 
 	initialHealthStatusState := r.getInitialHealthStatusState(resReq)
 
-	healthStatus := map[string]any{
-		"state":         state,
-		"healthRecords": healthData,
-	}
-
-	if err = unstructured.SetNestedMap(resReq.Object, healthStatus, "status", "healthStatus"); err != nil {
+	if err = setHealthStatus(resReq, state, healthData); err != nil {
 		return err
 	}
 
@@ -220,6 +215,19 @@ func (r *HealthRecordReconciler) getInitialHealthStatusState(resReq *unstructure
 	}
 
 	return initialHealthStatusState
+}
+
+// setHealthStatus replaces state and healthRecords but keeps promiseVersion, which
+// the status-writer owns; rebuilding the map from scratch would erase it on every reconcile.
+func setHealthStatus(resReq *unstructured.Unstructured, state string, healthData []any) error {
+	healthStatus := map[string]any{
+		"state":         state,
+		"healthRecords": healthData,
+	}
+	if promiseVersion, found, _ := unstructured.NestedString(resReq.Object, "status", "healthStatus", "promiseVersion"); found {
+		healthStatus["promiseVersion"] = promiseVersion
+	}
+	return unstructured.SetNestedMap(resReq.Object, healthStatus, "status", "healthStatus")
 }
 
 func referToSameResource(a, b *platformv1alpha1.HealthRecord) bool {
@@ -321,12 +329,7 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 		return defaultRequeue, err
 	}
 
-	healthStatus := map[string]any{
-		"state":         state,
-		"healthRecords": healthData,
-	}
-
-	if err := unstructured.SetNestedMap(resReq.Object, healthStatus, "status", "healthStatus"); err != nil {
+	if err := setHealthStatus(resReq, state, healthData); err != nil {
 		return defaultRequeue, err
 	}
 

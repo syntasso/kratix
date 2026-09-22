@@ -31,6 +31,15 @@ type PipelineFactory struct {
 	WorkflowType     Type
 	ClusterScoped    bool
 	CRDPlural        string
+	PromiseVersion   string
+}
+
+// promiseVersion normalises the unversioned sentinel to "" so consumers only test one value.
+func (p *PipelineFactory) promiseVersion() string {
+	if p.PromiseVersion == UnversionedPromiseVersion {
+		return ""
+	}
+	return p.PromiseVersion
 }
 
 // Resources configures the job Resources for a pipeline.
@@ -182,6 +191,7 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 		{Name: KratixTypeEnvVar, Value: string(p.WorkflowType)},
 		{Name: KratixPromiseNameEnvVar, Value: p.Promise.GetName()},
 		{Name: KratixPipelineNameEnvVar, Value: p.Pipeline.Name},
+		{Name: KratixPromiseVersionEnvVar, Value: p.promiseVersion()},
 		{Name: KratixObjectKindEnvVar, Value: objKind},
 		{Name: KratixObjectGroupEnvVar, Value: objGroup},
 		{Name: KratixObjectVersionEnvVar, Value: objVersion},
@@ -221,6 +231,7 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 		"--pipeline-name", p.Pipeline.GetName(),
 		"--namespace", p.Namespace,
 		"--workflow-type", string(p.WorkflowType),
+		"--promise-version", p.promiseVersion(),
 	}
 
 	if p.ResourceWorkflow {

@@ -13,6 +13,7 @@ import (
 	"github.com/syntasso/kratix/internal/ptr"
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/hash"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -845,12 +846,13 @@ var _ = Describe("Pipeline", func() {
 			Describe("DefaultEnvVars", func() {
 				It("should return a list of default environment variables", func() {
 					envVars := resources.Job.Spec.Template.Spec.InitContainers[1].Env
-					Expect(envVars).To(HaveLen(12))
+					Expect(envVars).To(HaveLen(13))
 					Expect(envVars).To(ContainElements(
 						corev1.EnvVar{Name: "KRATIX_WORKFLOW_ACTION", Value: "configure"},
 						corev1.EnvVar{Name: "KRATIX_WORKFLOW_TYPE", Value: "fakeType"},
 						corev1.EnvVar{Name: "KRATIX_PROMISE_NAME", Value: promise.GetName()},
 						corev1.EnvVar{Name: "KRATIX_PIPELINE_NAME", Value: "pipelineName"},
+						corev1.EnvVar{Name: "KRATIX_PROMISE_VERSION", Value: ""},
 					))
 
 					// TODO: Expected because Promise is default, should test for RR
@@ -907,6 +909,7 @@ var _ = Describe("Pipeline", func() {
 					{Name: "KRATIX_WORKFLOW_ACTION", Value: "configure"},
 					{Name: "KRATIX_PROMISE_NAME", Value: "promiseName"},
 					{Name: "KRATIX_PIPELINE_NAME", Value: "pipelineName"},
+					{Name: "KRATIX_PROMISE_VERSION", Value: ""},
 				}
 
 				if isResourceWorkflow {
@@ -968,6 +971,7 @@ var _ = Describe("Pipeline", func() {
 							"--pipeline-name", pipeline.GetName(),
 							"--namespace", factory.Namespace,
 							"--workflow-type", string(factory.WorkflowType),
+							"--promise-version", "",
 						}))
 						Expect(container.VolumeMounts).To(ConsistOf(
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
@@ -1030,6 +1034,7 @@ var _ = Describe("Pipeline", func() {
 							"--pipeline-name", pipeline.GetName(),
 							"--namespace", factory.Namespace,
 							"--workflow-type", string(factory.WorkflowType),
+							"--promise-version", "",
 							"--resource-name", resourceRequest.GetName(),
 						}))
 						Expect(container.VolumeMounts).To(ConsistOf(
@@ -1234,6 +1239,7 @@ var _ = Describe("Pipeline", func() {
 						corev1.EnvVar{Name: "KRATIX_WORKFLOW_ACTION", Value: string(factory.WorkflowAction)},
 						corev1.EnvVar{Name: "KRATIX_PROMISE_NAME", Value: factory.Promise.Name},
 						corev1.EnvVar{Name: "KRATIX_PIPELINE_NAME", Value: factory.Pipeline.Name},
+						corev1.EnvVar{Name: "KRATIX_PROMISE_VERSION", Value: ""},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_KIND", Value: resourceRequest.GroupVersionKind().Kind},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_VERSION", Value: resourceRequest.GroupVersionKind().Version},
@@ -1894,6 +1900,7 @@ var _ = Describe("Pipeline", func() {
 						"--pipeline-name", pipeline.GetName(),
 						"--namespace", f.Namespace,
 						"--workflow-type", string(f.WorkflowType),
+						"--promise-version", "",
 						"--resource-name", resourceRequest.GetName(),
 						"--resource-namespace", resourceRequest.GetNamespace(),
 					}))
@@ -1940,6 +1947,122 @@ var _ = Describe("Pipeline", func() {
 						))
 					}
 				})
+			})
+		})
+	})
+
+	Describe("Promise version", func() {
+		var factory *v1alpha1.PipelineFactory
+
+		envValue := func(c corev1.Container, name string) (string, bool) {
+			for _, e := range c.Env {
+				if e.Name == name {
+					return e.Value, true
+				}
+			}
+			return "", false
+		}
+
+		// work-writer takes the version as a flag, not an env var
+		expectVersionOnEveryContainer := func(job *batchv1.Job, version string) {
+			GinkgoHelper()
+			for _, c := range job.Spec.Template.Spec.InitContainers {
+				if c.Name == "work-writer" {
+					Expect(flagValue(c.Args, "--promise-version")).To(Equal(version), c.Name)
+					continue
+				}
+				v, found := envValue(c, "KRATIX_PROMISE_VERSION")
+				Expect(found).To(BeTrue(), c.Name)
+				Expect(v).To(Equal(version), c.Name)
+			}
+			for _, c := range job.Spec.Template.Spec.Containers {
+				v, found := envValue(c, "KRATIX_PROMISE_VERSION")
+				Expect(found).To(BeTrue(), c.Name)
+				Expect(v).To(Equal(version), c.Name)
+			}
+		}
+
+		BeforeEach(func() {
+			factory = pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
+		})
+
+		It("stamps the resource configure job with the factory version", func() {
+			factory.PromiseVersion = "v2.0.0"
+			resources, err := factory.Resources(nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			job := resources.Job
+			Expect(job.Spec.Template.Spec.InitContainers).To(HaveLen(4))
+			Expect(job.Spec.Template.Spec.Containers).To(HaveLen(1))
+			expectVersionOnEveryContainer(job, "v2.0.0")
+
+			workWriter := job.Spec.Template.Spec.InitContainers[3]
+			Expect(workWriter.Name).To(Equal("work-writer"))
+			Expect(workWriter.Args).To(Equal([]string{
+				"work-creator",
+				"--input-directory", "/work-creator-files",
+				"--promise-name", promise.GetName(),
+				"--pipeline-name", pipeline.GetName(),
+				"--namespace", factory.Namespace,
+				"--workflow-type", string(factory.WorkflowType),
+				"--promise-version", "v2.0.0",
+				"--resource-name", resourceRequest.GetName(),
+			}))
+		})
+
+		It("stamps the resource delete job with the factory version", func() {
+			factory = pipeline.ForResource(promise, v1alpha1.WorkflowActionDelete, resourceRequest)
+			factory.PromiseVersion = "v2.0.0"
+			resources, err := factory.Resources(nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// delete jobs have no work-writer
+			Expect(resources.Job.Spec.Template.Spec.InitContainers).To(HaveLen(3))
+			expectVersionOnEveryContainer(resources.Job, "v2.0.0")
+		})
+
+		DescribeTable("normalises an unversioned promise to an empty version",
+			func(promiseVersion string) {
+				factory.PromiseVersion = promiseVersion
+				resources, err := factory.Resources(nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				expectVersionOnEveryContainer(resources.Job, "")
+			},
+			Entry("not-set", v1alpha1.UnversionedPromiseVersion),
+			Entry("empty", ""),
+		)
+
+		Describe("GeneratePromisePipelines", func() {
+			BeforeEach(func() {
+				promise.Spec.Workflows.Promise.Configure = []unstructured.Unstructured{unstructuredPipeline("promise-pipe")}
+			})
+
+			It("reads the version from the promise label", func() {
+				promise.SetLabels(map[string]string{v1alpha1.PromiseVersionLabel: "v1.2.3"})
+				resources, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionConfigure, logr.Discard())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(resources).To(HaveLen(1))
+				expectVersionOnEveryContainer(resources[0].Job, "v1.2.3")
+			})
+
+			It("uses an empty version when the promise is unlabelled", func() {
+				resources, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionConfigure, logr.Discard())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(resources).To(HaveLen(1))
+				expectVersionOnEveryContainer(resources[0].Job, "")
+			})
+		})
+
+		Describe("GenerateResourcePipelines", func() {
+			It("uses the given version over the promise label", func() {
+				promise.SetLabels(map[string]string{v1alpha1.PromiseVersionLabel: "v3.0.0"})
+				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{unstructuredPipeline("resource-pipe")}
+
+				resources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, resourceRequest, "v2.0.0", logr.Discard())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(resources).To(HaveLen(1))
+				expectVersionOnEveryContainer(resources[0].Job, "v2.0.0")
 			})
 		})
 	})
@@ -2215,4 +2338,25 @@ func createWatchDeployment() rbacv1.PolicyRule {
 		Resources:     []string{"deployments", "deployments/status"},
 		ResourceNames: []string{"a-deployment", "b-deployment"},
 	}
+}
+
+func unstructuredPipeline(name string) unstructured.Unstructured {
+	return unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "platform.kratix.io/v1alpha1",
+		"kind":       "Pipeline",
+		"metadata":   map[string]interface{}{"name": name},
+		"spec": map[string]interface{}{
+			"containers": []interface{}{map[string]interface{}{"name": "c", "image": "img"}},
+		},
+	}}
+}
+
+// flagValue returns the arg following flag, or "<flag missing>" so a missing flag fails an Equal on any value.
+func flagValue(args []string, flag string) string {
+	for i, a := range args {
+		if a == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return "<" + flag + " missing>"
 }
