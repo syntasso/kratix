@@ -9,76 +9,94 @@ import (
 	"github.com/syntasso/kratix/test/kubeutils"
 )
 
-var _ = Describe("Reconcile after failure", Serial, func() {
-	const (
-		assetsPath    = "assets/reconcile-after-failure"
-		promiseName   = "reconcilable"
-		promiseKind   = "reconcilables"
-		rrName        = "example"
-		gateConfigMap = "reconcile-after-failure-gate"
-		// Must match numberOfJobsToKeep in kratix-config-retry.yaml
-		numberOfJobsToKeep = 2
-	)
+const (
+	rafAssetsPath = "assets/reconcile-after-failure"
 
-	workflowStatusJSONPath := `-o=jsonpath='{.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}'`
-	workflowTransitionJSONPath := `-o=jsonpath='{.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].lastTransitionTime}'`
+	rafPromiseName   = "reconcilable"
+	rafPromiseKind   = "reconcilables"
+	rafRRName        = "example"
+	rafResourceGate  = "reconcile-after-failure-gate"
+	rafWFPromiseName = "reconcilable-promise-wf"
+	rafWFGate        = "reconcile-after-failure-promise-gate"
+	rafWFHold        = "reconcile-after-failure-promise-hold"
+	rafGateNamespace = "kratix-platform-system"
+	// Must match numberOfJobsToKeep in kratix-config-retry.yaml
+	rafNumberOfJobsToKeep = 2
+)
 
-	configureJobCount := func() int {
-		return jobCountForResourcePipeline(promiseName, "resource-configure")
-	}
+var (
+	rafWorkflowStatusJSONPath     = `-o=jsonpath='{.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}'`
+	rafWorkflowTransitionJSONPath = `-o=jsonpath='{.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].lastTransitionTime}'`
+)
 
-	configureJobNames := func() []string {
-		return jobNamesForResourcePipeline(promiseName, "resource-configure")
-	}
+func rafResourceJobCount() int {
+	return jobCountForResourcePipeline(rafPromiseName, "resource-configure")
+}
 
-	BeforeEach(func() {
-		SetDefaultEventuallyTimeout(4 * time.Minute)
-		SetDefaultEventuallyPollingInterval(2 * time.Second)
-		kubeutils.SetTimeoutAndInterval(4*time.Minute, 2*time.Second)
+func rafResourceJobNames() []string {
+	return jobNamesForResourcePipeline(rafPromiseName, "resource-configure")
+}
 
-		platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise.yaml"))
-		Eventually(func() string {
-			return platform.Kubectl("get", "promise", promiseName)
-		}).Should(ContainSubstring("Available"))
+func rafWFJobCount() int {
+	return jobCountForPromisePipeline(rafWFPromiseName, "promise-configure")
+}
 
-		// Wait for any Jobs from a previous spec to be garbage-collected so the
-		// configure-Job count starts from a clean, reliable baseline.
-		Eventually(configureJobCount).Should(Equal(0))
-	})
+func rafWFJobNames() []string {
+	return jobNamesForPromisePipeline(rafWFPromiseName, "promise-configure")
+}
 
-	AfterEach(func() {
-		platform.EventuallyKubectlDelete(promiseKind, rrName)
-		platform.EventuallyKubectlDelete("promise", promiseName)
-		platform.KubectlAllowFail("delete", "configmap", gateConfigMap, "-n", "default")
+func rafSetTimeouts() {
+	SetDefaultEventuallyTimeout(4 * time.Minute)
+	SetDefaultEventuallyPollingInterval(2 * time.Second)
+	kubeutils.SetTimeoutAndInterval(4*time.Minute, 2*time.Second)
+}
 
-		platform.Kubectl("apply", "-f", kratixConfigPath)
+// Specs are grouped by the Kratix config they need: each group applies its
+// config once in BeforeAll and restarts the controller. BeforeSuite restores
+// the default on the next run.
+var _ = Describe("Reconcile after failure", Label("config-mutating"), Serial, Ordered, func() {
+	BeforeAll(func() {
+		rafSetTimeouts()
+		platform.Kubectl("apply", "-f", filepath.Join(rafAssetsPath, "kratix-config-retry.yaml"))
 		restartController()
 	})
 
-	When("reconcileAfterFailure uses its default value", func() {
+	When("a resource workflow fails and reconcileAfterFailure uses its default value", func() {
 		BeforeEach(func() {
-			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "kratix-config-retry.yaml"))
-			restartController()
+			platform.Kubectl("apply", "-f", filepath.Join(rafAssetsPath, "promise.yaml"))
+			Eventually(func() string {
+				return platform.Kubectl("get", "promise", rafPromiseName)
+			}).Should(ContainSubstring("Available"))
+
+			// Wait for any Jobs from a previous spec to be garbage-collected so the
+			// configure-Job count starts from a clean, reliable baseline.
+			Eventually(rafResourceJobCount).Should(Equal(0))
+		})
+
+		AfterEach(func() {
+			platform.EventuallyKubectlDelete(rafPromiseKind, rafRRName)
+			platform.EventuallyKubectlDelete("promise", rafPromiseName)
+			platform.KubectlAllowFail("delete", "configmap", rafResourceGate, "-n", "default")
 		})
 
 		It("re-runs failed workflows on the schedule and resumes to success", func() {
-			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-request.yaml"))
+			platform.Kubectl("apply", "-f", filepath.Join(rafAssetsPath, "resource-request.yaml"))
 
 			var jobsAtFirstFailure []string
 			By("failing the configure workflow", func() {
 				Eventually(func(g Gomega) {
-					g.Expect(configureJobCount()).To(BeNumerically(">=", 1))
-					g.Expect(platform.Kubectl("get", "--namespace=default", promiseKind, rrName, workflowStatusJSONPath)).
+					g.Expect(rafResourceJobCount()).To(BeNumerically(">=", 1))
+					g.Expect(platform.Kubectl("get", "--namespace=default", rafPromiseKind, rafRRName, rafWorkflowStatusJSONPath)).
 						To(ContainSubstring("False"))
 				}).Should(Succeed())
-				jobsAtFirstFailure = configureJobNames()
+				jobsAtFirstFailure = rafResourceJobNames()
 			})
 
 			By("re-running the workflow automatically", func() {
 				// Job names, not the count: failed jobs are now pruned to
 				// numberOfJobsToKeep, so the count stops growing once it caps.
 				Eventually(func(g Gomega) {
-					g.Expect(newJobNames(jobsAtFirstFailure, configureJobNames())).NotTo(BeEmpty())
+					g.Expect(newJobNames(jobsAtFirstFailure, rafResourceJobNames())).NotTo(BeEmpty())
 				}).Should(Succeed())
 			})
 
@@ -88,14 +106,14 @@ var _ = Describe("Reconcile after failure", Serial, func() {
 				// flight. Without pruning on the failure path the count would climb
 				// past that within a few reconciliation intervals.
 				Consistently(func(g Gomega) {
-					g.Expect(configureJobCount()).To(BeNumerically("<=", numberOfJobsToKeep+1))
+					g.Expect(rafResourceJobCount()).To(BeNumerically("<=", rafNumberOfJobsToKeep+1))
 				}, 30*time.Second, 2*time.Second).Should(Succeed())
 			})
 
 			By("succeeding once the gate exists", func() {
-				platform.Kubectl("create", "configmap", gateConfigMap, "-n", "default")
+				platform.Kubectl("create", "configmap", rafResourceGate, "-n", "default")
 				Eventually(func(g Gomega) {
-					g.Expect(platform.Kubectl("get", "--namespace=default", promiseKind, rrName, workflowStatusJSONPath)).
+					g.Expect(platform.Kubectl("get", "--namespace=default", rafPromiseKind, rafRRName, rafWorkflowStatusJSONPath)).
 						To(ContainSubstring("True"))
 				}).Should(Succeed())
 			})
@@ -104,206 +122,197 @@ var _ = Describe("Reconcile after failure", Serial, func() {
 				// Job count is unreliable here: numberOfJobsToKeep prunes on the success
 				// path, pinning the count. A success re-run flips the condition
 				// True->InProgress->True, so lastTransitionTime advances each cycle.
-				transitionBeforeReRun := platform.Kubectl("get", "--namespace=default", promiseKind, rrName, workflowTransitionJSONPath)
+				transitionBeforeReRun := platform.Kubectl("get", "--namespace=default", rafPromiseKind, rafRRName, rafWorkflowTransitionJSONPath)
 				Eventually(func(g Gomega) {
-					g.Expect(platform.Kubectl("get", "--namespace=default", promiseKind, rrName, workflowTransitionJSONPath)).
+					g.Expect(platform.Kubectl("get", "--namespace=default", rafPromiseKind, rafRRName, rafWorkflowTransitionJSONPath)).
 						NotTo(Equal(transitionBeforeReRun))
 				}).Should(Succeed())
 			})
 		})
 	})
 
-	When("reconcileAfterFailure is false", func() {
+	When("a promise workflow fails and reconcileAfterFailure uses its default value", func() {
 		BeforeEach(func() {
-			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "kratix-config-no-retry.yaml"))
-			restartController()
+			platform.Kubectl("apply", "-f", filepath.Join(rafAssetsPath, "promise-workflow.yaml"))
 		})
 
-		It("does not re-run failed workflows, but manual reconciliation works", func() {
-			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-request.yaml"))
-
-			var failedCount int
-			By("failing the configure workflow", func() {
-				Eventually(func(g Gomega) {
-					g.Expect(configureJobCount()).To(BeNumerically(">=", 1))
-					g.Expect(platform.Kubectl("get", "--namespace=default", promiseKind, rrName, workflowStatusJSONPath)).
-						To(ContainSubstring("False"))
-				}).Should(Succeed())
-				failedCount = configureJobCount()
-			})
-
-			By("not re-running on the schedule", func() {
-				Consistently(func(g Gomega) {
-					g.Expect(configureJobCount()).To(Equal(failedCount))
-				}, 30*time.Second, 3*time.Second).Should(Succeed())
-			})
-
-			By("re-running when manually labelled", func() {
-				platform.Kubectl("label", "--overwrite", "--namespace=default", promiseKind, rrName,
-					"kratix.io/manual-reconciliation=true")
-				Eventually(func(g Gomega) {
-					g.Expect(configureJobCount()).To(BeNumerically(">", failedCount))
-				}).Should(Succeed())
-			})
-		})
-	})
-})
-
-var _ = Describe("Reconcile promise workflow after failure", Serial, func() {
-	const (
-		assetsPath         = "assets/reconcile-after-failure"
-		promiseName        = "reconcilable-promise-wf"
-		gateConfigMap      = "reconcile-after-failure-promise-gate"
-		holdConfigMap      = "reconcile-after-failure-promise-hold"
-		gateNamespace      = "kratix-platform-system"
-		numberOfJobsToKeep = 2
-	)
-
-	workflowStatusJSONPath := `-o=jsonpath='{.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}'`
-
-	configureJobCount := func() int {
-		return jobCountForPromisePipeline(promiseName, "promise-configure")
-	}
-	configureJobNames := func() []string {
-		return jobNamesForPromisePipeline(promiseName, "promise-configure")
-	}
-
-	BeforeEach(func() {
-		SetDefaultEventuallyTimeout(4 * time.Minute)
-		SetDefaultEventuallyPollingInterval(2 * time.Second)
-		kubeutils.SetTimeoutAndInterval(4*time.Minute, 2*time.Second)
-	})
-
-	AfterEach(func() {
-		platform.EventuallyKubectlDelete("promise", promiseName)
-		platform.KubectlAllowFail("delete", "configmap", gateConfigMap, "-n", gateNamespace)
-		platform.KubectlAllowFail("delete", "configmap", holdConfigMap, "-n", gateNamespace)
-		platform.Kubectl("apply", "-f", kratixConfigPath)
-		restartController()
-	})
-
-	When("reconcileAfterFailure uses its default value", func() {
-		BeforeEach(func() {
-			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "kratix-config-retry.yaml"))
-			restartController()
-			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise-workflow.yaml"))
+		AfterEach(func() {
+			platform.EventuallyKubectlDelete("promise", rafWFPromiseName)
+			platform.KubectlAllowFail("delete", "configmap", rafWFGate, "-n", rafGateNamespace)
+			platform.KubectlAllowFail("delete", "configmap", rafWFHold, "-n", rafGateNamespace)
 		})
 
 		It("continuously reconciles failed, in-progress, and successful promise workflows", func() {
 			var jobsAtFirstFailure []string
 			By("failing the promise configure workflow", func() {
 				Eventually(func(g Gomega) {
-					g.Expect(configureJobCount()).To(BeNumerically(">=", 1))
-					g.Expect(platform.Kubectl("get", "promise", promiseName, workflowStatusJSONPath)).
+					g.Expect(rafWFJobCount()).To(BeNumerically(">=", 1))
+					g.Expect(platform.Kubectl("get", "promise", rafWFPromiseName, rafWorkflowStatusJSONPath)).
 						To(ContainSubstring("False"))
 				}).Should(Succeed())
-				jobsAtFirstFailure = configureJobNames()
+				jobsAtFirstFailure = rafWFJobNames()
 			})
 
 			By("re-running the workflow automatically", func() {
 				// Hold the scheduled retry open across another reconciliation interval.
 				// This makes an accidental restart or suspension observable.
-				platform.Kubectl("create", "configmap", holdConfigMap, "-n", gateNamespace)
+				platform.Kubectl("create", "configmap", rafWFHold, "-n", rafGateNamespace)
 
 				var heldJobName string
 				Eventually(func(g Gomega) {
-					newJobs := newJobNames(jobsAtFirstFailure, configureJobNames())
+					newJobs := newJobNames(jobsAtFirstFailure, rafWFJobNames())
 					g.Expect(newJobs).NotTo(BeEmpty())
 					heldJobName = newJobs[0]
-					g.Expect(platform.Kubectl("get", "job", heldJobName, "-n", gateNamespace,
+					g.Expect(platform.Kubectl("get", "job", heldJobName, "-n", rafGateNamespace,
 						`-o=jsonpath={.status.active}`)).To(Equal("1"))
 				}).Should(Succeed())
 
-				jobsWhileInProgress := configureJobNames()
+				jobsWhileInProgress := rafWFJobNames()
 				Consistently(func(g Gomega) {
-					g.Expect(newJobNames(jobsWhileInProgress, configureJobNames())).To(BeEmpty())
-					g.Expect(platform.Kubectl("get", "job", heldJobName, "-n", gateNamespace,
+					g.Expect(newJobNames(jobsWhileInProgress, rafWFJobNames())).To(BeEmpty())
+					g.Expect(platform.Kubectl("get", "job", heldJobName, "-n", rafGateNamespace,
 						`-o=jsonpath={.status.active}`)).To(Equal("1"))
-					g.Expect(platform.Kubectl("get", "job", heldJobName, "-n", gateNamespace,
+					g.Expect(platform.Kubectl("get", "job", heldJobName, "-n", rafGateNamespace,
 						`-o=jsonpath={.spec.suspend}`)).NotTo(Equal("true"))
 				}, 10*time.Second, 2*time.Second).Should(Succeed())
 
-				platform.Kubectl("delete", "configmap", holdConfigMap, "-n", gateNamespace)
+				platform.Kubectl("delete", "configmap", rafWFHold, "-n", rafGateNamespace)
 			})
 
 			By("pruning failed jobs while retries continue", func() {
 				observedJobNames := map[string]bool{}
 				Consistently(func(g Gomega) {
-					currentJobNames := configureJobNames()
+					currentJobNames := rafWFJobNames()
 					for _, name := range currentJobNames {
 						observedJobNames[name] = true
 					}
 					// A retry creates the next job before the preceding failure is
 					// observed and pruned, so one transient extra job is expected.
-					g.Expect(len(currentJobNames)).To(BeNumerically("<=", numberOfJobsToKeep+1))
+					g.Expect(len(currentJobNames)).To(BeNumerically("<=", rafNumberOfJobsToKeep+1))
 				}, 75*time.Second, 2*time.Second).Should(Succeed())
-				Expect(len(observedJobNames)).To(BeNumerically(">", numberOfJobsToKeep+1))
+				Expect(len(observedJobNames)).To(BeNumerically(">", rafNumberOfJobsToKeep+1))
 			})
 
 			By("succeeding once the gate exists", func() {
-				platform.Kubectl("create", "configmap", gateConfigMap, "-n", gateNamespace)
+				platform.Kubectl("create", "configmap", rafWFGate, "-n", rafGateNamespace)
 				Eventually(func(g Gomega) {
-					g.Expect(platform.Kubectl("get", "promise", promiseName, workflowStatusJSONPath)).
+					g.Expect(platform.Kubectl("get", "promise", rafWFPromiseName, rafWorkflowStatusJSONPath)).
 						To(ContainSubstring("True"))
 				}).Should(Succeed())
 			})
 
 			By("continuing to reconcile after success", func() {
-				jobsAtSuccess := configureJobNames()
+				jobsAtSuccess := rafWFJobNames()
 				Eventually(func(g Gomega) {
-					g.Expect(newJobNames(jobsAtSuccess, configureJobNames())).NotTo(BeEmpty())
+					g.Expect(newJobNames(jobsAtSuccess, rafWFJobNames())).NotTo(BeEmpty())
 				}).Should(Succeed())
 				Eventually(func(g Gomega) {
-					g.Expect(platform.Kubectl("get", "promise", promiseName, workflowStatusJSONPath)).
+					g.Expect(platform.Kubectl("get", "promise", rafWFPromiseName, rafWorkflowStatusJSONPath)).
 						To(ContainSubstring("True"))
 				}).Should(Succeed())
 			})
 		})
 	})
+})
 
-	When("reconcileAfterFailure is false", func() {
+var _ = Describe("Reconcile after failure disabled", Label("config-mutating"), Serial, Ordered, func() {
+	BeforeAll(func() {
+		rafSetTimeouts()
+		platform.Kubectl("apply", "-f", filepath.Join(rafAssetsPath, "kratix-config-no-retry.yaml"))
+		restartController()
+	})
+
+	When("a resource workflow fails and reconcileAfterFailure is false", func() {
 		BeforeEach(func() {
-			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "kratix-config-no-retry.yaml"))
-			restartController()
-			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise-workflow.yaml"))
+			platform.Kubectl("apply", "-f", filepath.Join(rafAssetsPath, "promise.yaml"))
+			Eventually(func() string {
+				return platform.Kubectl("get", "promise", rafPromiseName)
+			}).Should(ContainSubstring("Available"))
+			Eventually(rafResourceJobCount).Should(Equal(0))
+		})
+
+		AfterEach(func() {
+			platform.EventuallyKubectlDelete(rafPromiseKind, rafRRName)
+			platform.EventuallyKubectlDelete("promise", rafPromiseName)
+			platform.KubectlAllowFail("delete", "configmap", rafResourceGate, "-n", "default")
+		})
+
+		It("does not re-run failed workflows, but manual reconciliation works", func() {
+			platform.Kubectl("apply", "-f", filepath.Join(rafAssetsPath, "resource-request.yaml"))
+
+			var failedCount int
+			By("failing the configure workflow", func() {
+				Eventually(func(g Gomega) {
+					g.Expect(rafResourceJobCount()).To(BeNumerically(">=", 1))
+					g.Expect(platform.Kubectl("get", "--namespace=default", rafPromiseKind, rafRRName, rafWorkflowStatusJSONPath)).
+						To(ContainSubstring("False"))
+				}).Should(Succeed())
+				failedCount = rafResourceJobCount()
+			})
+
+			By("not re-running on the schedule", func() {
+				Consistently(func(g Gomega) {
+					g.Expect(rafResourceJobCount()).To(Equal(failedCount))
+				}, 30*time.Second, 3*time.Second).Should(Succeed())
+			})
+
+			By("re-running when manually labelled", func() {
+				platform.Kubectl("label", "--overwrite", "--namespace=default", rafPromiseKind, rafRRName,
+					"kratix.io/manual-reconciliation=true")
+				Eventually(func(g Gomega) {
+					g.Expect(rafResourceJobCount()).To(BeNumerically(">", failedCount))
+				}).Should(Succeed())
+			})
+		})
+	})
+
+	When("a promise workflow fails and reconcileAfterFailure is false", func() {
+		BeforeEach(func() {
+			platform.Kubectl("apply", "-f", filepath.Join(rafAssetsPath, "promise-workflow.yaml"))
+		})
+
+		AfterEach(func() {
+			platform.EventuallyKubectlDelete("promise", rafWFPromiseName)
+			platform.KubectlAllowFail("delete", "configmap", rafWFGate, "-n", rafGateNamespace)
+			platform.KubectlAllowFail("delete", "configmap", rafWFHold, "-n", rafGateNamespace)
 		})
 
 		It("does not retry on the schedule, but label and spec changes still reconcile it", func() {
 			var failedJobs []string
 			By("failing the promise configure workflow", func() {
 				Eventually(func(g Gomega) {
-					g.Expect(configureJobCount()).To(BeNumerically(">=", 1))
-					g.Expect(platform.Kubectl("get", "promise", promiseName, workflowStatusJSONPath)).
+					g.Expect(rafWFJobCount()).To(BeNumerically(">=", 1))
+					g.Expect(platform.Kubectl("get", "promise", rafWFPromiseName, rafWorkflowStatusJSONPath)).
 						To(ContainSubstring("False"))
 				}).Should(Succeed())
-				failedJobs = configureJobNames()
+				failedJobs = rafWFJobNames()
 			})
 
 			By("not re-running on the schedule", func() {
 				Consistently(func(g Gomega) {
-					g.Expect(newJobNames(failedJobs, configureJobNames())).To(BeEmpty())
+					g.Expect(newJobNames(failedJobs, rafWFJobNames())).To(BeEmpty())
 				}, 30*time.Second, 3*time.Second).Should(Succeed())
 			})
 
 			By("re-running when manually labelled", func() {
-				platform.Kubectl("label", "--overwrite", "promise", promiseName,
+				platform.Kubectl("label", "--overwrite", "promise", rafWFPromiseName,
 					"kratix.io/manual-reconciliation=true")
 				var manuallyStartedJob string
 				Eventually(func(g Gomega) {
-					newJobs := newJobNames(failedJobs, configureJobNames())
+					newJobs := newJobNames(failedJobs, rafWFJobNames())
 					g.Expect(newJobs).NotTo(BeEmpty())
 					manuallyStartedJob = newJobs[0]
-					g.Expect(platform.Kubectl("get", "job", manuallyStartedJob, "-n", gateNamespace,
+					g.Expect(platform.Kubectl("get", "job", manuallyStartedJob, "-n", rafGateNamespace,
 						`-o=jsonpath={.status.failed}`)).To(Equal("1"))
 				}).Should(Succeed())
 			})
 
 			By("re-running after a Promise spec change", func() {
-				jobsBeforeSpecChange := configureJobNames()
-				platform.Kubectl("patch", "promise", promiseName, "--type=merge", "-p",
+				jobsBeforeSpecChange := rafWFJobNames()
+				platform.Kubectl("patch", "promise", rafWFPromiseName, "--type=merge", "-p",
 					`{"spec":{"workflows":{"config":{"pipelineNamespace":"kratix-platform-system"}}}}`)
 				Eventually(func(g Gomega) {
-					g.Expect(newJobNames(jobsBeforeSpecChange, configureJobNames())).NotTo(BeEmpty())
+					g.Expect(newJobNames(jobsBeforeSpecChange, rafWFJobNames())).NotTo(BeEmpty())
 				}).Should(Succeed())
 			})
 		})
