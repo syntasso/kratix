@@ -12,6 +12,7 @@ data:
     workflows:
       jobOptions:
         defaultBackoffLimit: 4
+        defaultTTLSecondsAfterFinished: 3600
       defaultContainerSecurityContext:
         windowsOptions:
           runAsUserName: "setInKratixConfig"

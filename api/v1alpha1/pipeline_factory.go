@@ -341,6 +341,10 @@ func (p *PipelineFactory) pipelineJob(
 	if backoffLimit == nil {
 		backoffLimit = DefaultJobBackoffLimit
 	}
+	ttlSecondsAfterFinished := p.Pipeline.Spec.JobOptions.TTLSecondsAfterFinished
+	if ttlSecondsAfterFinished == nil {
+		ttlSecondsAfterFinished = KratixConfigJobTTLSecondsAfterFinished
+	}
 
 	restartPolicy := p.Pipeline.Spec.RestartPolicy
 	if restartPolicy == "" {
@@ -378,7 +382,8 @@ func (p *PipelineFactory) pipelineJob(
 			Annotations: jobAnnotations,
 		},
 		Spec: batchv1.JobSpec{
-			BackoffLimit: backoffLimit,
+			BackoffLimit:            backoffLimit,
+			TTLSecondsAfterFinished: ttlSecondsAfterFinished,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      p.pipelineJobLabels(objHash),
