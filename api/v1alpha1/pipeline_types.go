@@ -51,8 +51,9 @@ const (
 	KratixClusterScopedEnvVar   = "KRATIX_CLUSTER_SCOPED"
 	KratixDryRunEnvVar          = "KRATIX_DRY_RUN"
 
-	KratixCrdPlural     = "KRATIX_CRD_PLURAL"
-	KratixClusterScoped = "KRATIX_CLUSTER_SCOPED"
+	KratixCrdPlural                         = "KRATIX_CRD_PLURAL"
+	KratixClusterScoped                     = "KRATIX_CLUSTER_SCOPED"
+	MinimumJobTTLSecondsAfterFinished int32 = 120
 
 	WorkflowTypeLabel   = KratixPrefix + "workflow-type"
 	WorkflowActionLabel = KratixPrefix + "workflow-action"
@@ -97,6 +98,7 @@ var (
 	DefaultUserProvidedContainersSecurityContext *corev1.SecurityContext
 	DefaultImagePullPolicy                       corev1.PullPolicy
 	DefaultJobBackoffLimit                       *int32
+	KratixConfigJobTTLSecondsAfterFinished       *int32
 )
 
 // PipelineSpec defines the desired state of Pipeline.
@@ -138,6 +140,8 @@ type Permission struct {
 type JobOptions struct {
 	// Number of retries before marking the pipeline Job as failed
 	BackoffLimit *int32 `json:"backoffLimit,omitempty"`
+	// Number of seconds to retain the pipeline Job after it finishes
+	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
 }
 
 // Container defines a single pipeline step container

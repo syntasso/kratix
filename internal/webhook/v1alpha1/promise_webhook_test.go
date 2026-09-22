@@ -21,6 +21,7 @@ import (
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/ptr"
 	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
 )
 
@@ -322,6 +323,55 @@ var _ = Describe("PromiseWebhook", func() {
 			var d metav1.Duration
 			err := json.Unmarshal([]byte(`"not-a-duration"`), &d)
 			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Context("spec.jobOptions.ttlSecondsAfterFinished", func() {
+		pipelineWithTTL := func(ttlSecondsAfterFinished *int32) v1alpha1.Pipeline {
+			return v1alpha1.Pipeline{
+				ObjectMeta: metav1.ObjectMeta{Name: "pipeline-name"},
+				Spec: v1alpha1.PipelineSpec{
+					JobOptions: v1alpha1.JobOptions{TTLSecondsAfterFinished: ttlSecondsAfterFinished},
+				},
+			}
+		}
+
+		It("accepts an unset TTL", func() {
+			promise := newPromise()
+			setPipeline(promise, pipelineWithTTL(nil))
+
+			warnings, err := validator.ValidateCreate(ctx, promise)
+
+			Expect(warnings).To(BeEmpty())
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("accepts a TTL exactly at the minimum", func() {
+			promise := newPromise()
+			setPipeline(promise, pipelineWithTTL(ptr.To(v1alpha1.MinimumJobTTLSecondsAfterFinished)))
+
+			warnings, err := validator.ValidateCreate(ctx, promise)
+
+			Expect(warnings).To(BeEmpty())
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("names the field, the value and the minimum when the TTL is too low", func() {
+			promise := newPromise()
+			setPipeline(promise, pipelineWithTTL(ptr.To(int32(60))))
+
+			_, err := validator.ValidateCreate(ctx, promise)
+
+			Expect(err).To(MatchError(`spec.jobOptions.ttlSecondsAfterFinished: Invalid value: 60: must be at least 120, in pipeline "pipeline-name" in workflow "resource" action "configure"`))
+		})
+
+		It("enforces the same rule on update", func() {
+			promise := newPromise()
+			setPipeline(promise, pipelineWithTTL(ptr.To(int32(60))))
+
+			_, err := validator.ValidateUpdate(ctx, oldPromise, promise)
+
+			Expect(err).To(MatchError(ContainSubstring("spec.jobOptions.ttlSecondsAfterFinished")))
 		})
 	})
 

@@ -85,6 +85,8 @@ var _ = Describe("Pipeline", func() {
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = globalDefaultSecurityContext
 		v1alpha1.DefaultImagePullPolicy = ""
 		v1alpha1.DefaultRestartPolicy = corev1.RestartPolicyOnFailure
+		v1alpha1.DefaultJobBackoffLimit = nil
+		v1alpha1.KratixConfigJobTTLSecondsAfterFinished = nil
 		v1alpha1.DefaultResourceRequirements = &corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{ //nolint:exhaustive
 				corev1.ResourceCPU:              resource.MustParse("100m"),
@@ -678,6 +680,34 @@ var _ = Describe("Pipeline", func() {
 						Expect(err).ToNot(HaveOccurred())
 						Expect(resources.Job.Spec.BackoffLimit).To(BeNil())
 					})
+				})
+			})
+
+			Describe("TTLSecondsAfterFinished", func() {
+				It("uses the Kratix Config value", func() {
+					v1alpha1.KratixConfigJobTTLSecondsAfterFinished = ptr.To(int32(600))
+
+					resources, err := factory.Resources(nil)
+
+					Expect(err).ToNot(HaveOccurred())
+					Expect(resources.Job.Spec.TTLSecondsAfterFinished).To(PointTo(Equal(int32(600))))
+				})
+
+				It("uses the pipeline value instead of the Kratix Config value", func() {
+					v1alpha1.KratixConfigJobTTLSecondsAfterFinished = ptr.To(int32(600))
+					pipeline.Spec.JobOptions.TTLSecondsAfterFinished = ptr.To(int32(300))
+
+					resources, err := factory.Resources(nil)
+
+					Expect(err).ToNot(HaveOccurred())
+					Expect(resources.Job.Spec.TTLSecondsAfterFinished).To(PointTo(Equal(int32(300))))
+				})
+
+				It("leaves the value unset when no TTL is configured", func() {
+					resources, err := factory.Resources(nil)
+
+					Expect(err).ToNot(HaveOccurred())
+					Expect(resources.Job.Spec.TTLSecondsAfterFinished).To(BeNil())
 				})
 			})
 
