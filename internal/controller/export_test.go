@@ -44,7 +44,3 @@ func PromiseForRevision(ctx context.Context, obj client.Object) []reconcile.Requ
 func PromiseRevisionAnnotationChangedPredicate() predicate.Predicate {
 	return promiseRevisionAnnotationChangedPredicate()
 }
-
-func WithTLSValidationReason(err error) error {
-	return withTLSValidationReason(err)
-}

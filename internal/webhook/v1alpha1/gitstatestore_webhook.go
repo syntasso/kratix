@@ -49,11 +49,11 @@ func (v *GitStateStoreCustomValidator) ValidateDelete(ctx context.Context, obj *
 // is only ever negotiated over https.
 func warnOnInsecureWithoutHTTPS(gitStateStore *v1alpha1.GitStateStore) admission.Warnings {
 	url := gitStateStore.Spec.URL
-	if gitStateStore.Spec.Insecure == nil || strings.HasPrefix(strings.ToLower(url), "https://") {
-		return nil
+	if gitStateStore.Spec.Insecure != nil && !strings.HasPrefix(strings.ToLower(url), "https://") {
+		return admission.Warnings{
+			fmt.Sprintf("spec.insecure only applies to https urls; it has no effect on %s", url),
+		}
 	}
 
-	return admission.Warnings{
-		fmt.Sprintf("spec.insecure only applies to https urls; it has no effect on %s", url),
-	}
+	return nil
 }

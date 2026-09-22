@@ -106,7 +106,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 					ExpectEventContainingAll(
 						"gitstatestore", stateStoreName,
 						"unable to clone repository",
-						"TLS certificate validation failed",
+						"SSL certificate problem",
 					)
 				})
 
