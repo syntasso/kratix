@@ -19,6 +19,18 @@ spec:
   promiseRef:
     name: psql
   schedule: "* * * * *"
+--- {apiVersion: v1, kind: ConfigMap, metadata: {name: inline}}
+--- |
+  block scalar document kept verbatim
+--- {apiVersion: platform.kratix.io/v1alpha1, kind: HealthDefinition, metadata: {name: flow-health}, spec: {promiseRef: {name: psql}}}
+--- !!map
+apiVersion: platform.kratix.io/v1alpha1
+kind: HealthDefinition
+metadata:
+  name: tagged-health
+spec:
+  promiseRef:
+    name: psql
 --- # separator comment: kept
 apiVersion: v1
 kind: ConfigMap

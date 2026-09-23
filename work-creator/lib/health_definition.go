@@ -65,14 +65,17 @@ func (s *healthDefinitionStamper) stamp(content []byte) ([]byte, error) {
 
 	var out bytes.Buffer
 	for _, segment := range splitDocuments(content) {
-		object, ok := parseHealthDefinition(segment)
+		object, ok := parseHealthDefinition(segment.body)
 		if !ok {
-			out.Write(segment)
+			out.Write(segment.body)
 			continue
 		}
 		stamped, err := s.stampDocument(object)
 		if err != nil {
 			return nil, err
+		}
+		if segment.inline {
+			out.Write(documentSeparator)
 		}
 		out.Write(stamped)
 	}
@@ -137,38 +140,56 @@ func parseHealthDefinition(document []byte) (map[string]any, bool) {
 	return object, true
 }
 
-// splitDocuments cuts content into document bodies and separator lines, in
-// order, so that concatenating the segments reproduces content exactly.
-func splitDocuments(content []byte) [][]byte {
-	var segments [][]byte
-	start := 0
+// segment is a run of bytes from the file: a bare marker line, a document
+// body, or an inline document ("--- {a: 1}", "--- !!map") that includes its
+// own marker line and is parsed whole so a HealthDefinition written that way
+// is still stamped.
+type segment struct {
+	body   []byte
+	inline bool
+}
+
+var documentSeparator = []byte("---\n")
+
+// splitDocuments cuts content into segments, in order, so that concatenating
+// them reproduces content exactly.
+func splitDocuments(content []byte) []segment {
+	var segments []segment
+	start, inline := 0, false
 	for lineStart := 0; lineStart < len(content); {
 		lineEnd := len(content)
 		if i := bytes.IndexByte(content[lineStart:], '\n'); i >= 0 {
 			lineEnd = lineStart + i + 1
 		}
-		if isDocumentSeparator(content[lineStart:lineEnd]) {
+		if marker, withContent := documentMarker(content[lineStart:lineEnd]); marker {
 			if lineStart > start {
-				segments = append(segments, content[start:lineStart])
+				segments = append(segments, segment{body: content[start:lineStart], inline: inline})
 			}
-			segments = append(segments, content[lineStart:lineEnd])
-			start = lineEnd
+			if withContent {
+				start, inline = lineStart, true
+			} else {
+				segments = append(segments, segment{body: content[lineStart:lineEnd]})
+				start, inline = lineEnd, false
+			}
 		}
 		lineStart = lineEnd
 	}
 	if start < len(content) {
-		segments = append(segments, content[start:])
+		segments = append(segments, segment{body: content[start:], inline: inline})
 	}
 	return segments
 }
 
-// isDocumentSeparator reports whether line is "---" followed by nothing,
-// whitespace or a comment. "--- |" and "--- !!tag" open a document instead.
-func isDocumentSeparator(line []byte) bool {
+// documentMarker reports whether line starts a document ("---" followed by
+// end of line or whitespace) and whether it carries content beyond a comment.
+func documentMarker(line []byte) (marker, withContent bool) {
 	line = bytes.TrimRight(line, "\r\n")
 	if !bytes.HasPrefix(line, []byte("---")) {
-		return false
+		return false, false
+	}
+	if len(line) > 3 && line[3] != ' ' && line[3] != '\t' {
+		return false, false
 	}
 	rest := bytes.TrimLeft(line[3:], " \t")
-	return len(rest) == 0 || rest[0] == '#'
+	return true, len(rest) > 0 && rest[0] != '#'
 }

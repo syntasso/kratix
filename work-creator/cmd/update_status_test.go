@@ -160,5 +160,9 @@ var _ = Describe("updateStatus", func() {
 			writeFile(lib.HealthDefinitionsMarkerFile, "[")
 			GinkgoT().Setenv(v1alpha1.KratixActionEnvVar, string(v1alpha1.WorkflowActionDelete))
 		}),
+		Entry("in a dry run", func() {
+			writeMarker()
+			GinkgoT().Setenv(v1alpha1.KratixDryRunEnvVar, "true")
+		}),
 	)
 })

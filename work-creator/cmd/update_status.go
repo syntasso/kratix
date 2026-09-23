@@ -134,7 +134,8 @@ func resetHealthStatusForNewVersion(baseDir string, params *helpers.Parameters, 
 	versioned := params.PromiseVersion != "" && params.PromiseVersion != v1alpha1.UnversionedPromiseVersion
 	if !versioned ||
 		params.WorkflowType != v1alpha1.WorkflowTypeResource ||
-		os.Getenv(v1alpha1.KratixActionEnvVar) != string(v1alpha1.WorkflowActionConfigure) {
+		os.Getenv(v1alpha1.KratixActionEnvVar) != string(v1alpha1.WorkflowActionConfigure) ||
+		os.Getenv(v1alpha1.KratixDryRunEnvVar) == "true" {
 		return status, nil
 	}
 
