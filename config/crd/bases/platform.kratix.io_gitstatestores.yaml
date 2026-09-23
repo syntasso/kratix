@@ -81,6 +81,11 @@ spec:
                     description: Name of the Git commit author
                     type: string
                 type: object
+              insecure:
+                description: |-
+                  Toggle to turn off or on TLS verification when connecting to the repository.
+                  Only applies to HTTPS connections. Defaults to true when unset.
+                type: boolean
               path:
                 description: |-
                   Path within the StateStore to write documents. This path should be allocated

@@ -3,6 +3,8 @@ kind: GitStateStore
 metadata:
   name: default
 spec:
+  # gitea serves a self-signed certificate
+  insecure: true
   secretRef:
     name: gitea-credentials
     namespace: default

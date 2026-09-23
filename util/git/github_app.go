@@ -434,7 +434,7 @@ func generateGitHubAppJWT(appID string, privateKey string) (string, error) {
 }
 
 // getGitHubInstallationToken exchanges a JWT for a GitHub installation access token
-func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string, error) {
+func getGitHubInstallationToken(apiURL, installationID, jwtToken string, insecure bool) (string, error) {
 	url := fmt.Sprintf("%s/app/installations/%s/access_tokens", apiURL, installationID)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, nil)
@@ -448,8 +448,9 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
+			// #nosec G402
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: false,
+				InsecureSkipVerify: insecure,
 				MinVersion:         tls.VersionTLS12,
 			},
 		},
