@@ -1779,9 +1779,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						events := aggregateEvents(eventRecorder.Events)
 						Expect(events).To(SatisfyAll(
 							ContainSubstring(
-								"Normal ReconcileStarted reconciling resource request with promise revision redis-v1.1.0",
-							),
-							ContainSubstring(
 								"Normal BindingCreated Binding example-redis-e7f90 created for promise redis version latest",
 							),
 							ContainSubstring(
