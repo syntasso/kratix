@@ -1,0 +1,73 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: simpleapp-fast
+  annotations:
+    kratix.io/max-concurrent-reconciles: "20"
+spec:
+  destinationSelectors:
+    - matchLabels:
+        environment: platform
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: simpleappfasts.compound.kratix.io
+    spec:
+      group: compound.kratix.io
+      names:
+        kind: SimpleAppFast
+        plural: simpleappfasts
+        singular: simpleappfast
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          served: true
+          storage: true
+          schema:
+            openAPIV3Schema:
+              type: object
+              properties:
+                spec:
+                  type: object
+                  properties:
+                    repo:
+                      type: string
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: build
+          spec:
+            containers:
+              - name: build
+                image: busybox:1.36
+                command: ["sh", "-c", "sleep 1; exit 0"]
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: schedule-appasaservice
+          spec:
+            containers:
+              - name: schedule-appasaservice
+                image: busybox:1.36
+                command:
+                  - sh
+                  - -c
+                  - |
+                    set -e
+                    NAME=$(cat /kratix/input/object.yaml | grep '^  name:' | head -1 | awk '{print $2}')
+
+                    cat > /kratix/output/appasaservice.yaml <<EOF
+                    apiVersion: compound.kratix.io/v1alpha1
+                    kind: AppAsAService
+                    metadata:
+                      name: aas-${NAME}
+                      namespace: default
+                    spec:
+                      app: "${NAME}"
+                      image: "busybox:1.36"
+                    EOF
+                    exit 0
