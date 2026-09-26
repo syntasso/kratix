@@ -65,7 +65,7 @@ const (
 	resourcePromiseVersionStatus      = "promiseVersion"
 	resourceBindingVersionStatus      = "resourceBindingVersion"
 	promiseRevisionLookupFailedReason = "FailedPromiseRevisionLookup"
-	UnversionedPromiseVersion         = "not-set"
+	UnversionedPromiseVersion         = v1alpha1.UnversionedPromiseVersion
 	LatestVersion                     = "latest"
 )
 
@@ -173,7 +173,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	if !rr.GetDeletionTimestamp().IsZero() {
 		logging.Info(logger, "deleting resource request")
-		return r.deleteResources(opts, promise, rr)
+		return r.deleteResources(opts, promise, rr, promiseRevisionUsed.Spec.Version)
 	}
 
 	// Clean up any stale dry-run Works when the dry-run label has been removed.
@@ -238,7 +238,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 	}
 
-	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, rr, logger)
+	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, rr, promiseRevisionUsed.Spec.Version, logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -1192,7 +1192,7 @@ func ensureRRKratixWorkflowStatusIsSetup(rr *unstructured.Unstructured, pipeline
 	return false, nil
 }
 
-func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured) (ctrl.Result, error) {
+func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured, promiseVersion string) (ctrl.Result, error) {
 	if resourceutil.FinalizersAreDeleted(resourceRequest, r.getRRFinalizers()) {
 		if err := r.ensureResourceBindingRemoved(o, resourceRequest, promise); err != nil {
 			return ctrl.Result{}, err
@@ -1206,7 +1206,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, runDeleteWorkflowsFinalizer) {
-		pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionDelete, resourceRequest, o.logger)
+		pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionDelete, resourceRequest, promiseVersion, o.logger)
 		if err != nil {
 			return ctrl.Result{}, err
 		}

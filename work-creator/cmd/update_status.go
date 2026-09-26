@@ -75,7 +75,17 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 			"remove update to 'kratix' from the '/kratix/metadata/status.yaml' file")
 	}
 
+	if _, ok := incomingStatus["healthStatus"]; ok {
+		return fmt.Errorf("'healthStatus' is a kratix managed status field that cannot be updated via workflows; " +
+			"remove update to 'healthStatus' from the '/kratix/metadata/status.yaml' file")
+	}
+
 	mergedStatus := lib.MergeStatuses(existingStatus, incomingStatus)
+
+	mergedStatus, err = resetHealthStatusForNewVersion(baseDir, params, mergedStatus)
+	if err != nil {
+		return err
+	}
 
 	if params.WorkflowType == v1alpha1.WorkflowTypePromise {
 		if nonMessageKeys := lib.NonMessageStatusKeys(incomingStatus); len(nonMessageKeys) > 0 {
@@ -115,6 +125,35 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 		return fmt.Errorf("failed to update status: %w", err)
 	}
 	return nil
+}
+
+// resetHealthStatusForNewVersion marks health as unknown when a versioned
+// resource configure workflow shipped HealthDefinitions for a new version.
+// A marker in a delete Job can only come from a user container; ignore it.
+func resetHealthStatusForNewVersion(baseDir string, params *helpers.Parameters, status map[string]any) (map[string]any, error) {
+	versioned := params.PromiseVersion != "" && params.PromiseVersion != v1alpha1.UnversionedPromiseVersion
+	if !versioned ||
+		params.WorkflowType != v1alpha1.WorkflowTypeResource ||
+		os.Getenv(v1alpha1.KratixActionEnvVar) != string(v1alpha1.WorkflowActionConfigure) ||
+		os.Getenv(v1alpha1.KratixDryRunEnvVar) == "true" {
+		return status, nil
+	}
+
+	marker, found, err := lib.ReadHealthDefinitionsMarker(filepath.Join(baseDir, lib.HealthDefinitionsMarkerFile))
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return status, nil
+	}
+
+	if marker.PromiseVersion != params.PromiseVersion {
+		fmt.Fprintf(os.Stdout, "Warning: %s records promiseVersion %q but %s is %q; using %q.\n",
+			lib.HealthDefinitionsMarkerFile, marker.PromiseVersion,
+			v1alpha1.KratixPromiseVersionEnvVar, params.PromiseVersion, params.PromiseVersion)
+	}
+
+	return lib.ResetHealthStatus(status, params.PromiseVersion), nil
 }
 
 func handleWorkflowControlFile(ctx context.Context, params *helpers.Parameters,

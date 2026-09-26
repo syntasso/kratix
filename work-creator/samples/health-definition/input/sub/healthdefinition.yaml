@@ -1,0 +1,8 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: HealthDefinition
+metadata:
+  name: nested-health
+spec:
+  promiseRef:
+    name: psql
+  schedule: "*/5 * * * *"

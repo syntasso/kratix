@@ -526,3 +526,47 @@ var _ = Describe("StatusUpdater", func() {
 		})
 	})
 })
+
+var _ = Describe("ResetHealthStatus", func() {
+	It("sets state to unknown and records the version, keeping healthRecords", func() {
+		status := map[string]any{
+			"message": "Resource requested",
+			"healthStatus": map[string]any{
+				"state":         "healthy",
+				"healthRecords": []any{map[string]any{"name": "a"}},
+			},
+		}
+
+		result := lib.ResetHealthStatus(status, "v2.0.0")
+
+		Expect(result).To(HaveKeyWithValue("healthStatus", Equal(map[string]any{
+			"state":          "unknown",
+			"promiseVersion": "v2.0.0",
+			"healthRecords":  []any{map[string]any{"name": "a"}},
+		})))
+	})
+
+	It("creates healthStatus when absent", func() {
+		result := lib.ResetHealthStatus(map[string]any{}, "v2.0.0")
+
+		Expect(result).To(HaveKeyWithValue("healthStatus", Equal(map[string]any{
+			"state":          "unknown",
+			"promiseVersion": "v2.0.0",
+		})))
+	})
+
+	It("leaves other top-level keys untouched", func() {
+		status := map[string]any{
+			"message":    "Resource requested",
+			"conditions": []any{map[string]any{"type": "Ready"}},
+		}
+
+		result := lib.ResetHealthStatus(status, "v2.0.0")
+
+		Expect(result).To(SatisfyAll(
+			HaveKeyWithValue("message", "Resource requested"),
+			HaveKeyWithValue("conditions", ConsistOf(map[string]any{"type": "Ready"})),
+			HaveLen(3),
+		))
+	})
+})
