@@ -76,6 +76,22 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	})
 
 	When("resource is being created", func() {
+		// TODO: remove soon, once users have upgraded to per-version pipeline RBAC.
+		It("removes the pipeline RBAC left from before promise versions had their own", func() {
+			unversionedSA := &v1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{
+				Name:      "redis-resource-configure-first-pipeline",
+				Namespace: resReq.GetNamespace(),
+				Labels:    map[string]string{"kratix.io/promise-name": promise.GetName()},
+			}}
+			Expect(fakeK8sClient.Create(ctx, unversionedSA)).To(Succeed())
+
+			_, err := t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(unversionedSA), unversionedSA)).To(
+				MatchError(ContainSubstring("not found")))
+		})
+
 		It("re-reconciles until completion", func() {
 			result, err := t.reconcileUntilCompletion(reconciler, resReq)
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
