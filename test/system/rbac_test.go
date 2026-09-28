@@ -106,6 +106,12 @@ var _ = Describe("Workflow-defined RBAC", Label("rbac"), func() {
 			Expect(resAllNamespacesCRName).To(ContainSubstring("rbac-promise-resource-configure-rbac-res-kratix-all"), "all-namespaces clusterrole not found")
 		})
 
+		By("not adding a version hash to the RBAC names of an unversioned promise", func() {
+			sa := strings.TrimSpace(platform.Kubectl("get", "sa", "-l", "kratix.io/promise-name=rbac-promise", "-o=name"))
+			Expect(sa).To(Equal("serviceaccount/rbac-promise-resource-configure-rbac-res"))
+			Expect(strings.TrimSpace(platform.Kubectl("get", sa, `-o=jsonpath={.metadata.labels.kratix\.io/promise-version}`))).To(Equal("not-set"))
+		})
+
 		By("creating roles with provided permissions", func() {
 			resourceSaName := strings.Split(platform.Kubectl("get", "sa", "-l", "kratix.io/promise-name=rbac-promise", "-o=name"), "/")[1]
 			resourceSaArgs := strings.TrimSpace(fmt.Sprintf("--as=system:serviceaccount:default:%s", resourceSaName))

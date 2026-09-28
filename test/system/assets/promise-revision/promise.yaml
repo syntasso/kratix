@@ -38,6 +38,11 @@ spec:
           metadata:
             name: resource-configure
           spec:
+            rbac:
+              permissions:
+                - apiGroups: [""]
+                  resources: [configmaps]
+                  verbs: [get, list]
             containers:
               - image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
                 name: gen-configmap
@@ -47,6 +52,7 @@ spec:
                   - -c
                   - |
                     set -eux
+                    kubectl get configmaps --namespace default > /dev/null
                     configMapName=$(yq '.spec.configMapName' /kratix/input/object.yaml)
                     
                     cat <<EOF > /kratix/output/configmap.yaml

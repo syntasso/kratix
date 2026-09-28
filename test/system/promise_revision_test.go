@@ -215,6 +215,23 @@ var _ = Describe("Promise Revisions", func() {
 			}).Should(Succeed())
 		})
 
+		By("running each version's pipelines with that version's own RBAC", func() {
+			var rrOneSA, rrTwoSA string
+			Eventually(func(g Gomega) {
+				var version string
+				version, rrOneSA = latestConfigurePipelineJob(promiseName, rrOneName)
+				g.Expect(version).To(Equal(updatedPromiseVersion))
+				version, rrTwoSA = latestConfigurePipelineJob(promiseName, rrTwoName)
+				g.Expect(version).To(Equal(initialPromiseVersion))
+			}).Should(Succeed())
+			Expect(rrOneSA).NotTo(Equal(rrTwoSA))
+
+			Expect(canServiceAccountGet(rrTwoSA, "configmaps")).To(BeTrue())
+			Expect(canServiceAccountGet(rrTwoSA, "secrets")).To(BeFalse())
+			Expect(canServiceAccountGet(rrOneSA, "secrets")).To(BeTrue())
+			Expect(canServiceAccountGet(rrOneSA, "configmaps")).To(BeFalse())
+		})
+
 		By("updating the resource binding to the new promise version", func() {
 			bindingName := getBindingName(promiseName, rrTwoName)
 
@@ -247,8 +264,51 @@ var _ = Describe("Promise Revisions", func() {
 			}).Should(Succeed())
 		})
 
+		By("removing a version's RBAC when its revision is deleted", func() {
+			initialVersionRBAC := fmt.Sprintf("%s=%s,%s=%s",
+				platformv1alpha1.PromiseNameLabel, promiseName, platformv1alpha1.PromiseVersionLabel, initialPromiseVersion)
+			getInitialVersionRBAC := func() string {
+				return strings.TrimSpace(platform.Kubectl("get", "serviceaccounts,roles,rolebindings", "--namespace=default", "-l", initialVersionRBAC, "-o=name"))
+			}
+			Expect(getInitialVersionRBAC()).NotTo(BeEmpty())
+
+			revisionName := strings.TrimSpace(platform.Kubectl("get", "promiserevisions",
+				"-l", fmt.Sprintf("%s=%s", platformv1alpha1.PromiseNameLabel, promiseName),
+				fmt.Sprintf(`-o=jsonpath={.items[?(@.spec.version=="%s")].metadata.name}`, initialPromiseVersion)))
+			Expect(revisionName).NotTo(BeEmpty())
+			platform.EventuallyKubectlDelete("promiserevision", revisionName)
+
+			Eventually(getInitialVersionRBAC).Should(BeEmpty())
+			_, rrTwoSA := latestConfigurePipelineJob(promiseName, rrTwoName)
+			Expect(canServiceAccountGet(rrTwoSA, "secrets")).To(BeTrue())
+		})
 	})
 })
+
+// latestConfigurePipelineJob returns the promise version and ServiceAccount of the
+// newest configure Job of a resource request in the default namespace.
+func latestConfigurePipelineJob(promiseName, resourceName string) (version, serviceAccount string) {
+	GinkgoHelper()
+	out := platform.Kubectl("get", "jobs", "--namespace=default",
+		"-l", fmt.Sprintf("%s=%s,%s=%s,%s=%s",
+			platformv1alpha1.PromiseNameLabel, promiseName,
+			platformv1alpha1.ResourceNameLabel, resourceName,
+			platformv1alpha1.WorkflowActionLabel, platformv1alpha1.WorkflowActionConfigure),
+		"--sort-by=.metadata.creationTimestamp",
+		`-o=jsonpath={.items[-1:].metadata.labels.kratix\.io/promise-version} {.items[-1:].spec.template.spec.serviceAccountName}`)
+	fields := strings.Fields(out)
+	if len(fields) != 2 {
+		return "", ""
+	}
+	return fields[0], fields[1]
+}
+
+func canServiceAccountGet(serviceAccount, resource string) bool {
+	GinkgoHelper()
+	out := platform.KubectlAllowFail("auth", "can-i", "get", resource, "--namespace=default",
+		"--as=system:serviceaccount:default:"+serviceAccount)
+	return strings.TrimSpace(out) == "yes"
+}
 
 // The upgrade-failure and binding-management behaviours run as their own spec
 // (with their own setup) so they can execute on a different ginkgo proc than

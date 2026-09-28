@@ -780,7 +780,7 @@ func (p *PipelineFactory) userPermissionPipelineLabels() map[string]string {
 
 // rbacName gives each promise version its own RBAC objects, so that resource
 // pipelines of different versions never overwrite or prune each other's
-// permissions. Unversioned promises keep the names they have always had.
+// permissions. Unversioned promises get names without a version hash.
 func (p *PipelineFactory) rbacName(name string) string {
 	if !p.ResourceWorkflow || p.PromiseVersion == "" || p.PromiseVersion == UnversionedPromiseVersion {
 		return name
