@@ -116,7 +116,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			resources := make([]v1alpha1.PipelineJobResources, len(pipelines))
 			for i, pipeline := range pipelines {
 				var err error
-				resources[i], err = pipeline.ForResource(&promise, v1alpha1.WorkflowActionConfigure, rr).Resources(nil)
+				resources[i], err = pipeline.ForResource(&promise, "", v1alpha1.WorkflowActionConfigure, rr).Resources(nil)
 				Expect(err).NotTo(HaveOccurred())
 			}
 			setParentPipelinesSucceeded(rr, resources, succeeded)
@@ -139,7 +139,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(fakeK8sClient.Update(ctx, rr)).To(Succeed())
 				for i, pipeline := range pipelines {
 					var err error
-					resources[i], err = pipeline.ForResource(&promise, v1alpha1.WorkflowActionConfigure, rr).Resources(nil)
+					resources[i], err = pipeline.ForResource(&promise, "", v1alpha1.WorkflowActionConfigure, rr).Resources(nil)
 					Expect(err).NotTo(HaveOccurred())
 				}
 			case "running Job":

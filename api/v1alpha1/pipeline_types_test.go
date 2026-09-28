@@ -173,7 +173,7 @@ var _ = Describe("Pipeline", func() {
 
 		Describe("ForResource", func() {
 			It("sets the appropriate fields", func() {
-				f := pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
+				f := pipeline.ForResource(promise, "v1.0.0", v1alpha1.WorkflowActionConfigure, resourceRequest)
 				Expect(f).ToNot(BeNil())
 				Expect(f.ID).To(Equal(promise.GetName() + "-resource-configure-pipelineName"))
 				Expect(f.Promise).To(Equal(promise))
@@ -185,6 +185,7 @@ var _ = Describe("Pipeline", func() {
 				Expect(f.ClusterScoped).To(BeFalse())
 				Expect(f.ResourceWorkflow).To(BeTrue())
 				Expect(f.CRDPlural).To(Equal("promiseCrdPlural"))
+				Expect(f.PromiseVersion).To(Equal("v1.0.0"))
 			})
 
 			It("sets ClusterScoped to true if the promise API is cluster scoped", func() {
@@ -193,14 +194,14 @@ var _ = Describe("Pipeline", func() {
 				Expect(err).ToNot(HaveOccurred())
 				promise.Spec.API = &runtime.RawExtension{Raw: rawCrd}
 
-				f := pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
+				f := pipeline.ForResource(promise, "v1.0.0", v1alpha1.WorkflowActionConfigure, resourceRequest)
 				Expect(f.ClusterScoped).To(BeTrue())
 			})
 
 			When("promise workflow config pipelineNamespace is set", func() {
 				It("uses that namespace", func() {
 					promise.Spec.Workflows.Config.PipelineNamespace = "whale"
-					f := pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
+					f := pipeline.ForResource(promise, "v1.0.0", v1alpha1.WorkflowActionConfigure, resourceRequest)
 					Expect(f).ToNot(BeNil())
 					Expect(f.Namespace).To(Equal("whale"))
 				})
@@ -1846,7 +1847,7 @@ var _ = Describe("Pipeline", func() {
 
 				BeforeEach(func() {
 					promise.Spec.Workflows.Config.PipelineNamespace = "test100"
-					f = pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
+					f = pipeline.ForResource(promise, "v1.0.0", v1alpha1.WorkflowActionConfigure, resourceRequest)
 					Expect(f).ToNot(BeNil())
 					Expect(f.Namespace).To(Equal("test100"))
 					var err error
@@ -1913,7 +1914,7 @@ var _ = Describe("Pipeline", func() {
 
 				BeforeEach(func() {
 					promise.Spec.Workflows.Config.PipelineNamespace = "test200"
-					f = pipeline.ForResource(promise, v1alpha1.WorkflowActionDelete, resourceRequest)
+					f = pipeline.ForResource(promise, "v1.0.0", v1alpha1.WorkflowActionDelete, resourceRequest)
 					Expect(f).ToNot(BeNil())
 					Expect(f.Namespace).To(Equal("test200"))
 				})

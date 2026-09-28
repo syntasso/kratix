@@ -483,7 +483,7 @@ func (p *Promise) GetWorkloadGroupScheduling() []WorkloadGroupScheduling {
 	return workloadGroupScheduling
 }
 
-func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Action, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]PipelineJobResources, error) {
+func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Action, resourceRequest *unstructured.Unstructured, promiseVersion string, logger logr.Logger) ([]PipelineJobResources, error) {
 	promisePipelines, err := NewPipelinesMap(p, logger)
 	if err != nil {
 		return nil, err
@@ -503,7 +503,7 @@ func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Act
 		var err error
 		switch workflowType {
 		case WorkflowTypeResource:
-			resources, err = pipe.ForResource(p, workflowAction, resourceRequest).Resources(additionalJobEnv)
+			resources, err = pipe.ForResource(p, promiseVersion, workflowAction, resourceRequest).Resources(additionalJobEnv)
 		case WorkflowTypePromise:
 			resources, err = pipe.ForPromise(p, workflowAction).Resources(additionalJobEnv)
 		}
@@ -518,11 +518,11 @@ func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Act
 }
 
 func (p *Promise) GeneratePromisePipelines(workflowAction Action, logger logr.Logger) ([]PipelineJobResources, error) {
-	return p.generatePipelinesObjects(WorkflowTypePromise, workflowAction, nil, logger)
+	return p.generatePipelinesObjects(WorkflowTypePromise, workflowAction, nil, "", logger)
 }
 
-func (p *Promise) GenerateResourcePipelines(workflowAction Action, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]PipelineJobResources, error) {
-	return p.generatePipelinesObjects(WorkflowTypeResource, workflowAction, resourceRequest, logger)
+func (p *Promise) GenerateResourcePipelines(workflowAction Action, resourceRequest *unstructured.Unstructured, promiseVersion string, logger logr.Logger) ([]PipelineJobResources, error) {
+	return p.generatePipelinesObjects(WorkflowTypeResource, workflowAction, resourceRequest, promiseVersion, logger)
 }
 
 func (p *Promise) HasPipeline(workflowType Type, workflowAction Action) bool {

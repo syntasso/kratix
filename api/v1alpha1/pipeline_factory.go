@@ -23,6 +23,7 @@ import (
 type PipelineFactory struct {
 	ID               string
 	Promise          *Promise
+	PromiseVersion   string
 	Pipeline         *Pipeline
 	Namespace        string
 	ResourceRequest  *unstructured.Unstructured

@@ -58,7 +58,7 @@ var _ = Describe("Workflow status migration", func() {
 		resources := make([]v1alpha1.PipelineJobResources, len(pipelines))
 		for i, pipeline := range pipelines {
 			var err error
-			resources[i], err = pipeline.ForResource(&promise, action, rr).Resources(nil)
+			resources[i], err = pipeline.ForResource(&promise, "", action, rr).Resources(nil)
 			Expect(err).NotTo(HaveOccurred())
 			resources[i].Job.SetCreationTimestamp(nextTimestamp())
 		}
