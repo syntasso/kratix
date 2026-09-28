@@ -15,14 +15,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// RemoveUnversionedPipelineRBAC deletes the RBAC that resource pipelines ran with before each
-// promise version had its own. Pipelines of a versioned promise no longer use it, but it still
-// grants its permissions to the old ServiceAccount.
+// RemoveUnversionedPipelineRBAC deletes resource pipeline RBAC without a promise version label.
+// Pipelines of a versioned promise never use it, but it still grants its permissions to the
+// ServiceAccount it binds.
 //
-// pipelines must be generated without a promise version, so they carry the old names. Only
-// objects without a promise version label are deleted: the not-set version uses the same names
-// but labels its objects. Nothing is deleted while a pipeline started before the upgrade is
-// still running with it.
+// pipelines must be generated without a promise version, so they carry the unversioned names.
+// Only objects without a promise version label are deleted: the not-set version uses the same
+// names but labels its objects. Nothing is deleted while a pipeline Job without a promise
+// version label is still running with it.
 //
 // TODO: remove soon, once users have upgraded to per-version pipeline RBAC.
 func RemoveUnversionedPipelineRBAC(ctx context.Context, c client.Client, logger logr.Logger, pipelines []v1alpha1.PipelineJobResources) error {
@@ -34,7 +34,7 @@ func RemoveUnversionedPipelineRBAC(ctx context.Context, c client.Client, logger 
 			continue
 		}
 		if running {
-			logging.Debug(logger, "pipeline from before promise versioned RBAC is still running; keeping its RBAC", "pipeline", pipeline.Name)
+			logging.Debug(logger, "pipeline job without a promise version label is still running; keeping unversioned RBAC", "pipeline", pipeline.Name)
 			continue
 		}
 
@@ -94,8 +94,8 @@ func unversionedObjectsByName(pipeline v1alpha1.PipelineJobResources) []client.O
 	return objects
 }
 
-// unversionedUserPermissionObjects finds user-permission RBAC the pipeline no longer declares,
-// e.g. for a namespace it stopped asking for, which the names from the current spec miss.
+// unversionedUserPermissionObjects finds unversioned user-permission RBAC that the current spec
+// does not produce, e.g. for a namespace the spec does not list, which lookups by name miss.
 func unversionedUserPermissionObjects(ctx context.Context, c client.Client, pipeline v1alpha1.PipelineJobResources) ([]client.Object, error) {
 	noVersion, err := labels.NewRequirement(v1alpha1.PromiseVersionLabel, selection.DoesNotExist, nil)
 	if err != nil {
@@ -159,6 +159,6 @@ func deleteIfUnversioned(ctx context.Context, c client.Client, logger logr.Logge
 	if err := c.Delete(ctx, existing); err != nil && !errors.IsNotFound(err) {
 		return err
 	}
-	logging.Info(logger, "deleted pipeline RBAC from before promise versions had their own", "kind", existing.GetObjectKind().GroupVersionKind().Kind, "name", existing.GetName(), "namespace", existing.GetNamespace())
+	logging.Info(logger, "deleted resource pipeline RBAC without a promise version label", "kind", existing.GetObjectKind().GroupVersionKind().Kind, "name", existing.GetName(), "namespace", existing.GetNamespace())
 	return nil
 }

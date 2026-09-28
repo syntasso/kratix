@@ -304,9 +304,9 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	return r.reconcileAfterConfigure(ctx, logger, opts, rr, promise, bindingVersion, promiseRevisionUsed)
 }
 
-// removeUnversionedPipelineRBAC cleans up after upgrading from a Kratix release where resource
-// pipelines of all promise versions shared their RBAC. It runs on every reconcile, not only when
-// a pipeline starts, so the whole cluster is cleaned soon after the upgrade. It is best effort:
+// removeUnversionedPipelineRBAC deletes resource pipeline RBAC without a promise version label
+// when the request is on a versioned promise, whose pipelines never use it. It runs on every
+// reconcile, not only when a pipeline starts, so every namespace gets cleaned. It is best effort:
 // a failure is retried on the next reconcile rather than blocking this one.
 //
 // TODO: remove soon, once users have upgraded to per-version pipeline RBAC.

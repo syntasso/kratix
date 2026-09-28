@@ -79,13 +79,13 @@ var _ = Describe("RemoveUnversionedPipelineRBAC", func() {
 		rr.SetNamespace("default")
 	})
 
-	When("the RBAC from before the upgrade is still there", func() {
+	When("unversioned pipeline RBAC exists", func() {
 		var unversioned, stale, v1 []client.Object
 
 		BeforeEach(func() {
 			unversioned = rbacObjects(generate(""))
 
-			// A ClusterRole for a namespace the pipeline declared before the upgrade but no longer does.
+			// A ClusterRole for a namespace the pipeline spec does not list.
 			staleClusterRole := generate("").Shared.ClusterRoles[0].DeepCopy()
 			staleClusterRole.SetName("redis-resource-configure-instance-old-namespace-12345")
 			staleClusterRole.Labels[v1alpha1.UserPermissionResourceNamespaceLabel] = "old-namespace"
@@ -101,7 +101,7 @@ var _ = Describe("RemoveUnversionedPipelineRBAC", func() {
 			v1 = append(v1, configMap)
 		})
 
-		It("deletes it when no pipeline from before the upgrade is running", func() {
+		It("deletes it when no unversioned pipeline Job is running", func() {
 			remove()
 
 			for _, obj := range append(unversioned, stale...) {
@@ -112,7 +112,7 @@ var _ = Describe("RemoveUnversionedPipelineRBAC", func() {
 			}
 		})
 
-		It("keeps it while a pipeline from before the upgrade is still running", func() {
+		It("keeps it while an unversioned pipeline Job is running", func() {
 			job := generate("").Job
 			job.Status.Active = 1
 			create(job)
@@ -124,7 +124,7 @@ var _ = Describe("RemoveUnversionedPipelineRBAC", func() {
 			}
 		})
 
-		It("deletes it while only versioned pipelines are running", func() {
+		It("deletes it while only versioned pipeline Jobs are running", func() {
 			job := generate("v1.0.0").Job
 			job.Status.Active = 1
 			create(job)

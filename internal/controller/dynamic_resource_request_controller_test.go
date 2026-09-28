@@ -77,7 +77,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 	When("resource is being created", func() {
 		// TODO: remove soon, once users have upgraded to per-version pipeline RBAC.
-		It("removes the pipeline RBAC left from before promise versions had their own", func() {
+		It("removes pipeline RBAC without a promise version label for a request on a versioned promise", func() {
 			unversionedSA := &v1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{
 				Name:      "redis-resource-configure-first-pipeline",
 				Namespace: resReq.GetNamespace(),

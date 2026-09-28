@@ -1966,9 +1966,9 @@ var _ = Describe("Pipeline", func() {
 		})
 
 		It("works for unversioned promises", func() {
-			legacy := rbacNames(generate(""))
-			Expect(legacy).To(ContainElement("ServiceAccount/pipeline-namespace/promiseName-resource-configure-pipelineName"))
-			Expect(rbacNames(generate(v1alpha1.UnversionedPromiseVersion))).To(ConsistOf(legacy))
+			unversioned := rbacNames(generate(""))
+			Expect(unversioned).To(ContainElement("ServiceAccount/pipeline-namespace/promiseName-resource-configure-pipelineName"))
+			Expect(rbacNames(generate(v1alpha1.UnversionedPromiseVersion))).To(ConsistOf(unversioned))
 		})
 
 		It("labels objects with the version when version is provided", func() {
@@ -1983,11 +1983,11 @@ var _ = Describe("Pipeline", func() {
 		It("gives each promise version its own objects", func() {
 			v1 := generate("v1.0.0")
 			v2 := generate("v2.0.0")
-			legacy := rbacNames(generate(""))
+			unversioned := rbacNames(generate(""))
 
-			Expect(rbacNames(v1)).To(HaveLen(len(legacy)))
+			Expect(rbacNames(v1)).To(HaveLen(len(unversioned)))
 			for _, name := range rbacNames(v1) {
-				Expect(legacy).NotTo(ContainElement(name))
+				Expect(unversioned).NotTo(ContainElement(name))
 				Expect(rbacNames(v2)).NotTo(ContainElement(name))
 			}
 			Expect(rbacNames(generate("v1.0.0"))).To(ConsistOf(rbacNames(v1)), "names must be stable between runs")
