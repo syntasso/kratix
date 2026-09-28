@@ -23,12 +23,15 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -305,6 +308,89 @@ var _ = Describe("PromiseRevisionController", func() {
 				By("not deleting the other request", func() {
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rro.GetName(), Namespace: rro.GetNamespace()}, rro)).To(Succeed())
 				})
+			})
+
+			When("the revision's version has resource pipeline RBAC", func() {
+				var versionRBAC, objectsToKeep []client.Object
+
+				BeforeEach(func() {
+					versionLabels := map[string]string{
+						v1alpha1.PromiseNameLabel:    "redis",
+						v1alpha1.PromiseVersionLabel: promiseVersion,
+					}
+					meta := func(name, namespace string, labels map[string]string) metav1.ObjectMeta {
+						return metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels}
+					}
+					versionRBAC = []client.Object{
+						&corev1.ServiceAccount{ObjectMeta: meta("redis-sa-v1", "default", versionLabels)},
+						&rbacv1.Role{ObjectMeta: meta("redis-role-v1", "default", versionLabels)},
+						&rbacv1.RoleBinding{ObjectMeta: meta("redis-rb-v1", "other-namespace", versionLabels),
+							RoleRef: rbacv1.RoleRef{Kind: "ClusterRole", Name: "redis-cr-v1"}},
+						&rbacv1.ClusterRole{ObjectMeta: meta("redis-cr-v1", "", versionLabels)},
+						&rbacv1.ClusterRoleBinding{ObjectMeta: meta("redis-crb-v1", "", versionLabels),
+							RoleRef: rbacv1.RoleRef{Kind: "ClusterRole", Name: "redis-cr-v1"}},
+					}
+					objectsToKeep = []client.Object{
+						&rbacv1.Role{ObjectMeta: meta("redis-role-previous-version", "default", map[string]string{
+							v1alpha1.PromiseNameLabel: "redis", v1alpha1.PromiseVersionLabel: previousPromiseVersion,
+						})},
+						&rbacv1.Role{ObjectMeta: meta("redis-role-without-version", "default", map[string]string{
+							v1alpha1.PromiseNameLabel: "redis",
+						})},
+						&rbacv1.Role{ObjectMeta: meta("postgres-role-same-version", "default", map[string]string{
+							v1alpha1.PromiseNameLabel: "postgres", v1alpha1.PromiseVersionLabel: promiseVersion,
+						})},
+						&corev1.ConfigMap{ObjectMeta: meta("destination-selectors-redis", "default", versionLabels)},
+					}
+					for _, obj := range append(versionRBAC, objectsToKeep...) {
+						Expect(fakeK8sClient.Create(ctx, obj)).To(Succeed())
+					}
+				})
+
+				It("cleans up that version's RBAC objects", func() {
+					Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
+					_, err := t.reconcileUntilCompletion(reconciler, revision)
+					Expect(err).NotTo(HaveOccurred())
+
+					for _, obj := range versionRBAC {
+						Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(
+							MatchError(ContainSubstring("not found")), obj.GetName())
+					}
+					for _, obj := range objectsToKeep {
+						Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed(), obj.GetName())
+					}
+				})
+
+				It("keeps that version's RBAC while a request on it is still being deleted", func() {
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(rr), rr)).To(Succeed())
+					rr.SetFinalizers([]string{"kratix.io/delete-workflows"})
+					Expect(fakeK8sClient.Update(ctx, rr)).To(Succeed())
+
+					Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
+					_, err := t.reconcileUntilCompletion(reconciler, revision, &opts{singleReconcile: true})
+					Expect(err).NotTo(HaveOccurred())
+
+					for _, obj := range versionRBAC {
+						Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed(), obj.GetName())
+					}
+				})
+
+				When("skip-resource-request-cleanup-on-delete is set on the revision", func() {
+					It("keeps that version's RBAC at delete", func() {
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: revision.Name}, revision)).To(Succeed())
+						revision.SetSkipResourceRequestCleanupOnDelete()
+						Expect(fakeK8sClient.Update(ctx, revision)).To(Succeed())
+
+						Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
+						_, err := t.reconcileUntilCompletion(reconciler, revision)
+						Expect(err).NotTo(HaveOccurred())
+
+						for _, obj := range versionRBAC {
+							Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed(), obj.GetName())
+						}
+					})
+				})
+
 			})
 
 			It("does not delete the resource request when skip annotation is set", func() {
