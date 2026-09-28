@@ -1533,6 +1533,70 @@ var _ = Describe("Workflow Reconciler", func() {
 		})
 	})
 
+	Describe("ReconcileConfigure for resource pipelines of different promise versions", func() {
+		var startPipeline func(requestName, version string, permissions []v1alpha1.Permission)
+		var rolesForVersion func(version string) []rbacv1.Role
+
+		BeforeEach(func() {
+			api, err := json.Marshal(fakeCRD)
+			Expect(err).NotTo(HaveOccurred())
+			promise.Spec.API = &runtime.RawExtension{Raw: api}
+
+			startPipeline = func(requestName, version string, permissions []v1alpha1.Permission) {
+				GinkgoHelper()
+				rr := &unstructured.Unstructured{}
+				rr.SetAPIVersion("mygroup.example/v1")
+				rr.SetKind("TheKind")
+				rr.SetName(requestName)
+				rr.SetNamespace(namespace)
+				rr.SetLabels(map[string]string{v1alpha1.PromiseNameLabel: promise.Name})
+				Expect(fakeK8sClient.Create(ctx, rr)).To(Succeed())
+
+				pipeline := pipelines[0]
+				pipeline.Spec.RBAC.Permissions = permissions
+				resources, err := pipeline.ForResource(&promise, version, v1alpha1.WorkflowActionConfigure, rr).Resources(nil)
+				Expect(err).NotTo(HaveOccurred())
+
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, rr, []v1alpha1.PipelineJobResources{resources}, "resource", 5, namespace)
+				_, err = workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			rolesForVersion = func(version string) []rbacv1.Role {
+				GinkgoHelper()
+				roles := &rbacv1.RoleList{}
+				Expect(fakeK8sClient.List(ctx, roles, client.MatchingLabels{
+					v1alpha1.PromiseNameLabel:    promise.GetName(),
+					v1alpha1.PromiseVersionLabel: version,
+				})).To(Succeed())
+				return roles.Items
+			}
+		})
+
+		permissions := []v1alpha1.Permission{{PolicyRule: rbacv1.PolicyRule{
+			Verbs: []string{"get"}, APIGroups: []string{""}, Resources: []string{"configmaps"},
+		}}}
+
+		It("keeps one version's permissions when another version's pipeline starts", func() {
+			startPipeline("on-v2", "v2.0.0", permissions)
+			Expect(rolesForVersion("v2.0.0")).To(HaveLen(2))
+
+			startPipeline("on-v1", "v1.0.0", nil)
+
+			Expect(rolesForVersion("v1.0.0")).To(HaveLen(1))
+			Expect(rolesForVersion("v2.0.0")).To(HaveLen(2))
+		})
+
+		It("can clean up permissions a version", func() {
+			startPipeline("on-v1", "v1.0.0", permissions)
+			Expect(rolesForVersion("v1.0.0")).To(HaveLen(2))
+
+			startPipeline("also-on-v1", "v1.0.0", nil)
+
+			Expect(rolesForVersion("v1.0.0")).To(HaveLen(1))
+		})
+	})
+
 	Describe("ReconcileConfigure with user-configured permissions", func() {
 		var initialRole *rbacv1.Role
 		var initialRoleBindings *rbacv1.RoleBindingList

@@ -65,7 +65,7 @@ const (
 	resourcePromiseVersionStatus      = "promiseVersion"
 	resourceBindingVersionStatus      = "resourceBindingVersion"
 	promiseRevisionLookupFailedReason = "FailedPromiseRevisionLookup"
-	UnversionedPromiseVersion         = "not-set"
+	UnversionedPromiseVersion         = v1alpha1.UnversionedPromiseVersion
 	LatestVersion                     = "latest"
 )
 

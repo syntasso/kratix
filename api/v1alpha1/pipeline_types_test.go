@@ -20,6 +20,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("Pipeline", func() {
@@ -1945,6 +1947,95 @@ var _ = Describe("Pipeline", func() {
 		})
 	})
 
+	Describe("resource pipeline RBAC and the promise version", func() {
+		var generate func(version string) v1alpha1.PipelineJobResources
+
+		BeforeEach(func() {
+			promise.Spec.Workflows.Config.PipelineNamespace = "pipeline-namespace"
+			pipeline.Spec.RBAC.Permissions = []v1alpha1.Permission{
+				{PolicyRule: createWatchDeployment()},
+				{ResourceNamespace: "specific-namespace", PolicyRule: createWatchDeployment()},
+				{ResourceNamespace: "*", PolicyRule: createWatchDeployment()},
+			}
+			generate = func(version string) v1alpha1.PipelineJobResources {
+				GinkgoHelper()
+				resources, err := pipeline.ForResource(promise, version, v1alpha1.WorkflowActionConfigure, resourceRequest).Resources(nil)
+				Expect(err).NotTo(HaveOccurred())
+				return resources
+			}
+		})
+
+		It("works for unversioned promises", func() {
+			legacy := rbacNames(generate(""))
+			Expect(legacy).To(ContainElement("ServiceAccount/pipeline-namespace/promiseName-resource-configure-pipelineName"))
+			Expect(rbacNames(generate(v1alpha1.UnversionedPromiseVersion))).To(ConsistOf(legacy))
+		})
+
+		It("labels objects with the version when version is provided", func() {
+			for _, obj := range rbacObjects(generate("")) {
+				Expect(obj.GetLabels()).NotTo(HaveKey(v1alpha1.PromiseVersionLabel), obj.GetName())
+			}
+			for _, obj := range rbacObjects(generate(v1alpha1.UnversionedPromiseVersion)) {
+				Expect(obj.GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseVersionLabel, v1alpha1.UnversionedPromiseVersion), obj.GetName())
+			}
+		})
+
+		It("gives each promise version its own objects", func() {
+			v1 := generate("v1.0.0")
+			v2 := generate("v2.0.0")
+			legacy := rbacNames(generate(""))
+
+			Expect(rbacNames(v1)).To(HaveLen(len(legacy)))
+			for _, name := range rbacNames(v1) {
+				Expect(legacy).NotTo(ContainElement(name))
+				Expect(rbacNames(v2)).NotTo(ContainElement(name))
+			}
+			Expect(rbacNames(generate("v1.0.0"))).To(ConsistOf(rbacNames(v1)), "names must be stable between runs")
+
+			for _, obj := range rbacObjects(v1) {
+				Expect(obj.GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseVersionLabel, "v1.0.0"), obj.GetName())
+			}
+			Expect(v1.Job.GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseVersionLabel, "v1.0.0"))
+			Expect(v1.Job.Spec.Template.Spec.ServiceAccountName).To(Equal(v1.Shared.ServiceAccount.GetName()))
+		})
+
+		It("binds each version's roles to that version's service account", func() {
+			resources := generate("v1.0.0")
+			sa := resources.Shared.ServiceAccount
+			roleNames := map[string]bool{}
+			for _, r := range resources.Shared.Roles {
+				roleNames[r.GetName()] = true
+			}
+			for _, r := range resources.Shared.ClusterRoles {
+				roleNames[r.GetName()] = true
+			}
+			for _, b := range resources.Shared.RoleBindings {
+				Expect(roleNames).To(HaveKey(b.RoleRef.Name))
+				Expect(b.Subjects).To(ConsistOf(HaveField("Name", sa.GetName())))
+			}
+			for _, b := range resources.Shared.ClusterRoleBindings {
+				Expect(roleNames).To(HaveKey(b.RoleRef.Name))
+				Expect(b.Subjects).To(ConsistOf(HaveField("Name", sa.GetName())))
+			}
+		})
+
+		It("can generate valid object names for a long version string", func() {
+			promise.SetName("redis")
+			pipeline.SetName("instance")
+			resourceRequest.SetNamespace("default")
+			version := "V1_0.0-" + strings.Repeat("a", 56)
+			for _, obj := range rbacObjects(generate(version)) {
+				Expect(validation.IsDNS1123Subdomain(obj.GetName())).To(BeEmpty(), obj.GetName())
+				Expect(len(obj.GetName())).To(BeNumerically("<=", 63), obj.GetName())
+			}
+		})
+
+		It("keeps a user-provided service account name", func() {
+			pipeline.Spec.RBAC.ServiceAccount = "someServiceAccount"
+			Expect(generate("v1.0.0").Shared.ServiceAccount.GetName()).To(Equal("someServiceAccount"))
+		})
+	})
+
 	Describe("PipelinesFromUnstructured", func() {
 		It("generates a list of pipelines from a list of unstructured pipeline objects", func() {
 			unstructuredPipelines := []unstructured.Unstructured{
@@ -2113,6 +2204,33 @@ var _ = Describe("Pipeline", func() {
 		})
 	})
 })
+
+func rbacObjects(resources v1alpha1.PipelineJobResources) []client.Object {
+	objects := []client.Object{resources.Shared.ServiceAccount}
+	for i := range resources.Shared.Roles {
+		objects = append(objects, &resources.Shared.Roles[i])
+	}
+	for i := range resources.Shared.RoleBindings {
+		objects = append(objects, &resources.Shared.RoleBindings[i])
+	}
+	for i := range resources.Shared.ClusterRoles {
+		objects = append(objects, &resources.Shared.ClusterRoles[i])
+	}
+	for i := range resources.Shared.ClusterRoleBindings {
+		objects = append(objects, &resources.Shared.ClusterRoleBindings[i])
+	}
+	return objects
+}
+
+func rbacNames(resources v1alpha1.PipelineJobResources) []string {
+	var names []string
+	for _, obj := range rbacObjects(resources) {
+		kind := fmt.Sprintf("%T", obj)
+		kind = kind[strings.LastIndex(kind, ".")+1:]
+		names = append(names, kind+"/"+obj.GetNamespace()+"/"+obj.GetName())
+	}
+	return names
+}
 
 func matchUserPermissionsLabels(pipelineJobResources *v1alpha1.PipelineJobResources, labels map[string]string) {
 	jobLabels := pipelineJobResources.Job.GetLabels()
