@@ -1,40 +1,46 @@
 package lib
 
 import (
+	"bufio"
 	"bytes"
 	goerr "errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/yaml"
 )
 
-// HealthDefinitionsMarkerFile is written under <rootDirectory>/metadata when
-// at least one HealthDefinition was stamped with the Promise version. The
-// status-writer reads it to record which version is being health-checked.
-const HealthDefinitionsMarkerFile = "health-definitions.yaml"
+// HealthDefinitionCountFile is written by the work-writer under
+// <rootDirectory>/metadata on every versioned run. The status-writer reads it
+// to record which version the resource now expects health results for, and
+// how many HealthDefinitions the pipeline shipped. A count of zero is
+// meaningful: it tells the platform that this version has no health check.
+const HealthDefinitionCountFile = "health-definitions.yaml"
 
-type HealthDefinitionsMarker struct {
-	PromiseVersion string `json:"promiseVersion"`
+type HealthDefinitionCount struct {
+	PromiseVersion    string `json:"promiseVersion"`
+	HealthDefinitions int    `json:"healthDefinitions"`
 }
 
-// ReadHealthDefinitionsMarker returns the marker at markerFile. found is
-// false, with no error, when the file does not exist.
-func ReadHealthDefinitionsMarker(markerFile string) (marker *HealthDefinitionsMarker, found bool, err error) {
-	content, err := os.ReadFile(markerFile)
+// ReadHealthDefinitionCount returns the count file at path. found is false,
+// with no error, when the file does not exist.
+func ReadHealthDefinitionCount(path string) (count *HealthDefinitionCount, found bool, err error) {
+	content, err := os.ReadFile(path)
 	if goerr.Is(err, os.ErrNotExist) {
 		return nil, false, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to read %s: %w", HealthDefinitionsMarkerFile, err)
+		return nil, false, fmt.Errorf("failed to read %s: %w", HealthDefinitionCountFile, err)
 	}
-	marker = &HealthDefinitionsMarker{}
-	if err := yaml.Unmarshal(content, marker); err != nil {
-		return nil, false, fmt.Errorf("failed to unmarshal %s: %w", HealthDefinitionsMarkerFile, err)
+	count = &HealthDefinitionCount{}
+	if err := yaml.Unmarshal(content, count); err != nil {
+		return nil, false, fmt.Errorf("failed to unmarshal %s: %w", HealthDefinitionCountFile, err)
 	}
-	return marker, true, nil
+	return count, true, nil
 }
 
 const (
@@ -43,10 +49,10 @@ const (
 )
 
 // healthDefinitionStamper sets spec.promiseVersion on every HealthDefinition
-// document it sees. A nil stamper (unversioned Promise) leaves content alone.
+// in the pipeline output. A nil stamper (unversioned Promise) changes nothing.
 type healthDefinitionStamper struct {
 	promiseVersion string
-	stamped        int
+	found          int
 }
 
 func newHealthDefinitionStamper(promiseVersion string) *healthDefinitionStamper {
@@ -56,140 +62,113 @@ func newHealthDefinitionStamper(promiseVersion string) *healthDefinitionStamper 
 	return &healthDefinitionStamper{promiseVersion: promiseVersion}
 }
 
-// stamp re-marshals each HealthDefinition document in content with
-// spec.promiseVersion set; every other byte is copied verbatim.
+// stamp returns content unchanged unless it is a YAML file with at least one
+// HealthDefinition document. In that case every document in the file is
+// decoded, the HealthDefinitions get spec.promiseVersion, and the file is
+// written back document by document.
 func (s *healthDefinitionStamper) stamp(content []byte) ([]byte, error) {
 	if s == nil {
 		return content, nil
 	}
 
-	var out bytes.Buffer
-	for _, segment := range splitDocuments(content) {
-		object, ok := parseHealthDefinition(segment.body)
-		if !ok {
-			out.Write(segment.body)
-			continue
+	documents, ok := decodeDocuments(content)
+	if !ok {
+		return content, nil
+	}
+
+	stamped := 0
+	for _, document := range documents {
+		if object, isHealthDefinition := healthDefinition(document); isHealthDefinition {
+			object["spec"].(map[string]any)["promiseVersion"] = s.promiseVersion
+			stamped++
 		}
-		stamped, err := s.stampDocument(object)
+	}
+	if stamped == 0 {
+		return content, nil
+	}
+	s.found += stamped
+
+	var out bytes.Buffer
+	for i, document := range documents {
+		if i > 0 {
+			out.WriteString("---\n")
+		}
+		encoded, err := yaml.Marshal(document)
 		if err != nil {
 			return nil, err
 		}
-		if segment.inline {
-			out.Write(documentSeparator)
-		}
-		out.Write(stamped)
+		out.Write(encoded)
 	}
 	return out.Bytes(), nil
 }
 
-func (s *healthDefinitionStamper) stampDocument(object map[string]any) ([]byte, error) {
-	spec, _ := object["spec"].(map[string]any)
-	if spec == nil {
-		spec = map[string]any{}
+// decodeDocuments parses every YAML document in content. ok is false when any
+// document cannot be parsed, so the caller ships the file as it is.
+func decodeDocuments(content []byte) (documents []any, ok bool) {
+	reader := utilyaml.NewYAMLReader(bufio.NewReader(bytes.NewReader(content)))
+	for {
+		raw, err := reader.Read()
+		if goerr.Is(err, io.EOF) {
+			return documents, true
+		}
+		if err != nil {
+			return nil, false
+		}
+		if len(bytes.TrimSpace(raw)) == 0 {
+			continue
+		}
+		var document any
+		if err := yaml.Unmarshal(raw, &document); err != nil {
+			return nil, false
+		}
+		documents = append(documents, document)
 	}
-	spec["promiseVersion"] = s.promiseVersion
-	object["spec"] = spec
-	s.stamped++
-	return yaml.Marshal(object)
 }
 
-// writeMarker records the stamped version so the status-writer can find it.
-func (s *healthDefinitionStamper) writeMarker(rootDirectory string) error {
-	if s == nil || s.stamped == 0 {
+// healthDefinition returns the document as a map when it is a HealthDefinition
+// with a spec that can take a promiseVersion. A missing spec is created.
+func healthDefinition(document any) (map[string]any, bool) {
+	object, ok := document.(map[string]any)
+	if !ok || object["apiVersion"] != healthDefinitionAPIVersion || object["kind"] != healthDefinitionKind {
+		return nil, false
+	}
+	switch object["spec"].(type) {
+	case map[string]any:
+	case nil:
+		object["spec"] = map[string]any{}
+	default:
+		return nil, false
+	}
+	return object, true
+}
+
+// writeCountFile records the version and how many HealthDefinitions were
+// stamped, so the status-writer can find both. Unversioned Promises write
+// nothing.
+func (s *healthDefinitionStamper) writeCountFile(rootDirectory string) error {
+	if s == nil {
 		return nil
 	}
-	marker, err := yaml.Marshal(HealthDefinitionsMarker{PromiseVersion: s.promiseVersion})
+	content, err := yaml.Marshal(HealthDefinitionCount{PromiseVersion: s.promiseVersion, HealthDefinitions: s.found})
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(healthDefinitionsMarkerPath(rootDirectory), marker, 0o644); err != nil {
-		return fmt.Errorf("failed to write %s: %w", HealthDefinitionsMarkerFile, err)
+	if err := os.WriteFile(healthDefinitionCountPath(rootDirectory), content, 0o644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", HealthDefinitionCountFile, err)
 	}
 	return nil
 }
 
-// removeHealthDefinitionsMarker clears any marker left by a previous step so
-// that its presence always means this run stamped a HealthDefinition.
-func removeHealthDefinitionsMarker(rootDirectory string) error {
-	err := os.Remove(healthDefinitionsMarkerPath(rootDirectory))
+// removeHealthDefinitionCountFile clears any count file left by a previous
+// step, so that its presence always means this run wrote it.
+func removeHealthDefinitionCountFile(rootDirectory string) error {
+	err := os.Remove(healthDefinitionCountPath(rootDirectory))
 	if err != nil && !goerr.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
 }
 
-func healthDefinitionsMarkerPath(rootDirectory string) string {
-	return filepath.Join(rootDirectory, "metadata", HealthDefinitionsMarkerFile)
-}
-
-// parseHealthDefinition returns the document as a map when its apiVersion and
-// kind match exactly and its spec, if set, is a mapping.
-func parseHealthDefinition(document []byte) (map[string]any, bool) {
-	var object map[string]any
-	if err := yaml.Unmarshal(document, &object); err != nil {
-		return nil, false
-	}
-	if object["apiVersion"] != healthDefinitionAPIVersion || object["kind"] != healthDefinitionKind {
-		return nil, false
-	}
-	if spec, set := object["spec"]; set && spec != nil {
-		if _, ok := spec.(map[string]any); !ok {
-			return nil, false
-		}
-	}
-	return object, true
-}
-
-// segment is a run of bytes from the file: a bare marker line, a document
-// body, or an inline document ("--- {a: 1}", "--- !!map") that includes its
-// own marker line and is parsed whole so a HealthDefinition written that way
-// is still stamped.
-type segment struct {
-	body   []byte
-	inline bool
-}
-
-var documentSeparator = []byte("---\n")
-
-// splitDocuments cuts content into segments, in order, so that concatenating
-// them reproduces content exactly.
-func splitDocuments(content []byte) []segment {
-	var segments []segment
-	start, inline := 0, false
-	for lineStart := 0; lineStart < len(content); {
-		lineEnd := len(content)
-		if i := bytes.IndexByte(content[lineStart:], '\n'); i >= 0 {
-			lineEnd = lineStart + i + 1
-		}
-		if marker, withContent := documentMarker(content[lineStart:lineEnd]); marker {
-			if lineStart > start {
-				segments = append(segments, segment{body: content[start:lineStart], inline: inline})
-			}
-			if withContent {
-				start, inline = lineStart, true
-			} else {
-				segments = append(segments, segment{body: content[lineStart:lineEnd]})
-				start, inline = lineEnd, false
-			}
-		}
-		lineStart = lineEnd
-	}
-	if start < len(content) {
-		segments = append(segments, segment{body: content[start:], inline: inline})
-	}
-	return segments
-}
-
-// documentMarker reports whether line starts a document ("---" followed by
-// end of line or whitespace) and whether it carries content beyond a comment.
-func documentMarker(line []byte) (marker, withContent bool) {
-	line = bytes.TrimRight(line, "\r\n")
-	if !bytes.HasPrefix(line, []byte("---")) {
-		return false, false
-	}
-	if len(line) > 3 && line[3] != ' ' && line[3] != '\t' {
-		return false, false
-	}
-	rest := bytes.TrimLeft(line[3:], " \t")
-	return true, len(rest) > 0 && rest[0] != '#'
+func healthDefinitionCountPath(rootDirectory string) string {
+	return filepath.Join(rootDirectory, "metadata", HealthDefinitionCountFile)
 }

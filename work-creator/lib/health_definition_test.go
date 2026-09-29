@@ -9,40 +9,41 @@ import (
 	"github.com/syntasso/kratix/work-creator/lib"
 )
 
-var _ = Describe("ReadHealthDefinitionsMarker", func() {
-	var markerFile string
+var _ = Describe("ReadHealthDefinitionCount", func() {
+	var countFile string
 
 	BeforeEach(func() {
-		markerFile = filepath.Join(GinkgoT().TempDir(), lib.HealthDefinitionsMarkerFile)
+		countFile = filepath.Join(GinkgoT().TempDir(), lib.HealthDefinitionCountFile)
 	})
 
-	It("reports not found when the marker is absent", func() {
-		marker, found, err := lib.ReadHealthDefinitionsMarker(markerFile)
+	It("reports not found when the file is absent", func() {
+		count, found, err := lib.ReadHealthDefinitionCount(countFile)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(found).To(BeFalse())
-		Expect(marker).To(BeNil())
+		Expect(count).To(BeNil())
 	})
 
-	It("parses the promise version when present", func() {
-		Expect(os.WriteFile(markerFile, []byte("promiseVersion: v2.0.0\n"), 0o600)).To(Succeed())
+	It("parses the version and the count when present", func() {
+		Expect(os.WriteFile(countFile, []byte("promiseVersion: v2.0.0\nhealthDefinitions: 2\n"), 0o600)).To(Succeed())
 
-		marker, found, err := lib.ReadHealthDefinitionsMarker(markerFile)
+		count, found, err := lib.ReadHealthDefinitionCount(countFile)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(found).To(BeTrue())
-		Expect(marker.PromiseVersion).To(Equal("v2.0.0"))
+		Expect(count.PromiseVersion).To(Equal("v2.0.0"))
+		Expect(count.HealthDefinitions).To(Equal(2))
 	})
 
 	It("errors on garbage content", func() {
-		Expect(os.WriteFile(markerFile, []byte("promiseVersion: [unclosed"), 0o600)).To(Succeed())
+		Expect(os.WriteFile(countFile, []byte("promiseVersion: [unclosed"), 0o600)).To(Succeed())
 
-		_, _, err := lib.ReadHealthDefinitionsMarker(markerFile)
-		Expect(err).To(MatchError(ContainSubstring(lib.HealthDefinitionsMarkerFile)))
+		_, _, err := lib.ReadHealthDefinitionCount(countFile)
+		Expect(err).To(MatchError(ContainSubstring(lib.HealthDefinitionCountFile)))
 	})
 
-	It("errors when the marker cannot be read", func() {
-		Expect(os.Mkdir(markerFile, 0o700)).To(Succeed())
+	It("errors when the file cannot be read", func() {
+		Expect(os.Mkdir(countFile, 0o700)).To(Succeed())
 
-		_, _, err := lib.ReadHealthDefinitionsMarker(markerFile)
+		_, _, err := lib.ReadHealthDefinitionCount(countFile)
 		Expect(err).To(HaveOccurred())
 	})
 })

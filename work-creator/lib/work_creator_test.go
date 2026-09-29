@@ -342,7 +342,7 @@ var _ = Describe("WorkCreator", func() {
 						To(Equal(string(readSample(healthDefinitionTree, "expected", "healthdefinition.yaml"))))
 				})
 
-				It("re-marshals only the HealthDefinition documents in a multi-document file", func() {
+				It("writes back every document of a file that holds a HealthDefinition", func() {
 					Expect(string(decompressedWorkload(workResource, "mixed.yaml"))).
 						To(Equal(string(readSample(healthDefinitionTree, "expected", "mixed.yaml"))))
 				})
@@ -361,10 +361,10 @@ var _ = Describe("WorkCreator", func() {
 						To(Equal(string(readSample(healthDefinitionTree, "expected", "scheduled-healthdefinition.yaml"))))
 				})
 
-				It("writes the marker file", func() {
-					marker, err := os.ReadFile(markerPath(healthDefinitionTree))
+				It("writes the count file with the version and how many it stamped", func() {
+					count, err := os.ReadFile(countFilePath(healthDefinitionTree))
 					Expect(err).NotTo(HaveOccurred())
-					Expect(string(marker)).To(Equal("promiseVersion: v2.0.0\n"))
+					Expect(string(count)).To(Equal("healthDefinitions: 4\npromiseVersion: v2.0.0\n"))
 				})
 			})
 
@@ -373,37 +373,39 @@ var _ = Describe("WorkCreator", func() {
 
 				BeforeEach(func() {
 					completeTree = copySamples("complete")
-					Expect(os.WriteFile(markerPath(completeTree), []byte("promiseVersion: stale\n"), 0o644)).To(Succeed())
+					Expect(os.WriteFile(countFilePath(completeTree), []byte("promiseVersion: stale\nhealthDefinitions: 9\n"), 0o644)).To(Succeed())
 					err := workCreator.Execute(completeTree, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
 					Expect(err).ToNot(HaveOccurred())
 				})
 
-				It("ships every workload byte for byte and removes the stale marker", func() {
+				It("ships every workload byte for byte and writes a count of zero", func() {
 					expectWorkloadsUnchanged(getWork(expectedNamespace, promiseName, resourceName, pipelineName), completeTree)
-					_, err := os.Stat(markerPath(completeTree))
-					Expect(err).To(MatchError(os.ErrNotExist))
+					count, err := os.ReadFile(countFilePath(completeTree))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(string(count)).To(Equal("healthDefinitions: 0\npromiseVersion: v2.0.0\n"))
 				})
 			})
 
 			When("documents only resemble a HealthDefinition", func() {
-				It("ships them verbatim and writes no marker", func() {
+				It("ships them verbatim and counts none", func() {
 					lookalikes := copySamples("health-definition-lookalikes")
 					err := workCreator.Execute(lookalikes, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
 					Expect(err).ToNot(HaveOccurred())
 
 					expectWorkloadsUnchanged(getWork(expectedNamespace, promiseName, resourceName, pipelineName), lookalikes)
-					_, err = os.Stat(markerPath(lookalikes))
-					Expect(err).To(MatchError(os.ErrNotExist))
+					count, err := os.ReadFile(countFilePath(lookalikes))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(string(count)).To(Equal("healthDefinitions: 0\npromiseVersion: v2.0.0\n"))
 				})
 			})
 
 			DescribeTable("when the promise is unversioned", func(promiseVersion string) {
-				Expect(os.WriteFile(markerPath(healthDefinitionTree), []byte("promiseVersion: stale\n"), 0o644)).To(Succeed())
+				Expect(os.WriteFile(countFilePath(healthDefinitionTree), []byte("promiseVersion: stale\nhealthDefinitions: 9\n"), 0o644)).To(Succeed())
 				err := workCreator.Execute(healthDefinitionTree, "promise-name", "default", "resource-name", "", "resource", pipelineName, promiseVersion)
 				Expect(err).ToNot(HaveOccurred())
 
 				expectWorkloadsUnchanged(getWork(expectedNamespace, promiseName, resourceName, pipelineName), healthDefinitionTree)
-				_, err = os.Stat(markerPath(healthDefinitionTree))
+				_, err = os.Stat(countFilePath(healthDefinitionTree))
 				Expect(err).To(MatchError(os.ErrNotExist))
 			},
 				Entry("empty string", ""),
@@ -422,14 +424,14 @@ var _ = Describe("WorkCreator", func() {
 					Expect(works.Items).To(BeEmpty())
 				})
 
-				It("removes a stale marker", func() {
+				It("removes a stale count file", func() {
 					tree := copySamples("complete-with-suspend")
-					Expect(os.WriteFile(markerPath(tree), []byte("promiseVersion: stale\n"), 0o644)).To(Succeed())
+					Expect(os.WriteFile(countFilePath(tree), []byte("promiseVersion: stale\nhealthDefinitions: 9\n"), 0o644)).To(Succeed())
 
 					err := workCreator.Execute(tree, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
 					Expect(err).NotTo(HaveOccurred())
 
-					_, err = os.Stat(markerPath(tree))
+					_, err = os.Stat(countFilePath(tree))
 					Expect(err).To(MatchError(os.ErrNotExist))
 				})
 			})
@@ -517,8 +519,8 @@ func copySamples(name string) string {
 	return tree
 }
 
-func markerPath(tree string) string {
-	return filepath.Join(tree, "metadata", lib.HealthDefinitionsMarkerFile)
+func countFilePath(tree string) string {
+	return filepath.Join(tree, "metadata", lib.HealthDefinitionCountFile)
 }
 
 func readSample(parts ...string) []byte {

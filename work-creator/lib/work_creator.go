@@ -99,7 +99,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		return err
 	}
 
-	if err := removeHealthDefinitionsMarker(rootDirectory); err != nil {
+	if err := removeHealthDefinitionCountFile(rootDirectory); err != nil {
 		return err
 	}
 
@@ -212,7 +212,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		workloadGroups = append(workloadGroups, defaultWorkloadGroup)
 	}
 
-	if err := stamper.writeMarker(rootDirectory); err != nil {
+	if err := stamper.writeCountFile(rootDirectory); err != nil {
 		return err
 	}
 
