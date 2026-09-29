@@ -525,8 +525,9 @@ func (p *Promise) GeneratePromisePipelines(workflowAction Action, logger logr.Lo
 	return p.generatePipelinesObjects(WorkflowTypePromise, workflowAction, nil, p.GetLabels()[PromiseVersionLabel], logger)
 }
 
-// GenerateResourcePipelines takes promiseVersion explicitly: a resource may be bound
-// to a PromiseRevision whose version differs from the Promise's current label.
+// GenerateResourcePipelines takes promiseVersion from the caller: the dynamic
+// resource request controller passes the version of the PromiseRevision the
+// resource is bound to, which can differ from the Promise's current label.
 func (p *Promise) GenerateResourcePipelines(workflowAction Action, resourceRequest *unstructured.Unstructured, promiseVersion string, logger logr.Logger) ([]PipelineJobResources, error) {
 	return p.generatePipelinesObjects(WorkflowTypeResource, workflowAction, resourceRequest, promiseVersion, logger)
 }

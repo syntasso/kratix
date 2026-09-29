@@ -34,7 +34,8 @@ type PipelineFactory struct {
 	PromiseVersion   string
 }
 
-// promiseVersion normalises the unversioned sentinel to "" so consumers only test one value.
+// promiseVersion returns an empty string when the Promise has no version (the
+// "not-set" placeholder), so callers only have to check one value.
 func (p *PipelineFactory) promiseVersion() string {
 	if p.PromiseVersion == UnversionedPromiseVersion {
 		return ""
