@@ -2225,8 +2225,7 @@ func rbacObjects(resources v1alpha1.PipelineJobResources) []client.Object {
 func rbacNames(resources v1alpha1.PipelineJobResources) []string {
 	var names []string
 	for _, obj := range rbacObjects(resources) {
-		kind := fmt.Sprintf("%T", obj)
-		kind = kind[strings.LastIndex(kind, ".")+1:]
+		kind := obj.GetObjectKind().GroupVersionKind().Kind
 		names = append(names, kind+"/"+obj.GetNamespace()+"/"+obj.GetName())
 	}
 	return names
