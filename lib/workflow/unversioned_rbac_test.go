@@ -7,6 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/workflow"
+	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -124,6 +125,19 @@ var _ = Describe("RemoveUnversionedPipelineRBAC", func() {
 			}
 		})
 
+		It("keeps it while an unversioned pipeline Job is running in another namespace", func() {
+			job := generate("").Job
+			job.SetNamespace("team-a")
+			job.Status.Active = 1
+			create(job)
+
+			remove()
+
+			for _, obj := range append(unversioned, stale...) {
+				Expect(exists(obj)).To(BeTrue(), obj.GetName())
+			}
+		})
+
 		It("deletes it while only versioned pipeline Jobs are running", func() {
 			job := generate("v1.0.0").Job
 			job.Status.Active = 1
@@ -135,6 +149,39 @@ var _ = Describe("RemoveUnversionedPipelineRBAC", func() {
 				Expect(exists(obj)).To(BeFalse(), obj.GetName())
 			}
 		})
+	})
+
+	It("deletes the pipeline's unversioned RBAC in every namespace, not only the request's", func() {
+		inDefault := rbacObjects(generate(""))
+		rr.SetNamespace("team-a")
+		inTeamA := rbacObjects(generate(""))
+		notSetInTeamA := rbacObjects(generate(v1alpha1.UnversionedPromiseVersion))
+		rr.SetNamespace("default")
+
+		otherPipeline := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{
+			Name:      "redis-resource-configure-other",
+			Namespace: "team-a",
+			Labels:    map[string]string{v1alpha1.PromiseNameLabel: "redis"},
+		}}
+		create(inDefault...)
+		for _, obj := range inTeamA {
+			// The user-permission ClusterRoles are shared, so they already exist.
+			Expect(client.IgnoreAlreadyExists(fakeK8sClient.Create(ctx, obj))).To(Succeed())
+		}
+		create(otherPipeline)
+
+		remove()
+
+		for _, obj := range append(inDefault, inTeamA...) {
+			Expect(exists(obj)).To(BeFalse(), obj.GetNamespace()+"/"+obj.GetName())
+		}
+		Expect(exists(otherPipeline)).To(BeTrue())
+
+		create(notSetInTeamA...)
+		remove()
+		for _, obj := range notSetInTeamA {
+			Expect(exists(obj)).To(BeTrue(), obj.GetNamespace()+"/"+obj.GetName())
+		}
 	})
 
 	It("keeps the RBAC of the not-set version, which uses the same names", func() {
