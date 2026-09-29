@@ -161,29 +161,31 @@ var _ = Describe("HealthRecordController", func() {
 			})
 		})
 
-		When("the resource request healthStatus already carries a promiseVersion", func() {
+		When("the resource request healthStatus already carries what the status-writer wrote", func() {
 			BeforeEach(func() {
 				statusMap := map[string]any{
 					"healthStatus": map[string]any{
-						"state":          "unknown",
-						"promiseVersion": "v2.0.0",
+						"state":                  "unknown",
+						"expectedPromiseVersion": "v2.0.0",
+						"healthDefinitions":      int64(1),
 					},
 				}
 				Expect(unstructured.SetNestedMap(resource.Object, statusMap, "status")).To(Succeed())
 				Expect(fakeK8sClient.Status().Update(ctx, resource)).To(Succeed())
 			})
 
-			It("keeps the promiseVersion when it recomputes the state", func() {
+			It("keeps those fields when it recomputes the state", func() {
 				updatedResource := reconcile()
 
 				healthStatus := getResourceHealthStatus(updatedResource)
 				Expect(healthStatus).To(SatisfyAll(
-					HaveKeyWithValue("promiseVersion", "v2.0.0"),
+					HaveKeyWithValue("expectedPromiseVersion", "v2.0.0"),
+					HaveKeyWithValue("healthDefinitions", int64(1)),
 					HaveKeyWithValue("state", healthRecord.Data.State),
 				))
 			})
 
-			It("keeps the promiseVersion when the last record is deleted", func() {
+			It("keeps those fields when the last record is deleted", func() {
 				reconcile()
 				Expect(fakeK8sClient.Delete(ctx, healthRecord)).To(Succeed())
 				_, err := t.reconcileUntilCompletion(reconciler, healthRecord)
@@ -192,7 +194,10 @@ var _ = Describe("HealthRecordController", func() {
 				updatedResource := &unstructured.Unstructured{}
 				updatedResource.SetGroupVersionKind(resource.GroupVersionKind())
 				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resource), updatedResource)).To(Succeed())
-				Expect(getResourceHealthStatus(updatedResource)).To(HaveKeyWithValue("promiseVersion", "v2.0.0"))
+				Expect(getResourceHealthStatus(updatedResource)).To(SatisfyAll(
+					HaveKeyWithValue("expectedPromiseVersion", "v2.0.0"),
+					HaveKeyWithValue("healthDefinitions", int64(1)),
+				))
 			})
 		})
 
