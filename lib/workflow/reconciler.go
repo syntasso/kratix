@@ -77,7 +77,7 @@ func (o *Opts) coreConfigure() bool {
 // ReconcileDelete returns true while the delete pipeline needs further reconciliation.
 func ReconcileDelete(opts Opts) (bool, error) {
 	if len(opts.Resources) == 0 {
-		return false, nil
+		return anyJobRunning(opts)
 	}
 	if len(opts.Resources) > 1 {
 		logging.Warn(opts.logger, "multiple delete pipelines found; only the first will be used")
@@ -296,6 +296,17 @@ func firstUnfinishedJob(jobs []batchv1.Job) *batchv1.Job {
 		}
 	}
 	return nil
+}
+
+// anyJobRunning stops a delete with no pipelines from cleaning up Works while
+// a configure Job is still running: that Job would write a new Work that
+// nothing ever deletes.
+func anyJobRunning(opts Opts) (bool, error) {
+	jobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
+	if err != nil {
+		return false, err
+	}
+	return firstUnfinishedJob(jobs) != nil, nil
 }
 
 func findJobByName(jobs []batchv1.Job, name string) *batchv1.Job {
