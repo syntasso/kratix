@@ -65,7 +65,6 @@ const (
 	resourcePromiseVersionStatus      = "promiseVersion"
 	resourceBindingVersionStatus      = "resourceBindingVersion"
 	promiseRevisionLookupFailedReason = "FailedPromiseRevisionLookup"
-	UnversionedPromiseVersion         = v1alpha1.UnversionedPromiseVersion
 	LatestVersion                     = "latest"
 )
 
@@ -520,7 +519,7 @@ func (r *DynamicResourceRequestController) syncResourceBindingUpgradeStatus(ctx 
 }
 
 func (r *DynamicResourceRequestController) syncResourceBindingUpgradeInProgressStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured, attemptedVersion string) error {
-	if attemptedVersion == "" || attemptedVersion == UnversionedPromiseVersion {
+	if attemptedVersion == "" || attemptedVersion == v1alpha1.UnversionedPromiseVersion {
 		return nil
 	}
 

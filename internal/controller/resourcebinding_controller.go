@@ -106,7 +106,7 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	rrPromiseVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
 	// Unversioned promises have no upgrade lifecycle; manual reconciliation via the
 	// binding label is also unsupported until a promise version is recorded on the resource.
-	if rrPromiseVersion == "" || rrPromiseVersion == UnversionedPromiseVersion {
+	if rrPromiseVersion == "" || rrPromiseVersion == v1alpha1.UnversionedPromiseVersion {
 		logging.Info(logger, "promise has no version; skipping version check")
 		return ctrl.Result{}, nil
 	}
