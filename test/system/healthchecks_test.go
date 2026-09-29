@@ -193,7 +193,7 @@ var _ = Describe("Kratix Healthcheck promise version", func() {
 			}
 		})
 
-		It("stamps the Promise version on HealthDefinitions and resets healthStatus", func() {
+		It("stamps the Promise version on HealthDefinitions and records what the resource expects", func() {
 			By("stamping spec.promiseVersion on the HealthDefinition only", func() {
 				Eventually(func(g Gomega) {
 					workloads := resourceWorkloads(g, promiseName)
@@ -209,11 +209,11 @@ var _ = Describe("Kratix Healthcheck promise version", func() {
 				}).Should(Succeed())
 			})
 
-			By("resetting status.healthStatus to unknown for the version", func() {
+			By("recording the expected version and the HealthDefinition count on status.healthStatus", func() {
 				Eventually(func(g Gomega) {
 					g.Expect(resourceStatus(g, promiseName)).To(HaveKeyWithValue("healthStatus", map[string]any{
-						"state":          "unknown",
-						"promiseVersion": "v2.0.0",
+						"expectedPromiseVersion": "v2.0.0",
+						"healthDefinitions":      float64(1),
 					}))
 				}).Should(Succeed())
 			})
