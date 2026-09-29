@@ -527,8 +527,8 @@ var _ = Describe("StatusUpdater", func() {
 	})
 })
 
-var _ = Describe("ResetHealthStatus", func() {
-	It("sets state to unknown and records the version, keeping healthRecords", func() {
+var _ = Describe("SetExpectedHealth", func() {
+	It("records the version and the count, keeping state and healthRecords", func() {
 		status := map[string]any{
 			"message": "Resource requested",
 			"healthStatus": map[string]any{
@@ -537,21 +537,22 @@ var _ = Describe("ResetHealthStatus", func() {
 			},
 		}
 
-		result := lib.ResetHealthStatus(status, "v2.0.0")
+		result := lib.SetExpectedHealth(status, "v2.0.0", 2)
 
 		Expect(result).To(HaveKeyWithValue("healthStatus", Equal(map[string]any{
-			"state":          "unknown",
-			"promiseVersion": "v2.0.0",
-			"healthRecords":  []any{map[string]any{"name": "a"}},
+			"state":                  "healthy",
+			"healthRecords":          []any{map[string]any{"name": "a"}},
+			"expectedPromiseVersion": "v2.0.0",
+			"healthDefinitions":      int64(2),
 		})))
 	})
 
 	It("creates healthStatus when absent", func() {
-		result := lib.ResetHealthStatus(map[string]any{}, "v2.0.0")
+		result := lib.SetExpectedHealth(map[string]any{}, "v2.0.0", 0)
 
 		Expect(result).To(HaveKeyWithValue("healthStatus", Equal(map[string]any{
-			"state":          "unknown",
-			"promiseVersion": "v2.0.0",
+			"expectedPromiseVersion": "v2.0.0",
+			"healthDefinitions":      int64(0),
 		})))
 	})
 
@@ -561,7 +562,7 @@ var _ = Describe("ResetHealthStatus", func() {
 			"conditions": []any{map[string]any{"type": "Ready"}},
 		}
 
-		result := lib.ResetHealthStatus(status, "v2.0.0")
+		result := lib.SetExpectedHealth(status, "v2.0.0", 1)
 
 		Expect(result).To(SatisfyAll(
 			HaveKeyWithValue("message", "Resource requested"),

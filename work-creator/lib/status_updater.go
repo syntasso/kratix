@@ -33,16 +33,17 @@ func NonMessageStatusKeys(status map[string]any) []string {
 	return keys
 }
 
-// ResetHealthStatus marks the health of a Resource as unknown for the given
-// Promise version. Every other key under healthStatus, in particular
-// healthRecords, is preserved.
-func ResetHealthStatus(status map[string]any, promiseVersion string) map[string]any {
+// SetExpectedHealth records on healthStatus which Promise version the resource
+// now expects health results for, and how many HealthDefinitions the pipeline
+// shipped. Every other key under healthStatus, in particular state and
+// healthRecords, is left as it is.
+func SetExpectedHealth(status map[string]any, promiseVersion string, healthDefinitions int) map[string]any {
 	healthStatus, ok := status["healthStatus"].(map[string]any)
 	if !ok {
 		healthStatus = map[string]any{}
 	}
-	healthStatus["state"] = "unknown"
-	healthStatus["promiseVersion"] = promiseVersion
+	healthStatus["expectedPromiseVersion"] = promiseVersion
+	healthStatus["healthDefinitions"] = int64(healthDefinitions)
 	status["healthStatus"] = healthStatus
 	return status
 }

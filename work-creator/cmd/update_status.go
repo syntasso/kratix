@@ -82,7 +82,7 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 
 	mergedStatus := lib.MergeStatuses(existingStatus, incomingStatus)
 
-	mergedStatus, err = resetHealthStatusForNewVersion(baseDir, params, mergedStatus)
+	mergedStatus, err = recordExpectedHealth(baseDir, params, mergedStatus)
 	if err != nil {
 		return err
 	}
@@ -127,10 +127,13 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 	return nil
 }
 
-// resetHealthStatusForNewVersion marks health as unknown when a versioned
-// resource configure workflow shipped HealthDefinitions for a new version.
-// A marker in a delete Job can only come from a user container; ignore it.
-func resetHealthStatusForNewVersion(baseDir string, params *helpers.Parameters, status map[string]any) (map[string]any, error) {
+// recordExpectedHealth writes expectedPromiseVersion and healthDefinitions
+// onto healthStatus after a versioned resource configure run, from the count
+// file the work-writer left. Promise workflows, delete workflows and dry runs
+// never touch health. When there is no count file the work-writer did not
+// create a Work, for example because the workflow was suspended, and health
+// is left alone.
+func recordExpectedHealth(baseDir string, params *helpers.Parameters, status map[string]any) (map[string]any, error) {
 	versioned := params.PromiseVersion != "" && params.PromiseVersion != v1alpha1.UnversionedPromiseVersion
 	if !versioned ||
 		params.WorkflowType != v1alpha1.WorkflowTypeResource ||
@@ -139,7 +142,7 @@ func resetHealthStatusForNewVersion(baseDir string, params *helpers.Parameters, 
 		return status, nil
 	}
 
-	marker, found, err := lib.ReadHealthDefinitionsMarker(filepath.Join(baseDir, lib.HealthDefinitionsMarkerFile))
+	count, found, err := lib.ReadHealthDefinitionCount(filepath.Join(baseDir, lib.HealthDefinitionCountFile))
 	if err != nil {
 		return nil, err
 	}
@@ -147,13 +150,13 @@ func resetHealthStatusForNewVersion(baseDir string, params *helpers.Parameters, 
 		return status, nil
 	}
 
-	if marker.PromiseVersion != params.PromiseVersion {
+	if count.PromiseVersion != params.PromiseVersion {
 		fmt.Fprintf(os.Stdout, "Warning: %s records promiseVersion %q but %s is %q; using %q.\n",
-			lib.HealthDefinitionsMarkerFile, marker.PromiseVersion,
+			lib.HealthDefinitionCountFile, count.PromiseVersion,
 			v1alpha1.KratixPromiseVersionEnvVar, params.PromiseVersion, params.PromiseVersion)
 	}
 
-	return lib.ResetHealthStatus(status, params.PromiseVersion), nil
+	return lib.SetExpectedHealth(status, params.PromiseVersion, count.HealthDefinitions), nil
 }
 
 func handleWorkflowControlFile(ctx context.Context, params *helpers.Parameters,

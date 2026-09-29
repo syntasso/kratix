@@ -29,9 +29,9 @@ var _ = Describe("updateStatus", func() {
 
 	existingHealthStatus := func() map[string]any {
 		return map[string]any{
-			"state":          "healthy",
-			"promiseVersion": existingVersion,
-			"healthRecords":  []any{map[string]any{"name": "a"}},
+			"state":                  "healthy",
+			"expectedPromiseVersion": existingVersion,
+			"healthRecords":          []any{map[string]any{"name": "a"}},
 		}
 	}
 
@@ -39,7 +39,9 @@ var _ = Describe("updateStatus", func() {
 		Expect(os.WriteFile(filepath.Join(baseDir, name), []byte(content), 0o600)).To(Succeed())
 	}
 
-	writeMarker := func() { writeFile(lib.HealthDefinitionsMarkerFile, "promiseVersion: v2.0.0\n") }
+	writeCountFile := func(healthDefinitions string) {
+		writeFile(lib.HealthDefinitionCountFile, "promiseVersion: v2.0.0\nhealthDefinitions: "+healthDefinitions+"\n")
+	}
 
 	run := func() error { return cmd.UpdateStatus(context.Background(), baseDir, params, objectClient) }
 
@@ -84,11 +86,11 @@ var _ = Describe("updateStatus", func() {
 
 	When("a versioned resource configure workflow shipped HealthDefinitions", func() {
 		BeforeEach(func() {
-			writeMarker()
+			writeCountFile("2")
 			writeFile("status.yaml", "message: Resource requested\nextra: value\n")
 		})
 
-		It("resets health to unknown and keeps records and user fields", func() {
+		It("records the expected version and count, keeping state, records and user fields", func() {
 			Expect(run()).To(Succeed())
 
 			status := currentStatus()
@@ -97,34 +99,53 @@ var _ = Describe("updateStatus", func() {
 				HaveKeyWithValue("extra", "value"),
 			))
 			Expect(status["healthStatus"]).To(Equal(map[string]any{
-				"state":          "unknown",
-				"promiseVersion": "v2.0.0",
-				"healthRecords":  []any{map[string]any{"name": "a"}},
+				"state":                  "healthy",
+				"expectedPromiseVersion": "v2.0.0",
+				"healthDefinitions":      int64(2),
+				"healthRecords":          []any{map[string]any{"name": "a"}},
 			}))
 		})
 
-		When("the resource already carries the same promiseVersion", func() {
+		When("the resource already expects the same promiseVersion", func() {
 			BeforeEach(func() { existingVersion = "v2.0.0" })
 
-			It("still resets health to unknown", func() {
+			It("changes nothing but the count", func() {
 				Expect(run()).To(Succeed())
-				Expect(currentStatus()["healthStatus"]).To(HaveKeyWithValue("state", "unknown"))
+				Expect(currentStatus()["healthStatus"]).To(Equal(map[string]any{
+					"state":                  "healthy",
+					"expectedPromiseVersion": "v2.0.0",
+					"healthDefinitions":      int64(2),
+					"healthRecords":          []any{map[string]any{"name": "a"}},
+				}))
 			})
 		})
 	})
 
-	When("the marker disagrees with KRATIX_PROMISE_VERSION", func() {
+	When("a versioned resource configure workflow shipped no HealthDefinition", func() {
+		BeforeEach(func() { writeCountFile("0") })
+
+		It("records the expected version with a count of zero", func() {
+			Expect(run()).To(Succeed())
+			Expect(currentStatus()["healthStatus"]).To(SatisfyAll(
+				HaveKeyWithValue("expectedPromiseVersion", "v2.0.0"),
+				HaveKeyWithValue("healthDefinitions", int64(0)),
+				HaveKeyWithValue("state", "healthy"),
+			))
+		})
+	})
+
+	When("the count file disagrees with KRATIX_PROMISE_VERSION", func() {
 		It("records the env var version", func() {
-			writeFile(lib.HealthDefinitionsMarkerFile, "promiseVersion: v9.9.9\n")
+			writeFile(lib.HealthDefinitionCountFile, "promiseVersion: v9.9.9\nhealthDefinitions: 1\n")
 
 			Expect(run()).To(Succeed())
-			Expect(currentStatus()["healthStatus"]).To(HaveKeyWithValue("promiseVersion", "v2.0.0"))
+			Expect(currentStatus()["healthStatus"]).To(HaveKeyWithValue("expectedPromiseVersion", "v2.0.0"))
 		})
 	})
 
 	When("status.yaml sets healthStatus", func() {
 		BeforeEach(func() {
-			writeFile("status.yaml", "healthStatus:\n  state: healthy\n  promiseVersion: v2.0.0\n")
+			writeFile("status.yaml", "healthStatus:\n  state: healthy\n  expectedPromiseVersion: v2.0.0\n")
 		})
 
 		It("rejects the update and leaves the object untouched", func() {
@@ -139,29 +160,29 @@ var _ = Describe("updateStatus", func() {
 			Expect(run()).To(Succeed())
 			Expect(currentStatus()["healthStatus"]).To(Equal(existingHealthStatus()))
 		},
-		Entry("when there is no marker", func() {}),
+		Entry("when there is no count file", func() {}),
 		Entry("when the Promise version is empty", func() {
-			writeMarker()
+			writeCountFile("1")
 			params.PromiseVersion = ""
 		}),
 		Entry("when the Promise is unversioned", func() {
-			writeMarker()
+			writeCountFile("1")
 			params.PromiseVersion = v1alpha1.UnversionedPromiseVersion
 		}),
 		Entry("in a promise workflow", func() {
-			writeMarker()
+			writeCountFile("1")
 			params.WorkflowType = v1alpha1.WorkflowTypePromise
 		}),
 		Entry("in a delete workflow", func() {
-			writeMarker()
+			writeCountFile("1")
 			GinkgoT().Setenv(v1alpha1.KratixActionEnvVar, string(v1alpha1.WorkflowActionDelete))
 		}),
-		Entry("in a delete workflow with a malformed marker", func() {
-			writeFile(lib.HealthDefinitionsMarkerFile, "[")
+		Entry("in a delete workflow with a malformed count file", func() {
+			writeFile(lib.HealthDefinitionCountFile, "[")
 			GinkgoT().Setenv(v1alpha1.KratixActionEnvVar, string(v1alpha1.WorkflowActionDelete))
 		}),
 		Entry("in a dry run", func() {
-			writeMarker()
+			writeCountFile("1")
 			GinkgoT().Setenv(v1alpha1.KratixDryRunEnvVar, "true")
 		}),
 	)
