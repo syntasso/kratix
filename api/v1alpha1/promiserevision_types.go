@@ -34,6 +34,9 @@ const SkipResourceRequestCleanupOnDeleteAnnotation = KratixPrefix + "skip-resour
 // one revision per promise should carry this label).
 const LatestRevisionLabel = KratixPrefix + "latest-revision"
 
+// UnversionedPromiseVersion is the PromiseRevision version of a Promise that has no version label.
+const UnversionedPromiseVersion = "not-set"
+
 // MetadataBoolTrue is the conventional string value for boolean Kubernetes labels and annotations.
 const MetadataBoolTrue = "true"
 

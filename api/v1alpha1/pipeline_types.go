@@ -279,7 +279,7 @@ func (p *Pipeline) ForPromise(promise *Promise, action Action) *PipelineFactory 
 
 // ForResource defines the PipelineFactory fields for a Resource.
 func (p *Pipeline) ForResource(
-	promise *Promise, action Action, resourceRequest *unstructured.Unstructured,
+	promise *Promise, promiseVersion string, action Action, resourceRequest *unstructured.Unstructured,
 ) *PipelineFactory {
 	_, crd, _ := promise.GetAPI()
 	var clusterScoped bool
@@ -299,6 +299,7 @@ func (p *Pipeline) ForResource(
 	return &PipelineFactory{
 		ID:               promise.GetName() + "-resource-" + string(action) + "-" + p.GetName(),
 		Promise:          promise,
+		PromiseVersion:   promiseVersion,
 		Pipeline:         p,
 		ResourceRequest:  resourceRequest,
 		Namespace:        namespace,
