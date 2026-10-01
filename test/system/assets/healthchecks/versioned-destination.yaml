@@ -1,0 +1,14 @@
+# Only the healthcheckversioned Promise schedules here. The HealthDefinition it
+# ships must not reach worker-1, whose Flux sync fails on the unknown kind.
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: healthcheckversioned
+  labels:
+    target: healthcheckversioned
+spec:
+  strictMatchLabels: true
+  path: healthcheckversioned
+  stateStoreRef:
+    name: default
+    kind: BucketStateStore

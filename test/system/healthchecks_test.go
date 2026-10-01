@@ -179,6 +179,7 @@ var _ = Describe("Kratix Healthcheck promise version", func() {
 		const promiseName = "healthcheckversioned"
 
 		BeforeEach(func() {
+			platform.Kubectl("apply", "-f", "assets/healthchecks/versioned-destination.yaml")
 			platform.Kubectl("apply", "-f", "assets/healthchecks/versioned-promise.yaml")
 			Eventually(func() string {
 				return platform.Kubectl("get", "crd")
@@ -190,6 +191,7 @@ var _ = Describe("Kratix Healthcheck promise version", func() {
 			if CurrentSpecReport().State.Is(types.SpecStatePassed) {
 				platform.EventuallyKubectlDelete(promiseName, resourceName)
 				platform.EventuallyKubectlDelete("promise", promiseName)
+				platform.Kubectl("delete", "-f", "assets/healthchecks/versioned-destination.yaml")
 			}
 		})
 
@@ -213,7 +215,7 @@ var _ = Describe("Kratix Healthcheck promise version", func() {
 				Eventually(func(g Gomega) {
 					g.Expect(resourceStatus(g, promiseName)).To(HaveKeyWithValue("healthStatus", map[string]any{
 						"expectedPromiseVersion": "v2.0.0",
-						"healthDefinitions":      float64(1),
+						"healthDefinitions":      int64(1),
 					}))
 				}).Should(Succeed())
 			})
@@ -224,6 +226,7 @@ var _ = Describe("Kratix Healthcheck promise version", func() {
 		const promiseName = "healthcheckunversioned"
 
 		BeforeEach(func() {
+			platform.Kubectl("apply", "-f", "assets/healthchecks/unversioned-destination.yaml")
 			platform.Kubectl("apply", "-f", "assets/healthchecks/unversioned-promise.yaml")
 			Eventually(func() string {
 				return platform.Kubectl("get", "crd")
@@ -235,6 +238,7 @@ var _ = Describe("Kratix Healthcheck promise version", func() {
 			if CurrentSpecReport().State.Is(types.SpecStatePassed) {
 				platform.EventuallyKubectlDelete(promiseName, resourceName)
 				platform.EventuallyKubectlDelete("promise", promiseName)
+				platform.Kubectl("delete", "-f", "assets/healthchecks/unversioned-destination.yaml")
 			}
 		})
 
