@@ -251,7 +251,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 			return err
 		}
 		logger.Info("Work created", "workName", work.Name)
-		return w.writeHealthDefinitionCount(versioner, rootDirectory, namespace, promiseName, resourceName, workflowType)
+		return w.writeHealthDefinitionCount(ctx, versioner, rootDirectory, namespace, promiseName, resourceName, resourceNamespace, workflowType)
 	}
 
 	logger.Info("Work already exists, will update")
@@ -266,20 +266,21 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}
 
 	logger.Info("Work updated", "workName", currentWork.Name)
-	return w.writeHealthDefinitionCount(versioner, rootDirectory, namespace, promiseName, resourceName, workflowType)
+	return w.writeHealthDefinitionCount(ctx, versioner, rootDirectory, namespace, promiseName, resourceName, resourceNamespace, workflowType)
 }
 
-// writeHealthDefinitionCount lists the resource's Works once this run's Work is
-// saved, so the count file covers every configure pipeline of the resource.
-func (w *WorkCreator) writeHealthDefinitionCount(versioner *healthDefinitionVersioner, rootDirectory, namespace, promiseName, resourceName, workflowType string) error {
+// writeHealthDefinitionCount lists the resource's configure Works once this run's
+// Work is saved, so the count file covers every pipeline of the resource.
+func (w *WorkCreator) writeHealthDefinitionCount(ctx context.Context, versioner *healthDefinitionVersioner, rootDirectory, namespace, promiseName, resourceName, resourceNamespace, workflowType string) error {
 	if versioner == nil || workflowType != string(v1alpha1.WorkflowTypeResource) {
 		return nil
 	}
-	works, err := resourceutil.GetAllWorksForResource(w.K8sClient, namespace, promiseName, resourceName)
-	if err != nil {
+	works := &v1alpha1.WorkList{}
+	selector := resourceutil.GetWorkLabels(promiseName, resourceName, resourceNamespace, "", workflowType)
+	if err := w.K8sClient.List(ctx, works, client.InNamespace(namespace), client.MatchingLabels(selector)); err != nil {
 		return err
 	}
-	return versioner.writeCountFile(rootDirectory, works)
+	return versioner.writeCountFile(rootDirectory, works.Items)
 }
 
 // /kratix/output/     /kratix/output/   "bar"

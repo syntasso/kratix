@@ -367,8 +367,11 @@ var _ = Describe("WorkCreator", func() {
 					Expect(string(count)).To(Equal("healthDefinitions: 6\npromiseVersion: v2.0.0\n"))
 				})
 
-				It("annotates the Work with how many it found", func() {
-					Expect(workResource.GetAnnotations()).To(HaveKeyWithValue(v1alpha1.HealthDefinitionsAnnotation, "6"))
+				It("annotates the Work with how many it found and at which version", func() {
+					Expect(workResource.GetAnnotations()).To(SatisfyAll(
+						HaveKeyWithValue(v1alpha1.HealthDefinitionsAnnotation, "6"),
+						HaveKeyWithValue(v1alpha1.HealthDefinitionsVersionAnnotation, "v2.0.0"),
+					))
 				})
 			})
 
@@ -386,6 +389,32 @@ var _ = Describe("WorkCreator", func() {
 					count, err := os.ReadFile(countFilePath(completeTree))
 					Expect(err).NotTo(HaveOccurred())
 					Expect(string(count)).To(Equal("healthDefinitions: 6\npromiseVersion: v2.0.0\n"))
+				})
+
+				It("leaves out a Work counted at another version", func() {
+					err := workCreator.Execute(healthDefinitionTree, "promise-name", "default", "resource-name", "", "resource", "removed-pipeline", "v1.0.0")
+					Expect(err).ToNot(HaveOccurred())
+
+					completeTree := copySamples("complete")
+					err = workCreator.Execute(completeTree, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
+					Expect(err).ToNot(HaveOccurred())
+
+					count, err := os.ReadFile(countFilePath(completeTree))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(string(count)).To(Equal("healthDefinitions: 0\npromiseVersion: v2.0.0\n"))
+				})
+
+				It("leaves out a same-named resource in another namespace", func() {
+					err := workCreator.Execute(healthDefinitionTree, "promise-name", "default", "resource-name", "team-a", "resource", pipelineName, "v2.0.0")
+					Expect(err).ToNot(HaveOccurred())
+
+					completeTree := copySamples("complete")
+					err = workCreator.Execute(completeTree, "promise-name", "default", "resource-name", "team-b", "resource", pipelineName, "v2.0.0")
+					Expect(err).ToNot(HaveOccurred())
+
+					count, err := os.ReadFile(countFilePath(completeTree))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(string(count)).To(Equal("healthDefinitions: 0\npromiseVersion: v2.0.0\n"))
 				})
 
 				It("leaves dry-run Works out of the count", func() {

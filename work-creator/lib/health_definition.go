@@ -179,19 +179,22 @@ func (v *healthDefinitionVersioner) annotate(work *v1alpha1.Work) {
 		annotations = map[string]string{}
 	}
 	annotations[v1alpha1.HealthDefinitionsAnnotation] = strconv.Itoa(v.found)
+	annotations[v1alpha1.HealthDefinitionsVersionAnnotation] = v.promiseVersion
 	work.SetAnnotations(annotations)
 }
 
-// writeCountFile totals the annotation across the resource's configure Works, so
-// the count covers every pipeline, and writes it with the version for the status-writer.
+// writeCountFile totals the count across the resource's configure Works at this
+// version, so it covers every pipeline, and writes it for the status-writer.
 func (v *healthDefinitionVersioner) writeCountFile(rootDirectory string, works []v1alpha1.Work) error {
 	if v == nil {
 		return nil
 	}
 	total := 0
 	for _, work := range works {
-		workLabels := work.GetLabels()
-		if workLabels[v1alpha1.WorkTypeLabel] != string(v1alpha1.WorkflowTypeResource) || workLabels[v1alpha1.DryRunLabel] == "true" {
+		// A Work counted at another version belongs to a pipeline this version
+		// no longer has, or has not re-run yet.
+		if work.GetLabels()[v1alpha1.DryRunLabel] == "true" ||
+			work.GetAnnotations()[v1alpha1.HealthDefinitionsVersionAnnotation] != v.promiseVersion {
 			continue
 		}
 		count, _ := strconv.Atoi(work.GetAnnotations()[v1alpha1.HealthDefinitionsAnnotation])
