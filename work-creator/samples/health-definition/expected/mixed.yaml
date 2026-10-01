@@ -20,6 +20,29 @@ spec:
   schedule: '* * * * *'
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inline
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: HealthDefinition
+metadata:
+  name: flow-health
+spec:
+  promiseRef:
+    name: psql
+  promiseVersion: v2.0.0
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: HealthDefinition
+metadata:
+  name: tagged-health
+spec:
+  promiseRef:
+    name: psql
+  promiseVersion: v2.0.0
+---
+apiVersion: v1
 data:
   script: |
     echo one

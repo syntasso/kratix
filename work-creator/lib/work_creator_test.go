@@ -342,7 +342,7 @@ var _ = Describe("WorkCreator", func() {
 						To(Equal(string(readSample(healthDefinitionTree, "expected", "healthdefinition.yaml"))))
 				})
 
-				It("writes back every document of a file that holds a HealthDefinition", func() {
+				It("writes back every document of a file that holds a HealthDefinition, inline ones included", func() {
 					Expect(string(decompressedWorkload(workResource, "mixed.yaml"))).
 						To(Equal(string(readSample(healthDefinitionTree, "expected", "mixed.yaml"))))
 				})
@@ -364,7 +364,7 @@ var _ = Describe("WorkCreator", func() {
 				It("writes the count file with the version and how many it stamped", func() {
 					count, err := os.ReadFile(countFilePath(healthDefinitionTree))
 					Expect(err).NotTo(HaveOccurred())
-					Expect(string(count)).To(Equal("healthDefinitions: 4\npromiseVersion: v2.0.0\n"))
+					Expect(string(count)).To(Equal("healthDefinitions: 6\npromiseVersion: v2.0.0\n"))
 				})
 			})
 

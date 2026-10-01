@@ -1,16 +1,13 @@
 package lib
 
 import (
-	"bufio"
 	"bytes"
 	goerr "errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
-	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/yaml"
 )
 
@@ -105,15 +102,7 @@ func (s *healthDefinitionStamper) stamp(content []byte) ([]byte, error) {
 // decodeDocuments parses every YAML document in content. ok is false when any
 // document cannot be parsed, so the caller ships the file as it is.
 func decodeDocuments(content []byte) (documents []any, ok bool) {
-	reader := utilyaml.NewYAMLReader(bufio.NewReader(bytes.NewReader(content)))
-	for {
-		raw, err := reader.Read()
-		if goerr.Is(err, io.EOF) {
-			return documents, true
-		}
-		if err != nil {
-			return nil, false
-		}
+	for _, raw := range splitDocuments(content) {
 		if len(bytes.TrimSpace(raw)) == 0 {
 			continue
 		}
@@ -123,6 +112,45 @@ func decodeDocuments(content []byte) (documents []any, ok bool) {
 		}
 		documents = append(documents, document)
 	}
+	return documents, true
+}
+
+// splitDocuments cuts content at document marker lines. A marker that carries
+// content ("--- {a: 1}", "--- !!map", "--- |") starts a document that keeps
+// its marker, so the YAML parser sees the inline content.
+func splitDocuments(content []byte) [][]byte {
+	var documents [][]byte
+	start := 0
+	for lineStart := 0; lineStart < len(content); {
+		lineEnd := len(content)
+		if i := bytes.IndexByte(content[lineStart:], '\n'); i >= 0 {
+			lineEnd = lineStart + i + 1
+		}
+		if marker, withContent := documentMarker(content[lineStart:lineEnd]); marker {
+			documents = append(documents, content[start:lineStart])
+			if withContent {
+				start = lineStart
+			} else {
+				start = lineEnd
+			}
+		}
+		lineStart = lineEnd
+	}
+	return append(documents, content[start:])
+}
+
+// documentMarker reports whether line starts a document ("---" followed by
+// end of line or whitespace) and whether it carries content beyond a comment.
+func documentMarker(line []byte) (marker, withContent bool) {
+	line = bytes.TrimRight(line, "\r\n")
+	if !bytes.HasPrefix(line, []byte("---")) {
+		return false, false
+	}
+	if len(line) > 3 && line[3] != ' ' && line[3] != '\t' {
+		return false, false
+	}
+	rest := bytes.TrimLeft(line[3:], " \t")
+	return true, len(rest) > 0 && rest[0] != '#'
 }
 
 // healthDefinition returns the document as a map when it is a HealthDefinition
