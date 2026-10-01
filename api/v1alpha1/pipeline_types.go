@@ -278,8 +278,6 @@ func (p *Pipeline) ForPromise(promise *Promise, action Action) *PipelineFactory 
 }
 
 // ForResource defines the PipelineFactory fields for a Resource.
-// promiseVersion is passed separately because the Promise may carry the spec of a
-// pinned PromiseRevision while its labels still describe the latest version.
 func (p *Pipeline) ForResource(
 	promise *Promise, promiseVersion string, action Action, resourceRequest *unstructured.Unstructured,
 ) *PipelineFactory {

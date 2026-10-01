@@ -1965,19 +1965,18 @@ var _ = Describe("Pipeline", func() {
 			}
 		})
 
-		It("works for unversioned promises", func() {
-			unversioned := rbacNames(generate(""))
-			Expect(unversioned).To(ContainElement("ServiceAccount/pipeline-namespace/promiseName-resource-configure-pipelineName"))
-			Expect(rbacNames(generate(v1alpha1.UnversionedPromiseVersion))).To(ConsistOf(unversioned))
-		})
+		When("version is a not set on the promise", func() {
+			It("generates rbac object names without a hash", func() {
+				unversioned := rbacNames(generate(""))
+				Expect(unversioned).To(ContainElement("ServiceAccount/pipeline-namespace/promiseName-resource-configure-pipelineName"))
+				Expect(rbacNames(generate(v1alpha1.UnversionedPromiseVersion))).To(ConsistOf(unversioned))
+			})
 
-		It("labels objects with the version when version is provided", func() {
-			for _, obj := range rbacObjects(generate("")) {
-				Expect(obj.GetLabels()).NotTo(HaveKey(v1alpha1.PromiseVersionLabel), obj.GetName())
-			}
-			for _, obj := range rbacObjects(generate(v1alpha1.UnversionedPromiseVersion)) {
-				Expect(obj.GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseVersionLabel, v1alpha1.UnversionedPromiseVersion), obj.GetName())
-			}
+			It("labels objects with the 'not-set' version", func() {
+				for _, obj := range rbacObjects(generate(v1alpha1.UnversionedPromiseVersion)) {
+					Expect(obj.GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseVersionLabel, v1alpha1.UnversionedPromiseVersion), obj.GetName())
+				}
+			})
 		})
 
 		It("gives each promise version its own objects", func() {
@@ -1985,12 +1984,13 @@ var _ = Describe("Pipeline", func() {
 			v2 := generate("v2.0.0")
 			unversioned := rbacNames(generate(""))
 
-			Expect(rbacNames(v1)).To(HaveLen(len(unversioned)))
-			for _, name := range rbacNames(v1) {
+			rbacNamesV1 := rbacNames(v1)
+			Expect(rbacNamesV1).To(HaveLen(len(unversioned)))
+			for _, name := range rbacNamesV1 {
 				Expect(unversioned).NotTo(ContainElement(name))
 				Expect(rbacNames(v2)).NotTo(ContainElement(name))
 			}
-			Expect(rbacNames(generate("v1.0.0"))).To(ConsistOf(rbacNames(v1)), "names must be stable between runs")
+			Expect(rbacNames(generate("v1.0.0"))).To(ConsistOf(rbacNamesV1), "names must be stable between runs")
 
 			for _, obj := range rbacObjects(v1) {
 				Expect(obj.GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseVersionLabel, "v1.0.0"), obj.GetName())

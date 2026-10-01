@@ -99,7 +99,7 @@ func (p *PipelineFactory) serviceAccount() *corev1.ServiceAccount {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceAccountName,
 			Namespace: p.Namespace,
-			Labels:    p.rbacLabels(),
+			Labels:    p.defaultLabels(),
 		},
 	}
 }
@@ -454,7 +454,7 @@ func (p *PipelineFactory) pipelineJobName() string {
 
 func (p *PipelineFactory) pipelineJobLabels(requestSHA string) map[string]string {
 	ls := labels.Merge(
-		p.rbacLabels(),
+		p.defaultLabels(),
 		workflowLabels(string(p.WorkflowType), string(p.WorkflowAction), p.Pipeline.GetName()),
 	)
 	ls = labels.Merge(ls, managedByKratixLabel())
@@ -530,7 +530,7 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 		roles = append(roles, rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      p.rbacName(p.ID),
-				Labels:    p.rbacLabels(),
+				Labels:    p.defaultLabels(),
 				Namespace: p.Namespace,
 			},
 			TypeMeta: metav1.TypeMeta{
@@ -665,7 +665,7 @@ func (p *PipelineFactory) clusterRole() ([]rbacv1.ClusterRole, error) {
 		clusterRoles = append(clusterRoles, rbacv1.ClusterRole{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:   p.rbacName(fmt.Sprintf("%s-%s", p.ID, p.ResourceRequest.GetNamespace())),
-				Labels: p.rbacLabels(),
+				Labels: p.defaultLabels(),
 			},
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: rbacv1.SchemeGroupVersion.String(),
@@ -725,7 +725,7 @@ func (p *PipelineFactory) clusterRoleBinding(
 			clusterRoleBindings = append(clusterRoleBindings, rbacv1.ClusterRoleBinding{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:   r.GetName(),
-					Labels: p.rbacLabels(),
+					Labels: p.defaultLabels(),
 				},
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: rbacv1.SchemeGroupVersion.String(),
@@ -773,7 +773,7 @@ func (p *PipelineFactory) clusterRoleBinding(
 }
 
 func (p *PipelineFactory) userPermissionPipelineLabels() map[string]string {
-	return labels.Merge(p.rbacLabels(), UserPermissionPipelineResourcesLabels(
+	return labels.Merge(p.defaultLabels(), UserPermissionPipelineResourcesLabels(
 		p.Promise.GetName(), p.Pipeline.GetName(), p.Namespace,
 		string(p.WorkflowType), string(p.WorkflowAction)))
 }
@@ -788,7 +788,7 @@ func (p *PipelineFactory) rbacName(name string) string {
 	return objectutil.GenerateDeterministicObjectName(name, name, p.PromiseVersion)
 }
 
-func (p *PipelineFactory) rbacLabels() map[string]string {
+func (p *PipelineFactory) defaultLabels() map[string]string {
 	ls := promiseNameLabel(p.Promise.GetName())
 	if p.ResourceWorkflow && p.PromiseVersion != "" {
 		ls[PromiseVersionLabel] = p.PromiseVersion
