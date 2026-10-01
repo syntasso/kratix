@@ -2574,10 +2574,34 @@ var _ = Describe("Workflow Reconciler", func() {
 
 		When("there are no pipelines to reconcile", func() {
 			It("considers the workflow as completed", func() {
-				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, nil, []v1alpha1.PipelineJobResources{}, "promise", 5, namespace)
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, []v1alpha1.PipelineJobResources{}, "promise", 5, namespace)
 				requeue, err := workflow.ReconcileDelete(opts)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(requeue).To(BeFalse())
+			})
+
+			When("a configure job is still running", func() {
+				var configureJob *batchv1.Job
+
+				BeforeEach(func() {
+					generated, err := pipelines[0].ForPromise(&promise, v1alpha1.WorkflowActionConfigure).Resources(nil)
+					Expect(err).NotTo(HaveOccurred())
+					configureJob = generated.Job
+					Expect(fakeK8sClient.Create(ctx, configureJob)).To(Succeed())
+				})
+
+				It("waits for the job to finish before completing", func() {
+					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, []v1alpha1.PipelineJobResources{}, "promise", 5, namespace)
+					requeue, err := workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeue).To(BeTrue())
+
+					markJobAsComplete(configureJob.Name)
+
+					requeue, err = workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeue).To(BeFalse())
+				})
 			})
 		})
 
