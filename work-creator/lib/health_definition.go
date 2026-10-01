@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"sigs.k8s.io/yaml"
@@ -45,26 +46,24 @@ const (
 	healthDefinitionKind       = "HealthDefinition"
 )
 
-// healthDefinitionStamper sets spec.promiseVersion on every HealthDefinition
-// in the pipeline output. A nil stamper (unversioned Promise) changes nothing.
-type healthDefinitionStamper struct {
+// healthDefinitionVersioner sets spec.promiseVersion on every HealthDefinition
+// in the pipeline output. A nil versioner (unversioned Promise) changes nothing.
+type healthDefinitionVersioner struct {
 	promiseVersion string
 	found          int
 }
 
-func newHealthDefinitionStamper(promiseVersion string) *healthDefinitionStamper {
+func newHealthDefinitionVersioner(promiseVersion string) *healthDefinitionVersioner {
 	if promiseVersion == "" || promiseVersion == v1alpha1.UnversionedPromiseVersion {
 		return nil
 	}
-	return &healthDefinitionStamper{promiseVersion: promiseVersion}
+	return &healthDefinitionVersioner{promiseVersion: promiseVersion}
 }
 
-// stamp returns content unchanged unless it is a YAML file with at least one
-// HealthDefinition document. In that case every document in the file is
-// decoded, the HealthDefinitions get spec.promiseVersion, and the file is
-// written back document by document.
-func (s *healthDefinitionStamper) stamp(content []byte) ([]byte, error) {
-	if s == nil {
+// addPromiseVersion sets spec.promiseVersion on every HealthDefinition in content
+// and writes the file back document by document; a file with none is returned as is.
+func (v *healthDefinitionVersioner) addPromiseVersion(content []byte) ([]byte, error) {
+	if v == nil {
 		return content, nil
 	}
 
@@ -73,17 +72,17 @@ func (s *healthDefinitionStamper) stamp(content []byte) ([]byte, error) {
 		return content, nil
 	}
 
-	stamped := 0
+	found := 0
 	for _, document := range documents {
 		if object, isHealthDefinition := healthDefinition(document); isHealthDefinition {
-			object["spec"].(map[string]any)["promiseVersion"] = s.promiseVersion
-			stamped++
+			object["spec"].(map[string]any)["promiseVersion"] = v.promiseVersion
+			found++
 		}
 	}
-	if stamped == 0 {
+	if found == 0 {
 		return content, nil
 	}
-	s.found += stamped
+	v.found += found
 
 	var out bytes.Buffer
 	for i, document := range documents {
@@ -170,14 +169,35 @@ func healthDefinition(document any) (map[string]any, bool) {
 	return object, true
 }
 
-// writeCountFile records the version and how many HealthDefinitions were
-// stamped, so the status-writer can find both. Unversioned Promises write
-// nothing.
-func (s *healthDefinitionStamper) writeCountFile(rootDirectory string) error {
-	if s == nil {
+// annotate records on the Work how many HealthDefinitions this pipeline shipped.
+func (v *healthDefinitionVersioner) annotate(work *v1alpha1.Work) {
+	if v == nil {
+		return
+	}
+	annotations := work.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	annotations[v1alpha1.HealthDefinitionsAnnotation] = strconv.Itoa(v.found)
+	work.SetAnnotations(annotations)
+}
+
+// writeCountFile totals the annotation across the resource's configure Works, so
+// the count covers every pipeline, and writes it with the version for the status-writer.
+func (v *healthDefinitionVersioner) writeCountFile(rootDirectory string, works []v1alpha1.Work) error {
+	if v == nil {
 		return nil
 	}
-	content, err := yaml.Marshal(HealthDefinitionCount{PromiseVersion: s.promiseVersion, HealthDefinitions: s.found})
+	total := 0
+	for _, work := range works {
+		workLabels := work.GetLabels()
+		if workLabels[v1alpha1.WorkTypeLabel] != string(v1alpha1.WorkflowTypeResource) || workLabels[v1alpha1.DryRunLabel] == "true" {
+			continue
+		}
+		count, _ := strconv.Atoi(work.GetAnnotations()[v1alpha1.HealthDefinitionsAnnotation])
+		total += count
+	}
+	content, err := yaml.Marshal(HealthDefinitionCount{PromiseVersion: v.promiseVersion, HealthDefinitions: total})
 	if err != nil {
 		return err
 	}

@@ -1986,7 +1986,7 @@ var _ = Describe("Pipeline", func() {
 			factory = pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
 		})
 
-		It("stamps the resource configure job with the factory version", func() {
+		It("adds the promise version to the resource configure job", func() {
 			factory.PromiseVersion = "v2.0.0"
 			resources, err := factory.Resources(nil)
 			Expect(err).ToNot(HaveOccurred())
@@ -2010,7 +2010,7 @@ var _ = Describe("Pipeline", func() {
 			}))
 		})
 
-		It("stamps the resource delete job with the factory version", func() {
+		It("adds the promise version to the resource delete job", func() {
 			factory = pipeline.ForResource(promise, v1alpha1.WorkflowActionDelete, resourceRequest)
 			factory.PromiseVersion = "v2.0.0"
 			resources, err := factory.Resources(nil)

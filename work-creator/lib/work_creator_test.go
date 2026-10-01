@@ -337,7 +337,7 @@ var _ = Describe("WorkCreator", func() {
 					workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
 				})
 
-				It("stamps spec.promiseVersion on a HealthDefinition", func() {
+				It("adds spec.promiseVersion to a HealthDefinition", func() {
 					Expect(string(decompressedWorkload(workResource, "healthdefinition.yaml"))).
 						To(Equal(string(readSample(healthDefinitionTree, "expected", "healthdefinition.yaml"))))
 				})
@@ -347,24 +347,60 @@ var _ = Describe("WorkCreator", func() {
 						To(Equal(string(readSample(healthDefinitionTree, "expected", "mixed.yaml"))))
 				})
 
-				It("ships files without a HealthDefinition byte for byte", func() {
+				It("ships files that have no HealthDefinition without changes", func() {
 					for _, file := range []string{"not-yaml.txt", "configmap.yaml"} {
 						Expect(string(decompressedWorkload(workResource, file))).
 							To(Equal(string(readSample(healthDefinitionTree, "input", file))), file)
 					}
 				})
 
-				It("stamps HealthDefinitions in nested directories and per-directory groups", func() {
+				It("adds the version to HealthDefinitions in nested directories and per-directory groups", func() {
 					Expect(string(decompressedWorkload(workResource, "sub/healthdefinition.yaml"))).
 						To(Equal(string(readSample(healthDefinitionTree, "expected", "sub-healthdefinition.yaml"))))
 					Expect(string(decompressedWorkload(workResource, "scheduled/healthdefinition.yaml"))).
 						To(Equal(string(readSample(healthDefinitionTree, "expected", "scheduled-healthdefinition.yaml"))))
 				})
 
-				It("writes the count file with the version and how many it stamped", func() {
+				It("writes the count file with the version and how many it found", func() {
 					count, err := os.ReadFile(countFilePath(healthDefinitionTree))
 					Expect(err).NotTo(HaveOccurred())
 					Expect(string(count)).To(Equal("healthDefinitions: 6\npromiseVersion: v2.0.0\n"))
+				})
+
+				It("annotates the Work with how many it found", func() {
+					Expect(workResource.GetAnnotations()).To(HaveKeyWithValue(v1alpha1.HealthDefinitionsAnnotation, "6"))
+				})
+			})
+
+			When("the resource has several configure pipelines", func() {
+				It("counts the HealthDefinitions of every pipeline's Work", func() {
+					err := workCreator.Execute(healthDefinitionTree, "promise-name", "default", "resource-name", "", "resource", "first-pipeline", "v2.0.0")
+					Expect(err).ToNot(HaveOccurred())
+
+					completeTree := copySamples("complete")
+					err = workCreator.Execute(completeTree, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
+					Expect(err).ToNot(HaveOccurred())
+
+					secondWork := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
+					Expect(secondWork.GetAnnotations()).To(HaveKeyWithValue(v1alpha1.HealthDefinitionsAnnotation, "0"))
+					count, err := os.ReadFile(countFilePath(completeTree))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(string(count)).To(Equal("healthDefinitions: 6\npromiseVersion: v2.0.0\n"))
+				})
+
+				It("leaves dry-run Works out of the count", func() {
+					GinkgoT().Setenv(v1alpha1.KratixDryRunEnvVar, "true")
+					err := workCreator.Execute(healthDefinitionTree, "promise-name", "default", "resource-name", "", "resource", "dry-run-pipeline", "v2.0.0")
+					Expect(err).ToNot(HaveOccurred())
+					GinkgoT().Setenv(v1alpha1.KratixDryRunEnvVar, "")
+
+					completeTree := copySamples("complete")
+					err = workCreator.Execute(completeTree, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
+					Expect(err).ToNot(HaveOccurred())
+
+					count, err := os.ReadFile(countFilePath(completeTree))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(string(count)).To(Equal("healthDefinitions: 0\npromiseVersion: v2.0.0\n"))
 				})
 			})
 

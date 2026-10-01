@@ -115,7 +115,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		return nil
 	}
 
-	stamper := newHealthDefinitionStamper(promiseVersion)
+	versioner := newHealthDefinitionVersioner(promiseVersion)
 
 	var workloadGroups []v1alpha1.WorkloadGroup
 	var directoriesToIgnoreForTheBaseScheduling []string
@@ -127,7 +127,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		if !isRootDirectory(directory) {
 			directoriesToIgnoreForTheBaseScheduling = append(directoriesToIgnoreForTheBaseScheduling, directory)
 
-			workloads, err := w.getWorkloadsFromDir(pipelineOutputDir, filepath.Join(pipelineOutputDir, directory), nil, stamper)
+			workloads, err := w.getWorkloadsFromDir(pipelineOutputDir, filepath.Join(pipelineOutputDir, directory), nil, versioner)
 
 			if err != nil {
 				return err
@@ -149,7 +149,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		}
 	}
 
-	workloads, err := w.getWorkloadsFromDir(pipelineOutputDir, pipelineOutputDir, directoriesToIgnoreForTheBaseScheduling, stamper)
+	workloads, err := w.getWorkloadsFromDir(pipelineOutputDir, pipelineOutputDir, directoriesToIgnoreForTheBaseScheduling, versioner)
 	if err != nil {
 		return err
 	}
@@ -212,10 +212,6 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		workloadGroups = append(workloadGroups, defaultWorkloadGroup)
 	}
 
-	if err := stamper.writeCountFile(rootDirectory); err != nil {
-		return err
-	}
-
 	work := &v1alpha1.Work{}
 
 	work.Name = objectutil.GenerateObjectName(identifier)
@@ -225,6 +221,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work.Spec.PromiseName = promiseName
 	work.Spec.ResourceName = resourceName
 	work.SetAnnotations(telemetry.ApplyTraceAnnotations(work.GetAnnotations(), traceParent, traceState))
+	versioner.annotate(work)
 	work.Labels = map[string]string{}
 	logger.Info("setting work labels...")
 
@@ -254,12 +251,13 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 			return err
 		}
 		logger.Info("Work created", "workName", work.Name)
-		return nil
+		return w.writeHealthDefinitionCount(versioner, rootDirectory, namespace, promiseName, resourceName, workflowType)
 	}
 
 	logger.Info("Work already exists, will update")
 	currentWork.Spec = work.Spec
 	currentWork.SetAnnotations(telemetry.ApplyTraceAnnotations(currentWork.GetAnnotations(), traceParent, traceState))
+	versioner.annotate(currentWork)
 	err = w.K8sClient.Update(ctx, currentWork)
 
 	if err != nil {
@@ -268,11 +266,24 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}
 
 	logger.Info("Work updated", "workName", currentWork.Name)
-	return nil
+	return w.writeHealthDefinitionCount(versioner, rootDirectory, namespace, promiseName, resourceName, workflowType)
+}
+
+// writeHealthDefinitionCount lists the resource's Works once this run's Work is
+// saved, so the count file covers every configure pipeline of the resource.
+func (w *WorkCreator) writeHealthDefinitionCount(versioner *healthDefinitionVersioner, rootDirectory, namespace, promiseName, resourceName, workflowType string) error {
+	if versioner == nil || workflowType != string(v1alpha1.WorkflowTypeResource) {
+		return nil
+	}
+	works, err := resourceutil.GetAllWorksForResource(w.K8sClient, namespace, promiseName, resourceName)
+	if err != nil {
+		return err
+	}
+	return versioner.writeCountFile(rootDirectory, works)
 }
 
 // /kratix/output/     /kratix/output/   "bar"
-func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, rootDir string, directoriesToIgnoreAtTheRootLevel []string, stamper *healthDefinitionStamper) ([]v1alpha1.Workload, error) {
+func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, rootDir string, directoriesToIgnoreAtTheRootLevel []string, versioner *healthDefinitionVersioner) ([]v1alpha1.Workload, error) {
 	// decompress here
 	filesAndDirs, err := os.ReadDir(rootDir)
 	if err != nil {
@@ -287,7 +298,7 @@ func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, root
 		if info.IsDir() {
 			if !slices.Contains(directoriesToIgnoreAtTheRootLevel, info.Name()) {
 				dir := filepath.Join(rootDir, info.Name())
-				newWorkloads, err := w.getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, dir, nil, stamper)
+				newWorkloads, err := w.getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, dir, nil, versioner)
 				if err != nil {
 					return nil, err
 				}
@@ -304,9 +315,9 @@ func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, root
 				return nil, err
 			}
 
-			byteValue, err = stamper.stamp(byteValue)
+			byteValue, err = versioner.addPromiseVersion(byteValue)
 			if err != nil {
-				return nil, fmt.Errorf("failed to stamp %s: %w", filePath, err)
+				return nil, fmt.Errorf("failed to set the promise version in %s: %w", filePath, err)
 			}
 
 			// trim /kratix/output/ from the filepath

@@ -11,6 +11,9 @@ const (
 
 	// UnversionedPromiseVersion is the version recorded for a Promise that has no version label.
 	UnversionedPromiseVersion = "not-set"
+
+	// HealthDefinitionsAnnotation holds how many HealthDefinitions a Work carries.
+	HealthDefinitionsAnnotation = "kratix.io/health-definitions"
 )
 
 // So we can set a functions arguments to be of type Action instead of string

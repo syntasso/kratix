@@ -33,10 +33,8 @@ func NonMessageStatusKeys(status map[string]any) []string {
 	return keys
 }
 
-// SetExpectedHealth records on healthStatus which Promise version the resource
-// now expects health results for, and how many HealthDefinitions the pipeline
-// shipped. Every other key under healthStatus, in particular state and
-// healthRecords, is left as it is.
+// SetExpectedHealth sets expectedPromiseVersion and healthDefinitions on
+// healthStatus and leaves every other key, such as state and healthRecords, alone.
 func SetExpectedHealth(status map[string]any, promiseVersion string, healthDefinitions int) map[string]any {
 	healthStatus, ok := status["healthStatus"].(map[string]any)
 	if !ok {

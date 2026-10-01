@@ -127,12 +127,8 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 	return nil
 }
 
-// recordExpectedHealth writes expectedPromiseVersion and healthDefinitions
-// onto healthStatus after a versioned resource configure run, from the count
-// file the work-writer left. Promise workflows, delete workflows and dry runs
-// never touch health. When there is no count file the work-writer did not
-// create a Work, for example because the workflow was suspended, and health
-// is left alone.
+// recordExpectedHealth writes expectedPromiseVersion and healthDefinitions after a
+// versioned resource configure run, from the count file the work-writer left.
 func recordExpectedHealth(baseDir string, params *helpers.Parameters, status map[string]any) (map[string]any, error) {
 	versioned := params.PromiseVersion != "" && params.PromiseVersion != v1alpha1.UnversionedPromiseVersion
 	if !versioned ||

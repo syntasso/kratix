@@ -195,8 +195,8 @@ var _ = Describe("Kratix Healthcheck promise version", func() {
 			}
 		})
 
-		It("stamps the Promise version on HealthDefinitions and records what the resource expects", func() {
-			By("stamping spec.promiseVersion on the HealthDefinition only", func() {
+		It("adds the Promise version to HealthDefinitions and records what the resource expects", func() {
+			By("adding spec.promiseVersion to the HealthDefinition only", func() {
 				Eventually(func(g Gomega) {
 					workloads := resourceWorkloads(g, promiseName)
 					g.Expect(workloads).To(HaveKey("healthdefinition.yaml"))
@@ -243,7 +243,7 @@ var _ = Describe("Kratix Healthcheck promise version", func() {
 		})
 
 		It("ships the pipeline output untouched and leaves healthStatus unset", func() {
-			By("shipping both files byte for byte", func() {
+			By("shipping both files without any changes", func() {
 				Eventually(func(g Gomega) {
 					workloads := resourceWorkloads(g, promiseName)
 					g.Expect(string(workloads["healthdefinition.yaml"])).To(Equal(healthcheckHealthDefinition(promiseName)))

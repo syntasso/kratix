@@ -1692,7 +1692,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				createResourceBinding(fakeK8sClient, promise, resReq, "v2.0.0")
 			})
 
-			It("stamps the configure job with the revision version, not the label", func() {
+			It("adds the revision version to the configure job, not the label", func() {
 				_, err := t.reconcileUntilCompletion(reconciler, resReq)
 				Expect(err).NotTo(HaveOccurred())
 
@@ -1700,7 +1700,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				expectPromiseVersionOnEveryContainer(reconcileConfigureOptsArg.Resources[0].Job, "v2.0.0")
 			})
 
-			It("stamps the delete job with the revision version, not the label", func() {
+			It("adds the revision version to the delete job, not the label", func() {
 				setReconcileConfigureWorkflowToReturnFinished()
 				_, err := t.reconcileUntilCompletion(reconciler, resReq)
 				Expect(err).NotTo(HaveOccurred())
