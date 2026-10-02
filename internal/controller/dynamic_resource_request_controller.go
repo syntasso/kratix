@@ -519,7 +519,7 @@ func (r *DynamicResourceRequestController) syncResourceBindingUpgradeStatus(ctx 
 }
 
 func (r *DynamicResourceRequestController) syncResourceBindingUpgradeInProgressStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured, attemptedVersion string) error {
-	if attemptedVersion == "" || attemptedVersion == v1alpha1.UnversionedPromiseVersion {
+	if attemptedVersion == "" || attemptedVersion == v1alpha1.PlaceholderPromiseVersion {
 		return nil
 	}
 

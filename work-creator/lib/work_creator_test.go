@@ -474,7 +474,7 @@ var _ = Describe("WorkCreator", func() {
 				Expect(err).To(MatchError(os.ErrNotExist))
 			},
 				Entry("empty string", ""),
-				Entry(v1alpha1.UnversionedPromiseVersion, v1alpha1.UnversionedPromiseVersion),
+				Entry(v1alpha1.PlaceholderPromiseVersion, v1alpha1.PlaceholderPromiseVersion),
 			)
 		})
 

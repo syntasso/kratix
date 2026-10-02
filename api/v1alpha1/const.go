@@ -9,8 +9,7 @@ const (
 	WorkflowTypeResource Type = "resource"
 	WorkflowTypePromise  Type = "promise"
 
-	// UnversionedPromiseVersion is the version recorded for a Promise that has no version label.
-	UnversionedPromiseVersion = "not-set"
+	PlaceholderPromiseVersion = "not-set"
 
 	// HealthDefinitionsAnnotation holds how many HealthDefinitions a Work carries; a
 	// pipeline may write several. HealthDefinitionsVersionAnnotation holds the Promise

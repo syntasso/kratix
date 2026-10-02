@@ -167,7 +167,7 @@ var _ = Describe("updateStatus", func() {
 		}),
 		Entry("when the Promise is unversioned", func() {
 			writeCountFile("1")
-			params.PromiseVersion = v1alpha1.UnversionedPromiseVersion
+			params.PromiseVersion = v1alpha1.PlaceholderPromiseVersion
 		}),
 		Entry("in a promise workflow", func() {
 			writeCountFile("1")

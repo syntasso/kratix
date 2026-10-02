@@ -34,10 +34,8 @@ type PipelineFactory struct {
 	PromiseVersion   string
 }
 
-// promiseVersion returns an empty string when the Promise has no version (the
-// "not-set" placeholder), so callers only have to check one value.
 func (p *PipelineFactory) promiseVersion() string {
-	if p.PromiseVersion == UnversionedPromiseVersion {
+	if p.PromiseVersion == PlaceholderPromiseVersion {
 		return ""
 	}
 	return p.PromiseVersion

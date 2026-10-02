@@ -54,7 +54,7 @@ type healthDefinitionVersioner struct {
 }
 
 func newHealthDefinitionVersioner(promiseVersion string) *healthDefinitionVersioner {
-	if promiseVersion == "" || promiseVersion == v1alpha1.UnversionedPromiseVersion {
+	if promiseVersion == "" || promiseVersion == v1alpha1.PlaceholderPromiseVersion {
 		return nil
 	}
 	return &healthDefinitionVersioner{promiseVersion: promiseVersion}

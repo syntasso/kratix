@@ -130,7 +130,7 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 // recordExpectedHealth writes expectedPromiseVersion and healthDefinitions after a
 // versioned resource configure run, from the count file the work-writer left.
 func recordExpectedHealth(baseDir string, params *helpers.Parameters, status map[string]any) (map[string]any, error) {
-	versioned := params.PromiseVersion != "" && params.PromiseVersion != v1alpha1.UnversionedPromiseVersion
+	versioned := params.PromiseVersion != "" && params.PromiseVersion != v1alpha1.PlaceholderPromiseVersion
 	if !versioned ||
 		params.WorkflowType != v1alpha1.WorkflowTypeResource ||
 		os.Getenv(v1alpha1.KratixActionEnvVar) != string(v1alpha1.WorkflowActionConfigure) ||

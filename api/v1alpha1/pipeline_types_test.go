@@ -2029,7 +2029,7 @@ var _ = Describe("Pipeline", func() {
 
 				expectVersionOnEveryContainer(resources.Job, "")
 			},
-			Entry("not-set", v1alpha1.UnversionedPromiseVersion),
+			Entry("not-set", v1alpha1.PlaceholderPromiseVersion),
 			Entry("empty", ""),
 		)
 

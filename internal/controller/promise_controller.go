@@ -383,7 +383,7 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 	}
 
 	if promiseVersion == "" {
-		promiseVersion = v1alpha1.UnversionedPromiseVersion
+		promiseVersion = v1alpha1.PlaceholderPromiseVersion
 	}
 
 	if err := r.cleanupOldRevisions(ctx, promise, promiseVersion); err != nil {
