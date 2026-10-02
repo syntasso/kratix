@@ -76,6 +76,28 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 	When("resource is being created", func() {
 		// TODO: remove soon, once users have upgraded to per-version pipeline RBAC.
+		// TODO: remove soon, once users have upgraded to per-version pipeline RBAC.
+		It("removes the destination selectors ConfigMap without a promise version label for a request on a versioned promise", func() {
+			unversionedConfigMap := func(namespace string) *v1.ConfigMap {
+				return &v1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+					Name:      "destination-selectors-" + promise.GetName(),
+					Namespace: namespace,
+					Labels:    map[string]string{"kratix.io/promise-name": promise.GetName()},
+				}}
+			}
+			inRequestNamespace := unversionedConfigMap(resReq.GetNamespace())
+			promiseWorkflows := unversionedConfigMap(v1alpha1.SystemNamespace)
+			Expect(fakeK8sClient.Create(ctx, inRequestNamespace)).To(Succeed())
+			Expect(fakeK8sClient.Create(ctx, promiseWorkflows)).To(Succeed())
+
+			_, err := t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(inRequestNamespace), inRequestNamespace)).To(
+				MatchError(ContainSubstring("not found")))
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(promiseWorkflows), promiseWorkflows)).To(Succeed())
+		})
+
 		It("removes pipeline RBAC without a promise version label for a request on a versioned promise", func() {
 			unversionedSA := &v1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{
 				Name:      "redis-resource-configure-first-pipeline",
