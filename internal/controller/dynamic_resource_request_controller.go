@@ -265,7 +265,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	if updated, err := r.ensureConfigureWorkflowStatus(ctx, rr, pipelineResources); updated || err != nil {
+	if updated, err := r.ensureConfigureWorkflowStatus(ctx, rr, pipelineResources, jobOpts); updated || err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -765,15 +765,24 @@ func (r *DynamicResourceRequestController) ensureConfigureWorkflowStatus(
 	ctx context.Context,
 	rr *unstructured.Unstructured,
 	pipelineResources []v1alpha1.PipelineJobResources,
+	jobOpts workflow.Opts,
 ) (updated bool, err error) {
 	statusChanged := removeWorkflowCounters(rr)
 
-	workflowStatusChanged, err := ensureRRKratixWorkflowStatusIsSetup(rr, pipelineResources)
+	// A running Job's status-writer looks its pipeline up by name, so never replace the
+	// status underneath it; the workflow reconciler resets it once that Job has finished.
+	jobRunning, err := workflow.AnyJobRunning(jobOpts)
 	if err != nil {
 		return false, err
 	}
-	if workflowStatusChanged {
-		statusChanged = true
+	if !jobRunning {
+		workflowStatusChanged, err := ensureRRKratixWorkflowStatusIsSetup(rr, pipelineResources)
+		if err != nil {
+			return false, err
+		}
+		if workflowStatusChanged {
+			statusChanged = true
+		}
 	}
 
 	if statusChanged {

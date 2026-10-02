@@ -1258,6 +1258,71 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				))
 			})
 
+			When("a Job for the workflow is still running and the pipelines no longer match the status", func() {
+				var runningJob *batchv1.Job
+
+				BeforeEach(func() {
+					Expect(unstructured.SetNestedSlice(resReq.Object, []any{
+						map[string]any{
+							"name":  "old-pipeline",
+							"phase": v1alpha1.WorkflowPhaseRunning,
+							"job":   "old-pipeline-job",
+						},
+					}, "status", "kratix", "workflows", "configure", "pipelines")).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+					runningJob = &batchv1.Job{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "old-pipeline-job",
+							Namespace: resReq.GetNamespace(),
+							Labels: map[string]string{
+								v1alpha1.WorkflowTypeLabel: string(v1alpha1.WorkflowTypeResource),
+								v1alpha1.PromiseNameLabel:  promise.GetName(),
+								v1alpha1.ResourceNameLabel: resReq.GetName(),
+							},
+						},
+						Status: batchv1.JobStatus{Active: 1},
+					}
+					Expect(fakeK8sClient.Create(ctx, runningJob)).To(Succeed())
+				})
+
+				It("leaves the pipeline status alone while the Job is running", func() {
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					pipelines, _, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "configure", "pipelines")
+					Expect(err).NotTo(HaveOccurred())
+					Expect(pipelines).To(HaveLen(1))
+					Expect(pipelines[0]).To(SatisfyAll(
+						HaveKeyWithValue("name", "old-pipeline"),
+						HaveKeyWithValue("phase", v1alpha1.WorkflowPhaseRunning),
+						HaveKeyWithValue("job", "old-pipeline-job"),
+					))
+				})
+
+				It("resets the pipeline status to pending once the Job has finished", func() {
+					runningJob.Status.Active = 0
+					runningJob.Status.Conditions = []batchv1.JobCondition{{
+						Type:   batchv1.JobComplete,
+						Status: v1.ConditionTrue,
+					}}
+					Expect(fakeK8sClient.Status().Update(ctx, runningJob)).To(Succeed())
+
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					pipelines, _, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "configure", "pipelines")
+					Expect(err).NotTo(HaveOccurred())
+					Expect(pipelines).To(HaveLen(1))
+					Expect(pipelines[0]).To(SatisfyAll(
+						HaveKeyWithValue("name", "first-pipeline"),
+						HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
+					))
+				})
+			})
+
 			When("the resource request has workflow counters left behind by an older Kratix", func() {
 				It("removes them from the status", func() {
 					resourceutil.SetStatus(resReq, l,
