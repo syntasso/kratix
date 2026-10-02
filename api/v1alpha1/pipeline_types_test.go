@@ -2021,7 +2021,7 @@ var _ = Describe("Pipeline", func() {
 			expectVersionOnEveryContainer(resources.Job, "v2.0.0")
 		})
 
-		DescribeTable("normalises an unversioned promise to an empty version",
+		DescribeTable("defaults an unversioned promise to an empty version",
 			func(promiseVersion string) {
 				factory.PromiseVersion = promiseVersion
 				resources, err := factory.Resources(nil)
