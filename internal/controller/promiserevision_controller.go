@@ -240,7 +240,7 @@ func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, 
 	}
 
 	if len(bindingsForPromiseRevision) == 0 {
-		if err := r.deletePipelineRBAC(ctx, revision); err != nil {
+		if err := r.deletePipelineResources(ctx, revision); err != nil {
 			return ctrl.Result{}, err
 		}
 		controllerutil.RemoveFinalizer(&revision, resourceRequestCleanupFinalizer)
@@ -254,9 +254,10 @@ func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, 
 	return ctrl.Result{}, nil
 }
 
-// deletePipelineRBAC removes the RBAC that resource pipelines of this revision's version ran with.
-// It must only run once no requests remain on the version, because their delete pipelines need it.
-func (r *PromiseRevisionReconciler) deletePipelineRBAC(ctx context.Context, revision v1alpha1.PromiseRevision) error {
+// deletePipelineResources removes the RBAC and destination selectors ConfigMaps that resource
+// pipelines of this revision's version ran with. It must only run once no requests remain on the
+// version, because their delete pipelines need the RBAC.
+func (r *PromiseRevisionReconciler) deletePipelineResources(ctx context.Context, revision v1alpha1.PromiseRevision) error {
 	versionLabels := map[string]string{
 		v1alpha1.PromiseNameLabel:    revision.Spec.PromiseRef.Name,
 		v1alpha1.PromiseVersionLabel: revision.Spec.Version,
@@ -268,6 +269,7 @@ func (r *PromiseRevisionReconciler) deletePipelineRBAC(ctx context.Context, revi
 		rbacv1.SchemeGroupVersion.WithKind("RoleBinding"),
 		rbacv1.SchemeGroupVersion.WithKind("Role"),
 		corev1.SchemeGroupVersion.WithKind("ServiceAccount"),
+		corev1.SchemeGroupVersion.WithKind("ConfigMap"),
 	} {
 		if _, err := deleteAllResourcesWithKindMatchingLabel(o, &gvk, versionLabels); err != nil {
 			return err

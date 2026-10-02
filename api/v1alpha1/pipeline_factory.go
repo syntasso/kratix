@@ -115,17 +115,18 @@ func (p *PipelineFactory) configMap(workloadGroupScheduling []WorkloadGroupSched
 	if p.WorkflowAction != WorkflowActionConfigure {
 		return nil, nil
 	}
+
 	cmName := "destination-selectors-" + p.Promise.GetName()
-	if p.WorkflowType != WorkflowTypePromise && p.WorkflowType != WorkflowTypeResource {
-		cmName = objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", cmName, string(p.WorkflowType)))
-	}
 	cmLabels := promiseNameLabel(p.Promise.GetName())
-	// The unversioned name is also used by the promise workflows and by every unversioned resource
-	// pipeline in the namespace, so only a versioned ConfigMap belongs to one promise version.
-	if p.WorkflowType == WorkflowTypeResource && p.isVersioned() {
+	switch p.WorkflowType {
+	case WorkflowTypePromise:
+	case WorkflowTypeResource:
 		cmName = p.versionedName(cmName)
 		cmLabels = p.defaultLabels()
+	default:
+		cmName = objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", cmName, string(p.WorkflowType)))
 	}
+
 	schedulingYAML, err := yaml.Marshal(workloadGroupScheduling)
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling destinationSelectors to yaml: %w", err)
