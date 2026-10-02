@@ -545,3 +545,72 @@ func getBindingLabels(promiseName, resourceName string) map[string]string {
 	Expect(json.Unmarshal([]byte(output), &obj)).To(Succeed())
 	return obj.Metadata.Labels
 }
+
+var _ = Describe("Promise Revisions with different destination selectors", func() {
+	const (
+		assetsPath  = "assets/promise-revision-scheduling"
+		promiseName = "revisionscheduling"
+		rrV1Name    = "revision-scheduling-v1"
+		rrV2Name    = "revision-scheduling-v2"
+	)
+
+	BeforeEach(func() {
+		SetDefaultEventuallyTimeout(4 * time.Minute)
+		SetDefaultEventuallyPollingInterval(2 * time.Second)
+		kubeutils.SetTimeoutAndInterval(4*time.Minute, 2*time.Second)
+	})
+
+	AfterEach(func() {
+		platform.EventuallyKubectlDelete("revisionschedulings", rrV1Name)
+		platform.EventuallyKubectlDelete("revisionschedulings", rrV2Name)
+		platform.EventuallyKubectlDelete("promise", promiseName)
+		platform.EventuallyKubectlDelete("destination", "revision-scheduling-a")
+		platform.EventuallyKubectlDelete("destination", "revision-scheduling-b")
+	})
+
+	It("schedules each request with the destination selectors of its pinned version", func() {
+		By("installing both promise versions", func() {
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "destinations.yaml"))
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise-v1.yaml"))
+			Eventually(func() string {
+				return platform.Kubectl("get", "promise", promiseName)
+			}).Should(SatisfyAll(ContainSubstring("Available"), ContainSubstring("v1.0.0")))
+
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise-v2.yaml"))
+			Eventually(func() string {
+				return platform.Kubectl("get", "promise", promiseName)
+			}).Should(SatisfyAll(ContainSubstring("Available"), ContainSubstring("v2.0.0")))
+		})
+
+		By("requesting a resource pinned to each version", func() {
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-requests.yaml"))
+			for rrName, version := range map[string]string{rrV1Name: "v1.0.0", rrV2Name: "v2.0.0"} {
+				Eventually(func() string {
+					return platform.Kubectl("get", "revisionschedulings", rrName, "-o=jsonpath={.status.promiseVersion}")
+				}).Should(Equal(version))
+			}
+		})
+
+		By("giving each version its own destination selectors ConfigMap", func() {
+			for version, selector := range map[string]string{"v1.0.0": "revision-scheduling: a", "v2.0.0": "revision-scheduling: b"} {
+				Eventually(func() string {
+					return platform.Kubectl("get", "configmaps", "--namespace=default",
+						"-l", fmt.Sprintf("%s=%s,%s=%s", platformv1alpha1.PromiseNameLabel, promiseName, platformv1alpha1.PromiseVersionLabel, version),
+						"-o=jsonpath={.items[*].data.destinationSelectors}")
+				}).Should(ContainSubstring(selector))
+			}
+		})
+
+		By("scheduling each request to the destination its version selects", func() {
+			Eventually(func() string {
+				return platform.Kubectl("get", "workplacements", "--namespace=default", "-o",
+					fmt.Sprintf(`jsonpath={range .items[?(@.spec.promiseName=="%s")]}{.spec.resourceName}={.spec.targetDestinationName}{"\n"}{end}`, promiseName))
+			}).Should(SatisfyAll(
+				ContainSubstring(rrV1Name+"=revision-scheduling-a"),
+				ContainSubstring(rrV2Name+"=revision-scheduling-b"),
+				Not(ContainSubstring(rrV1Name+"=revision-scheduling-b")),
+				Not(ContainSubstring(rrV2Name+"=revision-scheduling-a")),
+			))
+		})
+	})
+})

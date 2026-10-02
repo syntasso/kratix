@@ -235,3 +235,101 @@ func rbacObjects(resources v1alpha1.PipelineJobResources) []client.Object {
 	}
 	return objects
 }
+
+// TODO: remove soon, once users have upgraded to per-version destination selectors.
+var _ = Describe("RemoveUnversionedDestinationSelectors", func() {
+	var (
+		promise  v1alpha1.Promise
+		pipeline v1alpha1.Pipeline
+		rr       *unstructured.Unstructured
+	)
+
+	generate := func(namespace, version string) v1alpha1.PipelineJobResources {
+		GinkgoHelper()
+		rr.SetNamespace(namespace)
+		resources, err := pipeline.ForResource(&promise, version, v1alpha1.WorkflowActionConfigure, rr).Resources(nil)
+		Expect(err).NotTo(HaveOccurred())
+		return resources
+	}
+
+	remove := func() {
+		GinkgoHelper()
+		Expect(workflow.RemoveUnversionedDestinationSelectors(ctx, fakeK8sClient, logger,
+			[]v1alpha1.PipelineJobResources{generate("default", "")}, v1alpha1.SystemNamespace)).To(Succeed())
+	}
+
+	exists := func(obj client.Object) bool {
+		GinkgoHelper()
+		err := fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj.DeepCopyObject().(client.Object))
+		if err != nil {
+			Expect(err).To(MatchError(ContainSubstring("not found")))
+			return false
+		}
+		return true
+	}
+
+	var unversioned, toKeep []client.Object
+
+	BeforeEach(func() {
+		api, err := json.Marshal(fakeCRD)
+		Expect(err).NotTo(HaveOccurred())
+		promise = v1alpha1.Promise{
+			ObjectMeta: metav1.ObjectMeta{Name: "redis"},
+			Spec:       v1alpha1.PromiseSpec{API: &runtime.RawExtension{Raw: api}},
+		}
+		pipeline = v1alpha1.Pipeline{
+			ObjectMeta: metav1.ObjectMeta{Name: "instance"},
+			Spec:       v1alpha1.PipelineSpec{Containers: []v1alpha1.Container{{Name: "container-1", Image: "busybox"}}},
+		}
+		rr = &unstructured.Unstructured{}
+		rr.SetAPIVersion("mygroup.example/v1")
+		rr.SetKind("TheKind")
+		rr.SetName("example")
+
+		unversioned = []client.Object{
+			generate("default", "").Shared.ConfigMap,
+			generate("team-a", "").Shared.ConfigMap,
+		}
+		otherPromise := generate("team-a", "").Shared.ConfigMap
+		otherPromise.SetName("destination-selectors-postgres")
+		otherPromise.SetLabels(map[string]string{v1alpha1.PromiseNameLabel: "postgres"})
+		toKeep = []client.Object{
+			// The promise workflows use the unversioned name in their namespace.
+			generate(v1alpha1.SystemNamespace, "").Shared.ConfigMap,
+			generate("team-b", v1alpha1.PlaceholderPromiseVersion).Shared.ConfigMap,
+			generate("team-b", "v1.0.0").Shared.ConfigMap,
+			otherPromise,
+		}
+		for _, obj := range append(unversioned, toKeep...) {
+			Expect(fakeK8sClient.Create(ctx, obj)).To(Succeed())
+		}
+	})
+
+	It("deletes the promise's unversioned ConfigMap in every namespace except the promise workflows'", func() {
+		remove()
+
+		for _, obj := range unversioned {
+			Expect(exists(obj)).To(BeFalse(), obj.GetNamespace()+"/"+obj.GetName())
+		}
+		for _, obj := range toKeep {
+			Expect(exists(obj)).To(BeTrue(), obj.GetNamespace()+"/"+obj.GetName())
+		}
+	})
+
+	It("keeps them while an unversioned Job of any of the promise's resource pipelines is running", func() {
+		otherPipeline := pipeline.DeepCopy()
+		otherPipeline.SetName("other")
+		rr.SetNamespace("team-a")
+		resources, err := otherPipeline.ForResource(&promise, "", v1alpha1.WorkflowActionConfigure, rr).Resources(nil)
+		Expect(err).NotTo(HaveOccurred())
+		resources.Job.Status.Active = 1
+		Expect(fakeK8sClient.Create(ctx, resources.Job)).To(Succeed())
+
+		Expect(workflow.RemoveUnversionedDestinationSelectors(ctx, fakeK8sClient, logger,
+			[]v1alpha1.PipelineJobResources{generate("default", ""), resources}, v1alpha1.SystemNamespace)).To(Succeed())
+
+		for _, obj := range unversioned {
+			Expect(exists(obj)).To(BeTrue(), obj.GetNamespace()+"/"+obj.GetName())
+		}
+	})
+})

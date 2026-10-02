@@ -1,0 +1,25 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: revision-scheduling-a
+  labels:
+    revision-scheduling: a
+spec:
+  path: revision-scheduling-a
+  strictMatchLabels: true
+  stateStoreRef:
+    kind: BucketStateStore
+    name: default
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: revision-scheduling-b
+  labels:
+    revision-scheduling: b
+spec:
+  path: revision-scheduling-b
+  strictMatchLabels: true
+  stateStoreRef:
+    kind: BucketStateStore
+    name: default

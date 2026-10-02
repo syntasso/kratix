@@ -70,22 +70,21 @@ const (
 
 type DynamicResourceRequestController struct {
 	// use same naming conventions as other controllers
-	Client                      client.Client
-	GVK                         *schema.GroupVersionKind
-	Scheme                      *runtime.Scheme
-	PromiseIdentifier           string
-	Log                         logr.Logger
-	UID                         string
-	WatchStopped                bool
-	CRD                         *apiextensionsv1.CustomResourceDefinition
-	Controller                  crcontroller.Controller
-	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
-	CanCreateResources          *bool
-	NumberOfJobsToKeep          int
-	ReconciliationInterval      time.Duration
-	ReconcileAfterFailure       bool
-	EventRecorder               events.EventRecorder
-	ResourceBindingPinned       bool
+	Client                 client.Client
+	GVK                    *schema.GroupVersionKind
+	Scheme                 *runtime.Scheme
+	PromiseIdentifier      string
+	Log                    logr.Logger
+	UID                    string
+	WatchStopped           bool
+	CRD                    *apiextensionsv1.CustomResourceDefinition
+	Controller             crcontroller.Controller
+	CanCreateResources     *bool
+	NumberOfJobsToKeep     int
+	ReconciliationInterval time.Duration
+	ReconcileAfterFailure  bool
+	EventRecorder          events.EventRecorder
+	ResourceBindingPinned  bool
 	// DryRunEnabled mirrors featureFlags.dryRun from the Kratix config. When
 	// false, dry-run labels on a resource request are ignored, so a stray label
 	// cannot divert a request into the dry-run paths.
@@ -242,7 +241,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	r.removeUnversionedPipelineRBAC(ctx, logger, promise, rr, promiseRevisionUsed.Spec.Version)
+	r.removeUnversionedPipelineResources(ctx, logger, promise, rr, promiseRevisionUsed.Spec.Version)
 
 	namespace := rr.GetNamespace()
 	if promise.WorkflowPipelineNamespaceSet() {
@@ -303,13 +302,14 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	return r.reconcileAfterConfigure(ctx, logger, opts, rr, promise, bindingVersion, promiseRevisionUsed)
 }
 
-// removeUnversionedPipelineRBAC deletes resource pipeline RBAC without a promise version label
-// when the request is on a versioned promise, whose pipelines never use it. It runs on every
-// reconcile, not only when a pipeline starts, so every namespace gets cleaned. It is best effort:
-// a failure is retried on the next reconcile rather than blocking this one.
+// removeUnversionedPipelineResources deletes resource pipeline RBAC and destination selectors
+// ConfigMaps without a promise version label when the request is on a versioned promise, whose
+// pipelines never use them. It runs on every reconcile, not only when a pipeline starts, so every
+// namespace gets cleaned. It is best effort: a failure is retried on the next reconcile rather
+// than blocking this one.
 //
 // TODO: remove soon, once users have upgraded to per-version pipeline RBAC.
-func (r *DynamicResourceRequestController) removeUnversionedPipelineRBAC(
+func (r *DynamicResourceRequestController) removeUnversionedPipelineResources(
 	ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise, rr *unstructured.Unstructured, promiseVersion string,
 ) {
 	if promiseVersion == "" || promiseVersion == v1alpha1.PlaceholderPromiseVersion {
@@ -318,16 +318,26 @@ func (r *DynamicResourceRequestController) removeUnversionedPipelineRBAC(
 
 	var pipelines []v1alpha1.PipelineJobResources
 	for _, action := range []v1alpha1.Action{v1alpha1.WorkflowActionConfigure, v1alpha1.WorkflowActionDelete} {
-		unversioned, err := promise.GenerateResourcePipelines(action, rr, "", logger)
+		unversionedPipelines, err := promise.GenerateResourcePipelines(action, rr, "", logger)
 		if err != nil {
-			logging.Warn(logger, "failed to generate unversioned pipelines; will retry on the next reconcile", "error", err)
+			logging.Warn(logger, "failed to generate unversionedPipelines pipelines; will retry on the next reconcile", "error", err)
 			return
 		}
-		pipelines = append(pipelines, unversioned...)
+		pipelines = append(pipelines, unversionedPipelines...)
 	}
 
 	if err := workflow.RemoveUnversionedPipelineRBAC(ctx, r.Client, logger, pipelines); err != nil {
 		logging.Warn(logger, "failed to remove unversioned pipeline RBAC; will retry on the next reconcile", "error", err)
+	}
+
+	// Promise workflows run in kratix-platform-system, or in the pipelineNamespace of the live promise.
+	// The spec here is the pinned revision's, so kratix-platform-system is always kept as well.
+	promiseWorkflowNamespaces := []string{v1alpha1.SystemNamespace}
+	if promise.WorkflowPipelineNamespaceSet() {
+		promiseWorkflowNamespaces = append(promiseWorkflowNamespaces, promise.Spec.Workflows.Config.PipelineNamespace)
+	}
+	if err := workflow.RemoveUnversionedDestinationSelectors(ctx, r.Client, logger, pipelines, promiseWorkflowNamespaces...); err != nil {
+		logging.Warn(logger, "failed to remove unversioned destination selectors; will retry on the next reconcile", "error", err)
 	}
 }
 

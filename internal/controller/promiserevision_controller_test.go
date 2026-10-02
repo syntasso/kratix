@@ -310,8 +310,8 @@ var _ = Describe("PromiseRevisionController", func() {
 				})
 			})
 
-			When("the revision's version has resource pipeline RBAC", func() {
-				var versionRBAC, objectsToKeep []client.Object
+			When("the revision's version has resource pipeline objects", func() {
+				var versionObjects, objectsToKeep []client.Object
 
 				BeforeEach(func() {
 					versionLabels := map[string]string{
@@ -321,8 +321,9 @@ var _ = Describe("PromiseRevisionController", func() {
 					meta := func(name, namespace string, labels map[string]string) metav1.ObjectMeta {
 						return metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels}
 					}
-					versionRBAC = []client.Object{
+					versionObjects = []client.Object{
 						&corev1.ServiceAccount{ObjectMeta: meta("redis-sa-v1", "default", versionLabels)},
+						&corev1.ConfigMap{ObjectMeta: meta("destination-selectors-redis-v1", "default", versionLabels)},
 						&rbacv1.Role{ObjectMeta: meta("redis-role-v1", "default", versionLabels)},
 						&rbacv1.RoleBinding{ObjectMeta: meta("redis-rb-v1", "other-namespace", versionLabels),
 							RoleRef: rbacv1.RoleRef{Kind: "ClusterRole", Name: "redis-cr-v1"}},
@@ -340,19 +341,21 @@ var _ = Describe("PromiseRevisionController", func() {
 						&rbacv1.Role{ObjectMeta: meta("postgres-role-same-version", "default", map[string]string{
 							v1alpha1.PromiseNameLabel: "postgres", v1alpha1.PromiseVersionLabel: promiseVersion,
 						})},
-						&corev1.ConfigMap{ObjectMeta: meta("destination-selectors-redis", "default", versionLabels)},
+						&corev1.ConfigMap{ObjectMeta: meta("destination-selectors-redis-v2", "default", map[string]string{
+							v1alpha1.PromiseNameLabel: "redis", v1alpha1.PromiseVersionLabel: "v2.0.0",
+						})},
 					}
-					for _, obj := range append(versionRBAC, objectsToKeep...) {
+					for _, obj := range append(versionObjects, objectsToKeep...) {
 						Expect(fakeK8sClient.Create(ctx, obj)).To(Succeed())
 					}
 				})
 
-				It("cleans up that version's RBAC objects", func() {
+				It("cleans up that version's pipeline objects", func() {
 					Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
 					_, err := t.reconcileUntilCompletion(reconciler, revision)
 					Expect(err).NotTo(HaveOccurred())
 
-					for _, obj := range versionRBAC {
+					for _, obj := range versionObjects {
 						Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(
 							MatchError(ContainSubstring("not found")), obj.GetName())
 					}
@@ -361,7 +364,7 @@ var _ = Describe("PromiseRevisionController", func() {
 					}
 				})
 
-				It("keeps that version's RBAC while a request on it is still being deleted", func() {
+				It("keeps that version's pipeline objects while a request on it is still being deleted", func() {
 					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(rr), rr)).To(Succeed())
 					rr.SetFinalizers([]string{"kratix.io/delete-workflows"})
 					Expect(fakeK8sClient.Update(ctx, rr)).To(Succeed())
@@ -370,13 +373,13 @@ var _ = Describe("PromiseRevisionController", func() {
 					_, err := t.reconcileUntilCompletion(reconciler, revision, &opts{singleReconcile: true})
 					Expect(err).NotTo(HaveOccurred())
 
-					for _, obj := range versionRBAC {
+					for _, obj := range versionObjects {
 						Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed(), obj.GetName())
 					}
 				})
 
 				When("skip-resource-request-cleanup-on-delete is set on the revision", func() {
-					It("keeps that version's RBAC at delete", func() {
+					It("keeps that version's pipeline objects at delete", func() {
 						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: revision.Name}, revision)).To(Succeed())
 						revision.SetSkipResourceRequestCleanupOnDelete()
 						Expect(fakeK8sClient.Update(ctx, revision)).To(Succeed())
@@ -385,7 +388,7 @@ var _ = Describe("PromiseRevisionController", func() {
 						_, err := t.reconcileUntilCompletion(reconciler, revision)
 						Expect(err).NotTo(HaveOccurred())
 
-						for _, obj := range versionRBAC {
+						for _, obj := range versionObjects {
 							Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed(), obj.GetName())
 						}
 					})

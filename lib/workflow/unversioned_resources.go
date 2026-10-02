@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	stderrors "errors"
+	"slices"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -49,6 +50,60 @@ func RemoveUnversionedPipelineRBAC(ctx context.Context, c client.Client, logger 
 		for _, obj := range objects {
 			errs = append(errs, deleteIfUnversioned(ctx, c, logger, obj))
 		}
+	}
+	return stderrors.Join(errs...)
+}
+
+// RemoveUnversionedDestinationSelectors deletes the promise's destination selectors ConfigMap
+// without a promise version label, in every namespace. Resource pipelines of a versioned promise
+// never mount it.
+//
+// Nothing is deleted while a Job without a promise version label of any of them is still running.
+// The promise workflows use the same name, so the ConfigMap is kept in promise Workflow Namespaces.
+//
+// TODO: remove soon, once users have upgraded to per-version pipeline RBAC.
+func RemoveUnversionedDestinationSelectors(
+	ctx context.Context, c client.Client, logger logr.Logger,
+	pipelines []v1alpha1.PipelineJobResources, promiseWorkflowNamespaces ...string,
+) error {
+	var destConfigMap *corev1.ConfigMap
+	for _, pipeline := range pipelines {
+		if pipeline.Shared.ConfigMap != nil {
+			destConfigMap = pipeline.Shared.ConfigMap
+			break
+		}
+	}
+	if destConfigMap == nil {
+		return nil
+	}
+
+	for _, pipeline := range pipelines {
+		running, err := unversionedPipelineIsRunning(ctx, c, pipeline)
+		if err != nil {
+			return err
+		}
+		if running {
+			logging.Debug(logger, "pipeline job without a promise version label is still running; keeping destConfigMap destination selectors", "pipeline", pipeline.Name)
+			return nil
+		}
+	}
+
+	noVersion, err := labels.NewRequirement(v1alpha1.PromiseVersionLabel, selection.DoesNotExist, nil)
+	if err != nil {
+		return err
+	}
+	configMaps := &corev1.ConfigMapList{}
+	if err := c.List(ctx, configMaps, &client.ListOptions{LabelSelector: labels.SelectorFromSet(map[string]string{v1alpha1.PromiseNameLabel: destConfigMap.GetLabels()[v1alpha1.PromiseNameLabel]}).Add(*noVersion)}); err != nil {
+		return err
+	}
+
+	var errs []error
+	for i := range configMaps.Items {
+		configMap := &configMaps.Items[i]
+		if configMap.GetName() != destConfigMap.GetName() || slices.Contains(promiseWorkflowNamespaces, configMap.GetNamespace()) {
+			continue
+		}
+		errs = append(errs, deleteIfUnversioned(ctx, c, logger, configMap))
 	}
 	return stderrors.Join(errs...)
 }
