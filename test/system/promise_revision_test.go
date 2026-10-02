@@ -200,6 +200,15 @@ var _ = Describe("Promise Revisions", func() {
 			}).Should(Succeed())
 		})
 
+		By("letting the previous pipeline's Job finish when the upgrade renamed the pipeline", func() {
+			Eventually(func(g Gomega) {
+				g.Expect(configureJobSucceeded(promiseName, rrOneName)).To(SatisfyAll(
+					Not(BeEmpty()),
+					HaveEach(HaveSuffix("=1")),
+				))
+			}).Should(Succeed())
+		})
+
 		By("not updating the resource request pinned to a specific version", func() {
 			Consistently(func() string {
 				return platform.Kubectl("get", "upgrades", rrTwoName, "-ojsonpath='{.status.promiseVersion}'")
@@ -301,6 +310,18 @@ func latestConfigurePipelineJob(promiseName, resourceName string) (version, serv
 		return "", ""
 	}
 	return fields[0], fields[1]
+}
+
+// configureJobSucceeded lists "<job>=<succeeded>" per configure Job; succeeded is empty until a Job completes.
+func configureJobSucceeded(promiseName, resourceName string) []string {
+	GinkgoHelper()
+	out := platform.Kubectl("get", "jobs", "--namespace=default",
+		"-l", fmt.Sprintf("%s=%s,%s=%s,%s=%s",
+			platformv1alpha1.PromiseNameLabel, promiseName,
+			platformv1alpha1.ResourceNameLabel, resourceName,
+			platformv1alpha1.WorkflowActionLabel, platformv1alpha1.WorkflowActionConfigure),
+		`-o=jsonpath={range .items[*]}{.metadata.name}={.status.succeeded}{"\n"}{end}`)
+	return strings.Fields(out)
 }
 
 func canServiceAccountGet(serviceAccount, resource string) bool {

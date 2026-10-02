@@ -36,7 +36,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: resource-configure
+            name: resource-configure-renamed
           spec:
             rbac:
               permissions:
