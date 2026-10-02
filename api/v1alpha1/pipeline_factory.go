@@ -94,7 +94,7 @@ func (p *PipelineFactory) IsDryRun() bool {
 }
 
 func (p *PipelineFactory) serviceAccount() *corev1.ServiceAccount {
-	serviceAccountName := p.rbacName(p.ID)
+	serviceAccountName := p.versionedName(p.ID)
 	if p.Pipeline.Spec.RBAC.ServiceAccount != "" {
 		serviceAccountName = p.Pipeline.Spec.RBAC.ServiceAccount
 	}
@@ -119,6 +119,13 @@ func (p *PipelineFactory) configMap(workloadGroupScheduling []WorkloadGroupSched
 	if p.WorkflowType != WorkflowTypePromise && p.WorkflowType != WorkflowTypeResource {
 		cmName = objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", cmName, string(p.WorkflowType)))
 	}
+	cmLabels := promiseNameLabel(p.Promise.GetName())
+	// The unversioned name is also used by the promise workflows and by every unversioned resource
+	// pipeline in the namespace, so only a versioned ConfigMap belongs to one promise version.
+	if p.WorkflowType == WorkflowTypeResource && p.isVersioned() {
+		cmName = p.versionedName(cmName)
+		cmLabels = p.defaultLabels()
+	}
 	schedulingYAML, err := yaml.Marshal(workloadGroupScheduling)
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling destinationSelectors to yaml: %w", err)
@@ -127,7 +134,7 @@ func (p *PipelineFactory) configMap(workloadGroupScheduling []WorkloadGroupSched
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cmName,
 			Namespace: p.Namespace,
-			Labels:    promiseNameLabel(p.Promise.GetName()),
+			Labels:    cmLabels,
 		},
 		Data: map[string]string{
 			"destinationSelectors": string(schedulingYAML),
@@ -538,7 +545,7 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 		}
 		roles = append(roles, rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      p.rbacName(p.ID),
+				Name:      p.versionedName(p.ID),
 				Labels:    p.defaultLabels(),
 				Namespace: p.Namespace,
 			},
@@ -565,7 +572,7 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 		if len(rules) > 0 {
 			roles = append(roles, rbacv1.Role{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      p.rbacName(objectutil.GenerateDeterministicObjectName(p.ID)),
+					Name:      p.versionedName(objectutil.GenerateDeterministicObjectName(p.ID)),
 					Namespace: p.Namespace,
 					Labels:    p.userPermissionPipelineLabels(),
 				},
@@ -617,7 +624,7 @@ func (p *PipelineFactory) roleBindings(
 		if ok && ns != userPermissionResourceNamespaceLabelAll {
 			bindings = append(bindings, rbacv1.RoleBinding{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      p.rbacName(objectutil.GenerateDeterministicObjectName(p.ID + "-" + serviceAccount.GetNamespace())),
+					Name:      p.versionedName(objectutil.GenerateDeterministicObjectName(p.ID + "-" + serviceAccount.GetNamespace())),
 					Namespace: ns,
 					Labels:    clusterRoleLabels,
 				},
@@ -673,7 +680,7 @@ func (p *PipelineFactory) clusterRole() ([]rbacv1.ClusterRole, error) {
 		}
 		clusterRoles = append(clusterRoles, rbacv1.ClusterRole{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:   p.rbacName(fmt.Sprintf("%s-%s", p.ID, p.ResourceRequest.GetNamespace())),
+				Name:   p.versionedName(fmt.Sprintf("%s-%s", p.ID, p.ResourceRequest.GetNamespace())),
 				Labels: p.defaultLabels(),
 			},
 			TypeMeta: metav1.TypeMeta{
@@ -704,7 +711,7 @@ func (p *PipelineFactory) clusterRole() ([]rbacv1.ClusterRole, error) {
 				labels[UserPermissionResourceNamespaceLabel] = userPermissionResourceNamespaceLabelAll
 			}
 
-			generatedName := p.rbacName(objectutil.GenerateDeterministicObjectName(p.ID + "-" + userPermissionResourceNamespaceLabel))
+			generatedName := p.versionedName(objectutil.GenerateDeterministicObjectName(p.ID + "-" + userPermissionResourceNamespaceLabel))
 
 			clusterRole := rbacv1.ClusterRole{
 				ObjectMeta: metav1.ObjectMeta{
@@ -756,7 +763,7 @@ func (p *PipelineFactory) clusterRoleBinding(
 		} else if ns == userPermissionResourceNamespaceLabelAll {
 			clusterRoleBindings = append(clusterRoleBindings, rbacv1.ClusterRoleBinding{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:   p.rbacName(objectutil.GenerateDeterministicObjectName(p.ID + "-" + serviceAccount.GetNamespace())),
+					Name:   p.versionedName(objectutil.GenerateDeterministicObjectName(p.ID + "-" + serviceAccount.GetNamespace())),
 					Labels: p.userPermissionPipelineLabels(),
 				},
 				TypeMeta: metav1.TypeMeta{
@@ -787,14 +794,18 @@ func (p *PipelineFactory) userPermissionPipelineLabels() map[string]string {
 		string(p.WorkflowType), string(p.WorkflowAction)))
 }
 
-// rbacName gives each promise version its own RBAC objects, so that resource
-// pipelines of different versions never overwrite or prune each other's
-// permissions. Unversioned promises get names without a version hash.
-func (p *PipelineFactory) rbacName(name string) string {
-	if !p.ResourceWorkflow || p.PromiseVersion == "" || p.PromiseVersion == PlaceholderPromiseVersion {
+// versionedName gives each promise version its own copy of a resource pipeline
+// object, so that pipelines of different versions never overwrite or prune each
+// other's objects. Unversioned promises get names without a version hash.
+func (p *PipelineFactory) versionedName(name string) string {
+	if !p.isVersioned() {
 		return name
 	}
 	return objectutil.GenerateDeterministicObjectName(name, name, p.PromiseVersion)
+}
+
+func (p *PipelineFactory) isVersioned() bool {
+	return p.ResourceWorkflow && p.PromiseVersion != "" && p.PromiseVersion != PlaceholderPromiseVersion
 }
 
 func (p *PipelineFactory) defaultLabels() map[string]string {

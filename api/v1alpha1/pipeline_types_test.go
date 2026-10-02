@@ -2159,6 +2159,55 @@ var _ = Describe("Pipeline", func() {
 		})
 	})
 
+	Describe("resource pipeline destination selectors ConfigMap and the promise version", func() {
+		generate := func(version string) v1alpha1.PipelineJobResources {
+			GinkgoHelper()
+			resources, err := pipeline.ForResource(promise, version, v1alpha1.WorkflowActionConfigure, resourceRequest).Resources(nil)
+			Expect(err).NotTo(HaveOccurred())
+			return resources
+		}
+
+		schedulingVolumeConfigMap := func(resources v1alpha1.PipelineJobResources) string {
+			GinkgoHelper()
+			for _, volume := range resources.Job.Spec.Template.Spec.Volumes {
+				if volume.Name == "promise-scheduling" {
+					return volume.ConfigMap.Name
+				}
+			}
+			Fail("no promise-scheduling volume")
+			return ""
+		}
+
+		It("does not add a version hash or label for an unversioned promise", func() {
+			for _, version := range []string{"", v1alpha1.PlaceholderPromiseVersion} {
+				configMap := generate(version).Shared.ConfigMap
+				Expect(configMap.GetName()).To(Equal("destination-selectors-" + promise.GetName()))
+				Expect(configMap.GetLabels()).NotTo(HaveKey(v1alpha1.PromiseVersionLabel))
+			}
+		})
+
+		It("gives each promise version its own ConfigMap", func() {
+			v1 := generate("v1.0.0")
+			v2 := generate("v2.0.0")
+
+			Expect(v1.Shared.ConfigMap.GetName()).To(HavePrefix("destination-selectors-" + promise.GetName() + "-"))
+			Expect(v1.Shared.ConfigMap.GetName()).NotTo(Equal(v2.Shared.ConfigMap.GetName()))
+			Expect(generate("v1.0.0").Shared.ConfigMap.GetName()).To(Equal(v1.Shared.ConfigMap.GetName()), "names must be stable between runs")
+			Expect(v1.Shared.ConfigMap.GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseVersionLabel, "v1.0.0"))
+		})
+
+		It("mounts the version's ConfigMap into the pipeline", func() {
+			v1 := generate("v1.0.0")
+			Expect(schedulingVolumeConfigMap(v1)).To(Equal(v1.Shared.ConfigMap.GetName()))
+		})
+
+		It("does not version the promise workflow's ConfigMap", func() {
+			resources, err := pipeline.ForPromise(promise, v1alpha1.WorkflowActionConfigure).Resources(nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resources.Shared.ConfigMap.GetName()).To(Equal("destination-selectors-" + promise.GetName()))
+		})
+	})
+
 	Describe("PipelinesFromUnstructured", func() {
 		It("generates a list of pipelines from a list of unstructured pipeline objects", func() {
 			unstructuredPipelines := []unstructured.Unstructured{

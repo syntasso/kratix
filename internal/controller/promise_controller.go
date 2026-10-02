@@ -1238,7 +1238,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.ReconcileAfterFailure = r.ReconcileAfterFailure
 		dynamicController.ResourceBindingPinned = r.ResourceBindingPinned
 		dynamicController.DryRunEnabled = r.DryRunEnabled
-		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
 		if dynamicController.WatchStopped {
 			logging.Debug(logger, "restarting dynamic controller watch", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
@@ -1254,22 +1253,21 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
 	dynamicResourceRequestController := &DynamicResourceRequestController{
-		Client:                      r.Client,
-		Scheme:                      r.Scheme,
-		GVK:                         rrGVK,
-		CRD:                         rrCRD,
-		PromiseIdentifier:           promise.GetName(),
-		PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
-		Log:                         r.Log.WithName(promise.GetName()),
-		UID:                         string(promise.GetUID())[0:5],
-		WatchStopped:                false,
-		CanCreateResources:          canCreateResources,
-		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
-		ReconciliationInterval:      r.ReconciliationInterval,
-		ReconcileAfterFailure:       r.ReconcileAfterFailure,
-		EventRecorder:               r.Manager.GetEventRecorder("ResourceRequestController"),
-		ResourceBindingPinned:       r.ResourceBindingPinned,
-		DryRunEnabled:               r.DryRunEnabled,
+		Client:                 r.Client,
+		Scheme:                 r.Scheme,
+		GVK:                    rrGVK,
+		CRD:                    rrCRD,
+		PromiseIdentifier:      promise.GetName(),
+		Log:                    r.Log.WithName(promise.GetName()),
+		UID:                    string(promise.GetUID())[0:5],
+		WatchStopped:           false,
+		CanCreateResources:     canCreateResources,
+		NumberOfJobsToKeep:     r.NumberOfJobsToKeep,
+		ReconciliationInterval: r.ReconciliationInterval,
+		ReconcileAfterFailure:  r.ReconcileAfterFailure,
+		EventRecorder:          r.Manager.GetEventRecorder("ResourceRequestController"),
+		ResourceBindingPinned:  r.ResourceBindingPinned,
+		DryRunEnabled:          r.DryRunEnabled,
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}

@@ -70,22 +70,21 @@ const (
 
 type DynamicResourceRequestController struct {
 	// use same naming conventions as other controllers
-	Client                      client.Client
-	GVK                         *schema.GroupVersionKind
-	Scheme                      *runtime.Scheme
-	PromiseIdentifier           string
-	Log                         logr.Logger
-	UID                         string
-	WatchStopped                bool
-	CRD                         *apiextensionsv1.CustomResourceDefinition
-	Controller                  crcontroller.Controller
-	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
-	CanCreateResources          *bool
-	NumberOfJobsToKeep          int
-	ReconciliationInterval      time.Duration
-	ReconcileAfterFailure       bool
-	EventRecorder               events.EventRecorder
-	ResourceBindingPinned       bool
+	Client                 client.Client
+	GVK                    *schema.GroupVersionKind
+	Scheme                 *runtime.Scheme
+	PromiseIdentifier      string
+	Log                    logr.Logger
+	UID                    string
+	WatchStopped           bool
+	CRD                    *apiextensionsv1.CustomResourceDefinition
+	Controller             crcontroller.Controller
+	CanCreateResources     *bool
+	NumberOfJobsToKeep     int
+	ReconciliationInterval time.Duration
+	ReconcileAfterFailure  bool
+	EventRecorder          events.EventRecorder
+	ResourceBindingPinned  bool
 	// DryRunEnabled mirrors featureFlags.dryRun from the Kratix config. When
 	// false, dry-run labels on a resource request are ignored, so a stray label
 	// cannot divert a request into the dry-run paths.

@@ -56,18 +56,17 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		eventRecorder = events.NewFakeRecorder(1024)
 
 		reconciler = &controller.DynamicResourceRequestController{
-			CanCreateResources:          ptr.True(),
-			Client:                      fakeK8sClient,
-			Scheme:                      scheme.Scheme,
-			GVK:                         rrGVK,
-			CRD:                         rrCRD,
-			PromiseIdentifier:           promise.GetName(),
-			PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
-			Log:                         l,
-			UID:                         "1234abcd",
-			ReconciliationInterval:      controller.DefaultReconciliationInterval,
-			ReconcileAfterFailure:       true,
-			EventRecorder:               eventRecorder,
+			CanCreateResources:     ptr.True(),
+			Client:                 fakeK8sClient,
+			Scheme:                 scheme.Scheme,
+			GVK:                    rrGVK,
+			CRD:                    rrCRD,
+			PromiseIdentifier:      promise.GetName(),
+			Log:                    l,
+			UID:                    "1234abcd",
+			ReconciliationInterval: controller.DefaultReconciliationInterval,
+			ReconcileAfterFailure:  true,
+			EventRecorder:          eventRecorder,
 		}
 
 		resReq = createResourceRequest()
@@ -96,10 +95,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			result, err := t.reconcileUntilCompletion(reconciler, resReq)
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
-			resourceLabels := map[string]string{
-				"kratix.io/promise-name": promise.GetName(),
-			}
-			rbacLabels := map[string]string{
+			versionLabels := map[string]string{
 				"kratix.io/promise-name":    promise.GetName(),
 				"kratix.io/promise-version": "v1.0.0",
 			}
@@ -110,14 +106,14 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(resources[0]).To(BeAssignableToTypeOf(&v1.ServiceAccount{}))
 				sa = resources[0].(*v1.ServiceAccount)
 				Expect(sa.GetName()).To(MatchRegexp(`^redis-resource-configure-first-pipeline-\w{5}$`))
-				Expect(sa.GetLabels()).To(Equal(rbacLabels))
+				Expect(sa.GetLabels()).To(Equal(versionLabels))
 			})
 
 			var role *rbacv1.Role
 			By("creating a role for the pipeline service account", func() {
 				Expect(resources[2]).To(BeAssignableToTypeOf(&rbacv1.Role{}))
 				role = resources[2].(*rbacv1.Role)
-				Expect(role.GetLabels()).To(Equal(rbacLabels))
+				Expect(role.GetLabels()).To(Equal(versionLabels))
 				Expect(role.Rules).To(ConsistOf(
 					rbacv1.PolicyRule{
 						Verbs:     []string{"get", "list", "update", "create", "patch"},
@@ -142,15 +138,15 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Namespace: resReq.GetNamespace(),
 					Name:      sa.GetName(),
 				}))
-				Expect(binding.GetLabels()).To(Equal(rbacLabels))
+				Expect(binding.GetLabels()).To(Equal(versionLabels))
 			})
 
-			By("creating a config map with the promise scheduling in it", func() {
+			By("creating a config map with the promise version's scheduling in it", func() {
 				Expect(resources[1]).To(BeAssignableToTypeOf(&v1.ConfigMap{}))
 				configMap := resources[1].(*v1.ConfigMap)
-				Expect(configMap.GetName()).To(Equal("destination-selectors-" + promise.GetName()))
+				Expect(configMap.GetName()).To(MatchRegexp(`^destination-selectors-` + promise.GetName() + `-\w{5}$`))
 				Expect(configMap.GetNamespace()).To(Equal("default"))
-				Expect(configMap.GetLabels()).To(Equal(resourceLabels))
+				Expect(configMap.GetLabels()).To(Equal(versionLabels))
 				Expect(configMap.Data).To(HaveKey("destinationSelectors"))
 				space := regexp.MustCompile(`\s+`)
 				destinationSelectors := space.ReplaceAllString(configMap.Data["destinationSelectors"], " ")
