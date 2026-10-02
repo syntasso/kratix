@@ -1,0 +1,45 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: ResourceBinding
+metadata:
+  name: revision-scheduling-v1
+  namespace: default
+  labels:
+    kratix.io/promise-name: revisionscheduling
+    kratix.io/resource-name: revision-scheduling-v1
+spec:
+  version: v1.0.0
+  promiseRef:
+    name: revisionscheduling
+  resourceRef:
+    name: revision-scheduling-v1
+    namespace: default
+---
+apiVersion: test.kratix.io/v1alpha1
+kind: RevisionScheduling
+metadata:
+  name: revision-scheduling-v1
+  namespace: default
+spec: {}
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: ResourceBinding
+metadata:
+  name: revision-scheduling-v2
+  namespace: default
+  labels:
+    kratix.io/promise-name: revisionscheduling
+    kratix.io/resource-name: revision-scheduling-v2
+spec:
+  version: v2.0.0
+  promiseRef:
+    name: revisionscheduling
+  resourceRef:
+    name: revision-scheduling-v2
+    namespace: default
+---
+apiVersion: test.kratix.io/v1alpha1
+kind: RevisionScheduling
+metadata:
+  name: revision-scheduling-v2
+  namespace: default
+spec: {}
