@@ -120,15 +120,15 @@ The Status interface provides helpers for manipulating a structured status
 
 **`Get(string) any`**
 
-Get queries the Status and retrieves the value at the specified path e.g. healthStatus.state
+Get queries the Status and retrieves the value at the specified path e.g. connectionDetails.host
 
 **`Set(string, any) error`**
 
-Set updates the value at the specified path e.g. healthStatus.state
+Set updates the value at the specified path e.g. connectionDetails.host
 
 **`Remove(string) error`**
 
-Set removes the value at the specified path e.g. healthStatus.state
+Set removes the value at the specified path e.g. connectionDetails.host
 
 ## DestinationSelector Object
 

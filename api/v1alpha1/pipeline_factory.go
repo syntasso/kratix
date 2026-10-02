@@ -34,6 +34,13 @@ type PipelineFactory struct {
 	CRDPlural        string
 }
 
+func (p *PipelineFactory) promiseVersion() string {
+	if p.PromiseVersion == PlaceholderPromiseVersion {
+		return ""
+	}
+	return p.PromiseVersion
+}
+
 // Resources configures the job Resources for a pipeline.
 func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResources, error) {
 	wgScheduling := p.Promise.GetWorkloadGroupScheduling()
@@ -183,6 +190,7 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 		{Name: KratixTypeEnvVar, Value: string(p.WorkflowType)},
 		{Name: KratixPromiseNameEnvVar, Value: p.Promise.GetName()},
 		{Name: KratixPipelineNameEnvVar, Value: p.Pipeline.Name},
+		{Name: KratixPromiseVersionEnvVar, Value: p.promiseVersion()},
 		{Name: KratixObjectKindEnvVar, Value: objKind},
 		{Name: KratixObjectGroupEnvVar, Value: objGroup},
 		{Name: KratixObjectVersionEnvVar, Value: objVersion},
@@ -222,6 +230,7 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 		"--pipeline-name", p.Pipeline.GetName(),
 		"--namespace", p.Namespace,
 		"--workflow-type", string(p.WorkflowType),
+		"--promise-version", p.promiseVersion(),
 	}
 
 	if p.ResourceWorkflow {
@@ -782,7 +791,7 @@ func (p *PipelineFactory) userPermissionPipelineLabels() map[string]string {
 // pipelines of different versions never overwrite or prune each other's
 // permissions. Unversioned promises get names without a version hash.
 func (p *PipelineFactory) rbacName(name string) string {
-	if !p.ResourceWorkflow || p.PromiseVersion == "" || p.PromiseVersion == UnversionedPromiseVersion {
+	if !p.ResourceWorkflow || p.PromiseVersion == "" || p.PromiseVersion == PlaceholderPromiseVersion {
 		return name
 	}
 	return objectutil.GenerateDeterministicObjectName(name, name, p.PromiseVersion)

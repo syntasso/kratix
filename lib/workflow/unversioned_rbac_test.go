@@ -155,7 +155,7 @@ var _ = Describe("RemoveUnversionedPipelineRBAC", func() {
 		inDefault := rbacObjects(generate(""))
 		rr.SetNamespace("team-a")
 		inTeamA := rbacObjects(generate(""))
-		notSetInTeamA := rbacObjects(generate(v1alpha1.UnversionedPromiseVersion))
+		notSetInTeamA := rbacObjects(generate(v1alpha1.PlaceholderPromiseVersion))
 		rr.SetNamespace("default")
 
 		otherPipeline := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{
@@ -185,7 +185,7 @@ var _ = Describe("RemoveUnversionedPipelineRBAC", func() {
 	})
 
 	It("keeps the RBAC of the not-set version, which uses the same names", func() {
-		notSet := rbacObjects(generate(v1alpha1.UnversionedPromiseVersion))
+		notSet := rbacObjects(generate(v1alpha1.PlaceholderPromiseVersion))
 		create(notSet...)
 
 		remove()

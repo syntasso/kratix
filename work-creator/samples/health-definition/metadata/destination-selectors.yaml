@@ -1,0 +1,5 @@
+- matchLabels:
+    environment: production
+- matchLabels:
+    environment: staging
+  directory: scheduled/

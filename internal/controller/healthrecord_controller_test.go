@@ -161,6 +161,46 @@ var _ = Describe("HealthRecordController", func() {
 			})
 		})
 
+		When("the resource request healthStatus already carries what the status-writer wrote", func() {
+			BeforeEach(func() {
+				statusMap := map[string]any{
+					"healthStatus": map[string]any{
+						"state":                  "unknown",
+						"expectedPromiseVersion": "v2.0.0",
+						"healthDefinitions":      int64(1),
+					},
+				}
+				Expect(unstructured.SetNestedMap(resource.Object, statusMap, "status")).To(Succeed())
+				Expect(fakeK8sClient.Status().Update(ctx, resource)).To(Succeed())
+			})
+
+			It("keeps those fields when it recomputes the state", func() {
+				updatedResource := reconcile()
+
+				healthStatus := getResourceHealthStatus(updatedResource)
+				Expect(healthStatus).To(SatisfyAll(
+					HaveKeyWithValue("expectedPromiseVersion", "v2.0.0"),
+					HaveKeyWithValue("healthDefinitions", int64(1)),
+					HaveKeyWithValue("state", healthRecord.Data.State),
+				))
+			})
+
+			It("keeps those fields when the last record is deleted", func() {
+				reconcile()
+				Expect(fakeK8sClient.Delete(ctx, healthRecord)).To(Succeed())
+				_, err := t.reconcileUntilCompletion(reconciler, healthRecord)
+				Expect(err).NotTo(HaveOccurred())
+
+				updatedResource := &unstructured.Unstructured{}
+				updatedResource.SetGroupVersionKind(resource.GroupVersionKind())
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resource), updatedResource)).To(Succeed())
+				Expect(getResourceHealthStatus(updatedResource)).To(SatisfyAll(
+					HaveKeyWithValue("expectedPromiseVersion", "v2.0.0"),
+					HaveKeyWithValue("healthDefinitions", int64(1)),
+				))
+			})
+		})
+
 		When("the resource request HealthStatus already has a HealthRecord with a matching state", func() {
 			BeforeEach(func() {
 				now = time.Now().Unix()
@@ -522,6 +562,13 @@ func getResourceStatus(r *unstructured.Unstructured) map[string]interface{} {
 	Expect(err).ToNot(HaveOccurred())
 	Expect(foundHealthRecord).To(BeTrue())
 	return status
+}
+
+func getResourceHealthStatus(r *unstructured.Unstructured) map[string]any {
+	healthStatus, found, err := unstructured.NestedMap(r.Object, "status", "healthStatus")
+	Expect(err).ToNot(HaveOccurred())
+	Expect(found).To(BeTrue(), "healthStatus key not found in status")
+	return healthStatus
 }
 
 func getHealthRecordsList(status map[string]interface{}) (healthRecords []any) {

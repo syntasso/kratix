@@ -23,6 +23,7 @@ func workCreatorCmd() *cobra.Command {
 	var resourceName string
 	var resourceNamespace string
 	var workflowType string
+	var promiseVersion string
 
 	cmd := &cobra.Command{
 		Use:   "work-creator",
@@ -35,7 +36,8 @@ func workCreatorCmd() *cobra.Command {
 				"namespace", namespace,
 				"resource-name", resourceName,
 				"resource-namespace", resourceNamespace,
-				"workflow-type", workflowType)
+				"workflow-type", workflowType,
+				"promise-version", promiseVersion)
 
 			if inputDirectory == "" {
 				return fmt.Errorf("must provide --input-directory")
@@ -82,7 +84,7 @@ func workCreatorCmd() *cobra.Command {
 				K8sClient: k8sClient,
 			}
 
-			err = workCreator.Execute(inputDirectory, promiseName, namespace, resourceName, resourceNamespace, workflowType, pipelineName)
+			err = workCreator.Execute(inputDirectory, promiseName, namespace, resourceName, resourceNamespace, workflowType, pipelineName, promiseVersion)
 			if err != nil {
 				return fmt.Errorf("work creator execution failed: %w", err)
 			}
@@ -98,6 +100,7 @@ func workCreatorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&resourceName, "resource-name", "", "Name of the resource")
 	cmd.Flags().StringVar(&resourceNamespace, "resource-namespace", "", "Namespace of the resource")
 	cmd.Flags().StringVar(&workflowType, "workflow-type", "resource", "Create a Work for Promise or Resource type scheduling")
+	cmd.Flags().StringVar(&promiseVersion, "promise-version", "", "Version of the promise; HealthDefinitions in the output are stamped with it")
 
 	if err := cmd.MarkFlagRequired("input-directory"); err != nil {
 		log.Fatalf("error marking input-directory as required: %s", err)

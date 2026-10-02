@@ -8,6 +8,14 @@ const (
 
 	WorkflowTypeResource Type = "resource"
 	WorkflowTypePromise  Type = "promise"
+
+	PlaceholderPromiseVersion = "not-set"
+
+	// HealthDefinitionsAnnotation holds how many HealthDefinitions a Work carries; a
+	// pipeline may write several. HealthDefinitionsVersionAnnotation holds the Promise
+	// version set on all of them, since one Work comes from one run at one version.
+	HealthDefinitionsAnnotation        = "kratix.io/health-definitions"
+	HealthDefinitionsVersionAnnotation = "kratix.io/health-definitions-version"
 )
 
 // So we can set a functions arguments to be of type Action instead of string

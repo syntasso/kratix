@@ -159,12 +159,7 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 
 	initialHealthStatusState := r.getInitialHealthStatusState(resReq)
 
-	healthStatus := map[string]any{
-		"state":         state,
-		"healthRecords": healthData,
-	}
-
-	if err = unstructured.SetNestedMap(resReq.Object, healthStatus, "status", "healthStatus"); err != nil {
+	if err = setHealthStatus(resReq, state, healthData); err != nil {
 		return err
 	}
 
@@ -220,6 +215,15 @@ func (r *HealthRecordReconciler) getInitialHealthStatusState(resReq *unstructure
 	}
 
 	return initialHealthStatusState
+}
+
+// setHealthStatus writes state and healthRecords in place. Other keys under
+// healthStatus belong to the status-writer and are left alone.
+func setHealthStatus(resReq *unstructured.Unstructured, state string, healthData []any) error {
+	if err := unstructured.SetNestedField(resReq.Object, state, "status", "healthStatus", "state"); err != nil {
+		return err
+	}
+	return unstructured.SetNestedSlice(resReq.Object, healthData, "status", "healthStatus", "healthRecords")
 }
 
 func referToSameResource(a, b *platformv1alpha1.HealthRecord) bool {
@@ -321,12 +325,7 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 		return defaultRequeue, err
 	}
 
-	healthStatus := map[string]any{
-		"state":         state,
-		"healthRecords": healthData,
-	}
-
-	if err := unstructured.SetNestedMap(resReq.Object, healthStatus, "status", "healthStatus"); err != nil {
+	if err := setHealthStatus(resReq, state, healthData); err != nil {
 		return defaultRequeue, err
 	}
 

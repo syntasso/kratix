@@ -33,6 +33,19 @@ func NonMessageStatusKeys(status map[string]any) []string {
 	return keys
 }
 
+// SetExpectedHealth sets expectedPromiseVersion and healthDefinitions on
+// healthStatus and leaves every other key, such as state and healthRecords, alone.
+func SetExpectedHealth(status map[string]any, promiseVersion string, healthDefinitions int) map[string]any {
+	healthStatus, ok := status["healthStatus"].(map[string]any)
+	if !ok {
+		healthStatus = map[string]any{}
+	}
+	healthStatus["expectedPromiseVersion"] = promiseVersion
+	healthStatus["healthDefinitions"] = int64(healthDefinitions)
+	status["healthStatus"] = healthStatus
+	return status
+}
+
 // MarkAsCompleted takes a status map and returns a new status map with the
 // "ConfigureWorkflowCompleted" condition set to true. It will also update the
 // "message" field to "Resource requested" or "Promise configured" if the

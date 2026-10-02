@@ -65,7 +65,6 @@ const (
 	resourcePromiseVersionStatus      = "promiseVersion"
 	resourceBindingVersionStatus      = "resourceBindingVersion"
 	promiseRevisionLookupFailedReason = "FailedPromiseRevisionLookup"
-	UnversionedPromiseVersion         = v1alpha1.UnversionedPromiseVersion
 	LatestVersion                     = "latest"
 )
 
@@ -313,7 +312,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 func (r *DynamicResourceRequestController) removeUnversionedPipelineRBAC(
 	ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise, rr *unstructured.Unstructured, promiseVersion string,
 ) {
-	if promiseVersion == "" || promiseVersion == UnversionedPromiseVersion {
+	if promiseVersion == "" || promiseVersion == v1alpha1.PlaceholderPromiseVersion {
 		return
 	}
 
@@ -550,7 +549,7 @@ func (r *DynamicResourceRequestController) syncResourceBindingUpgradeStatus(ctx 
 }
 
 func (r *DynamicResourceRequestController) syncResourceBindingUpgradeInProgressStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured, attemptedVersion string) error {
-	if attemptedVersion == "" || attemptedVersion == UnversionedPromiseVersion {
+	if attemptedVersion == "" || attemptedVersion == v1alpha1.PlaceholderPromiseVersion {
 		return nil
 	}
 

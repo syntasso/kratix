@@ -41,6 +41,8 @@ const (
 	KratixTypeEnvVar         = "KRATIX_WORKFLOW_TYPE"
 	KratixPromiseNameEnvVar  = "KRATIX_PROMISE_NAME"
 	KratixPipelineNameEnvVar = "KRATIX_PIPELINE_NAME"
+	// KratixPromiseVersionEnvVar carries the version of the Promise being applied; empty when unversioned.
+	KratixPromiseVersionEnvVar = "KRATIX_PROMISE_VERSION"
 
 	KratixObjectKindEnvVar      = "KRATIX_OBJECT_KIND"
 	KratixObjectGroupEnvVar     = "KRATIX_OBJECT_GROUP"

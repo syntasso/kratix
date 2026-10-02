@@ -1,0 +1,41 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: HealthDefinition
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-health-agent
+    app.kubernetes.io/managed-by: kustomize
+  name: healthdefinition-sample
+  namespace: default
+spec:
+  promiseRef:
+    name: psql
+  resourceRef:
+    name: mypsql
+    namespace: default
+  schedule: "* * * * *"
+  input: |
+    apiVersion: mypromise.org/v1
+    kind: Psql
+    metadata:
+        name: mypsql
+        namespace: default
+    spec:
+        example: fun
+    status:
+        bucketURL: test.com
+        connectionString: psql@hostname.com
+  workflow:
+    apiVersion: platform.kratix.io/v1alpha1
+    kind: Pipeline
+    metadata:
+      name: health
+    spec:
+      containers:
+        - image: busybox
+          name: health
+      rbac:
+        permissions:
+          - apiGroups: [ "batch" ]
+            verbs: [ "get" ]
+            resources: [ "jobs" ]
+            resourceNames: [ "my-job" ]

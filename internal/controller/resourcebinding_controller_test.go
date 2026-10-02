@@ -155,7 +155,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 					rr,
 				)
 
-				resourceutil.SetStatus(rr, logr.Discard(), "promiseVersion", controller.UnversionedPromiseVersion)
+				resourceutil.SetStatus(rr, logr.Discard(), "promiseVersion", v1alpha1.PlaceholderPromiseVersion)
 				Expect(fakeK8sClient.Status().Update(ctx, rr)).To(Succeed())
 
 				request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
@@ -467,7 +467,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 			)
 
 			It("does not retry when the resource promise version is unversioned", func() {
-				rr = createResourceRequestWithVersion(ctx, controller.UnversionedPromiseVersion)
+				rr = createResourceRequestWithVersion(ctx, v1alpha1.PlaceholderPromiseVersion)
 				setUpgradeCondition(metav1.ConditionFalse, v1alpha1.UpgradeFailedReason, "v0.0.2")
 
 				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: bindingName})

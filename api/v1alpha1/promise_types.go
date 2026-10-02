@@ -499,14 +499,16 @@ func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Act
 			{Name: "IS_LAST_PIPELINE", Value: strconv.FormatBool(isLast)},
 		}
 
-		var resources PipelineJobResources
-		var err error
+		var factory *PipelineFactory
 		switch workflowType {
 		case WorkflowTypeResource:
-			resources, err = pipe.ForResource(p, promiseVersion, workflowAction, resourceRequest).Resources(additionalJobEnv)
+			factory = pipe.ForResource(p, promiseVersion, workflowAction, resourceRequest)
 		case WorkflowTypePromise:
-			resources, err = pipe.ForPromise(p, workflowAction).Resources(additionalJobEnv)
+			factory = pipe.ForPromise(p, workflowAction)
 		}
+		factory.PromiseVersion = promiseVersion
+
+		resources, err := factory.Resources(additionalJobEnv)
 		if err != nil {
 			return nil, err
 		}
@@ -517,8 +519,10 @@ func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Act
 	return allResources, nil
 }
 
+// GeneratePromisePipelines takes the version from the Promise's own label, which is
+// authoritative for Promise workflows.
 func (p *Promise) GeneratePromisePipelines(workflowAction Action, logger logr.Logger) ([]PipelineJobResources, error) {
-	return p.generatePipelinesObjects(WorkflowTypePromise, workflowAction, nil, "", logger)
+	return p.generatePipelinesObjects(WorkflowTypePromise, workflowAction, nil, p.GetLabels()[PromiseVersionLabel], logger)
 }
 
 func (p *Promise) GenerateResourcePipelines(workflowAction Action, resourceRequest *unstructured.Unstructured, promiseVersion string, logger logr.Logger) ([]PipelineJobResources, error) {
