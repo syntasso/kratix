@@ -26,6 +26,8 @@ import (
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"go.opentelemetry.io/otel/attribute"
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -238,6 +240,9 @@ func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, 
 	}
 
 	if len(bindingsForPromiseRevision) == 0 {
+		if err := r.deletePipelineRBAC(ctx, revision); err != nil {
+			return ctrl.Result{}, err
+		}
 		controllerutil.RemoveFinalizer(&revision, resourceRequestCleanupFinalizer)
 
 		if err := r.Update(ctx, &revision); err != nil {
@@ -247,6 +252,28 @@ func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, 
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// deletePipelineRBAC removes the RBAC that resource pipelines of this revision's version ran with.
+// It must only run once no requests remain on the version, because their delete pipelines need it.
+func (r *PromiseRevisionReconciler) deletePipelineRBAC(ctx context.Context, revision v1alpha1.PromiseRevision) error {
+	versionLabels := map[string]string{
+		v1alpha1.PromiseNameLabel:    revision.Spec.PromiseRef.Name,
+		v1alpha1.PromiseVersionLabel: revision.Spec.Version,
+	}
+	o := opts{ctx: ctx, client: r.Client, logger: r.Log}
+	for _, gvk := range []schema.GroupVersionKind{
+		rbacv1.SchemeGroupVersion.WithKind("ClusterRoleBinding"),
+		rbacv1.SchemeGroupVersion.WithKind("ClusterRole"),
+		rbacv1.SchemeGroupVersion.WithKind("RoleBinding"),
+		rbacv1.SchemeGroupVersion.WithKind("Role"),
+		corev1.SchemeGroupVersion.WithKind("ServiceAccount"),
+	} {
+		if _, err := deleteAllResourcesWithKindMatchingLabel(o, &gvk, versionLabels); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *PromiseRevisionReconciler) ensureResourceRequestsAreDeleted(ctx context.Context, bindingsForPromise []v1alpha1.ResourceBinding, gvk *schema.GroupVersionKind) (requeue bool, err error) {

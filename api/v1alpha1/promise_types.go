@@ -502,7 +502,7 @@ func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Act
 		var factory *PipelineFactory
 		switch workflowType {
 		case WorkflowTypeResource:
-			factory = pipe.ForResource(p, workflowAction, resourceRequest)
+			factory = pipe.ForResource(p, promiseVersion, workflowAction, resourceRequest)
 		case WorkflowTypePromise:
 			factory = pipe.ForPromise(p, workflowAction)
 		}

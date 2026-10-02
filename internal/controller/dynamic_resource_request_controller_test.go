@@ -76,6 +76,22 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	})
 
 	When("resource is being created", func() {
+		// TODO: remove soon, once users have upgraded to per-version pipeline RBAC.
+		It("removes pipeline RBAC without a promise version label for a request on a versioned promise", func() {
+			unversionedSA := &v1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{
+				Name:      "redis-resource-configure-first-pipeline",
+				Namespace: resReq.GetNamespace(),
+				Labels:    map[string]string{"kratix.io/promise-name": promise.GetName()},
+			}}
+			Expect(fakeK8sClient.Create(ctx, unversionedSA)).To(Succeed())
+
+			_, err := t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(unversionedSA), unversionedSA)).To(
+				MatchError(ContainSubstring("not found")))
+		})
+
 		It("re-reconciles until completion", func() {
 			result, err := t.reconcileUntilCompletion(reconciler, resReq)
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
@@ -83,18 +99,25 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			resourceLabels := map[string]string{
 				"kratix.io/promise-name": promise.GetName(),
 			}
+			rbacLabels := map[string]string{
+				"kratix.io/promise-name":    promise.GetName(),
+				"kratix.io/promise-version": "v1.0.0",
+			}
 
 			resources := reconcileConfigureOptsArg.Resources[0].GetObjects()
-			By("creating a service account for pipeline", func() {
+			var sa *v1.ServiceAccount
+			By("creating a service account for the pipeline's promise version", func() {
 				Expect(resources[0]).To(BeAssignableToTypeOf(&v1.ServiceAccount{}))
-				sa := resources[0].(*v1.ServiceAccount)
-				Expect(sa.GetLabels()).To(Equal(resourceLabels))
+				sa = resources[0].(*v1.ServiceAccount)
+				Expect(sa.GetName()).To(MatchRegexp(`^redis-resource-configure-first-pipeline-\w{5}$`))
+				Expect(sa.GetLabels()).To(Equal(rbacLabels))
 			})
 
+			var role *rbacv1.Role
 			By("creating a role for the pipeline service account", func() {
 				Expect(resources[2]).To(BeAssignableToTypeOf(&rbacv1.Role{}))
-				role := resources[2].(*rbacv1.Role)
-				Expect(role.GetLabels()).To(Equal(resourceLabels))
+				role = resources[2].(*rbacv1.Role)
+				Expect(role.GetLabels()).To(Equal(rbacLabels))
 				Expect(role.Rules).To(ConsistOf(
 					rbacv1.PolicyRule{
 						Verbs:     []string{"get", "list", "update", "create", "patch"},
@@ -107,20 +130,19 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Resources: []string{"works"},
 					},
 				))
-				Expect(role.GetLabels()).To(Equal(resourceLabels))
 			})
 
 			By("associating the new role with the new service account", func() {
 				Expect(resources[3]).To(BeAssignableToTypeOf(&rbacv1.RoleBinding{}))
 				binding := resources[3].(*rbacv1.RoleBinding)
-				Expect(binding.RoleRef.Name).To(Equal("redis-resource-configure-first-pipeline"))
+				Expect(binding.RoleRef.Name).To(Equal(role.GetName()))
 				Expect(binding.Subjects).To(HaveLen(1))
 				Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
 					Kind:      "ServiceAccount",
 					Namespace: resReq.GetNamespace(),
-					Name:      "redis-resource-configure-first-pipeline",
+					Name:      sa.GetName(),
 				}))
-				Expect(binding.GetLabels()).To(Equal(resourceLabels))
+				Expect(binding.GetLabels()).To(Equal(rbacLabels))
 			})
 
 			By("creating a config map with the promise scheduling in it", func() {

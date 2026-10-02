@@ -174,7 +174,7 @@ func validatePipelines(p *v1alpha1.Promise) error {
 
 				switch workflowType {
 				case v1alpha1.WorkflowTypeResource:
-					factory = pipeline.ForResource(p, workflowAction, unstructuredResourceRequest)
+					factory = pipeline.ForResource(p, p.GetLabels()[v1alpha1.PromiseVersionLabel], workflowAction, unstructuredResourceRequest)
 				case v1alpha1.WorkflowTypePromise:
 					factory = pipeline.ForPromise(p, workflowAction)
 				}

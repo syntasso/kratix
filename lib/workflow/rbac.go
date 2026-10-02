@@ -220,10 +220,14 @@ func clusterRoleBindingsMatch(existingClusterRoleBinding rbacv1.ClusterRoleBindi
 }
 
 func getPipelineResourcesLabels(pipeline v1alpha1.PipelineJobResources) map[string]string {
-	return v1alpha1.UserPermissionPipelineResourcesLabels(
+	resourceLabels := v1alpha1.UserPermissionPipelineResourcesLabels(
 		pipeline.Job.GetLabels()[v1alpha1.PromiseNameLabel],
 		pipeline.Name,
 		pipeline.Job.Namespace,
 		pipeline.Job.GetLabels()[v1alpha1.WorkflowTypeLabel],
 		pipeline.Job.GetLabels()[v1alpha1.WorkflowActionLabel])
+	if version, ok := pipeline.Job.GetLabels()[v1alpha1.PromiseVersionLabel]; ok {
+		resourceLabels[v1alpha1.PromiseVersionLabel] = version
+	}
+	return resourceLabels
 }

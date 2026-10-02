@@ -172,7 +172,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	if !rr.GetDeletionTimestamp().IsZero() {
 		logging.Info(logger, "deleting resource request")
-		return r.deleteResources(opts, promise, rr, promiseRevisionUsed.Spec.Version)
+		return r.deleteResources(opts, promise, promiseRevisionUsed.Spec.Version, rr)
 	}
 
 	// Clean up any stale dry-run Works when the dry-run label has been removed.
@@ -242,6 +242,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
+	r.removeUnversionedPipelineRBAC(ctx, logger, promise, rr, promiseRevisionUsed.Spec.Version)
+
 	namespace := rr.GetNamespace()
 	if promise.WorkflowPipelineNamespaceSet() {
 		namespace = promise.Spec.Workflows.Config.PipelineNamespace
@@ -299,6 +301,34 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	return r.reconcileAfterConfigure(ctx, logger, opts, rr, promise, bindingVersion, promiseRevisionUsed)
+}
+
+// removeUnversionedPipelineRBAC deletes resource pipeline RBAC without a promise version label
+// when the request is on a versioned promise, whose pipelines never use it. It runs on every
+// reconcile, not only when a pipeline starts, so every namespace gets cleaned. It is best effort:
+// a failure is retried on the next reconcile rather than blocking this one.
+//
+// TODO: remove soon, once users have upgraded to per-version pipeline RBAC.
+func (r *DynamicResourceRequestController) removeUnversionedPipelineRBAC(
+	ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise, rr *unstructured.Unstructured, promiseVersion string,
+) {
+	if promiseVersion == "" || promiseVersion == v1alpha1.PlaceholderPromiseVersion {
+		return
+	}
+
+	var pipelines []v1alpha1.PipelineJobResources
+	for _, action := range []v1alpha1.Action{v1alpha1.WorkflowActionConfigure, v1alpha1.WorkflowActionDelete} {
+		unversioned, err := promise.GenerateResourcePipelines(action, rr, "", logger)
+		if err != nil {
+			logging.Warn(logger, "failed to generate unversioned pipelines; will retry on the next reconcile", "error", err)
+			return
+		}
+		pipelines = append(pipelines, unversioned...)
+	}
+
+	if err := workflow.RemoveUnversionedPipelineRBAC(ctx, r.Client, logger, pipelines); err != nil {
+		logging.Warn(logger, "failed to remove unversioned pipeline RBAC; will retry on the next reconcile", "error", err)
+	}
 }
 
 func (r *DynamicResourceRequestController) syncResourceBindingUpgradeStatusOnPassiveRequeue(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured, promiseRevisionUsed *v1alpha1.PromiseRevision) error {
@@ -1191,7 +1221,7 @@ func ensureRRKratixWorkflowStatusIsSetup(rr *unstructured.Unstructured, pipeline
 	return false, nil
 }
 
-func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured, promiseVersion string) (ctrl.Result, error) {
+func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, promiseVersion string, resourceRequest *unstructured.Unstructured) (ctrl.Result, error) {
 	if resourceutil.FinalizersAreDeleted(resourceRequest, r.getRRFinalizers()) {
 		if err := r.ensureResourceBindingRemoved(o, resourceRequest, promise); err != nil {
 			return ctrl.Result{}, err
