@@ -10,6 +10,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega/gstruct"
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/ptr"
 	"github.com/syntasso/kratix/lib/objectutil"
@@ -28,6 +29,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
@@ -1216,6 +1218,103 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Expect(string(condition.Status)).To(Equal("False"))
 						Expect(condition.Reason).To(Equal("WorksFailing"))
 					})
+				})
+			})
+		})
+
+		Describe("HealthChecksSucceeded", func() {
+			healthCondition := func() *clusterv1.Condition {
+				GinkgoHelper()
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				return resourceutil.GetCondition(resReq, resourceutil.HealthChecksSucceededCondition)
+			}
+
+			When("the resource expects health records at a promise version", func() {
+				BeforeEach(func() {
+					Expect(unstructured.SetNestedMap(resReq.Object, map[string]any{
+						"expectedPromiseVersion": "v2.0.0",
+						"healthDefinitions":      int64(1),
+					}, "status", "healthStatus")).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+				})
+
+				It("counts the placed health checks and mirrors the condition onto the binding", func() {
+					work := createWorkForResource(promise, resReq, "test", 1)
+					placeWorkGroup(work, 0, "worker-1")
+
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					condition := healthCondition()
+					Expect(condition).NotTo(BeNil())
+					Expect(getResourceHealthStatus(resReq)).To(HaveKeyWithValue("expectedRecords", int64(1)))
+					Expect(string(condition.Status)).To(Equal("Unknown"))
+					Expect(condition.Reason).To(Equal("WaitingForRecords"))
+					Expect(condition.Message).To(Equal("0 of 1 records have reported at v2.0.0"))
+
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Status).To(MatchFields(IgnoreExtras, Fields{
+						"HealthStatus": Equal(&v1alpha1.ResourceBindingHealthStatus{
+							ExpectedPromiseVersion: "v2.0.0",
+							ExpectedRecords:        ptr.To(int64(1)),
+						}),
+						"Conditions": ContainElement(metav1.Condition{
+							Type:               string(condition.Type),
+							Status:             metav1.ConditionStatus(condition.Status),
+							Reason:             condition.Reason,
+							Message:            condition.Message,
+							LastTransitionTime: condition.LastTransitionTime,
+						}),
+					}))
+				})
+
+				It("waits while the health checks are not placed on any destination", func() {
+					createWorkForResource(promise, resReq, "test", 1)
+
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					condition := healthCondition()
+					Expect(condition).NotTo(BeNil())
+					Expect(getResourceHealthStatus(resReq)).To(HaveKeyWithValue("expectedRecords", int64(0)))
+					Expect(string(condition.Status)).To(Equal("Unknown"))
+					Expect(condition.Reason).To(Equal("WaitingForRecords"))
+					Expect(condition.Message).To(Equal("health checks for v2.0.0 have not been placed on a destination yet"))
+				})
+			})
+
+			When("the resource does not expect health records at a promise version", func() {
+				It("writes the usual conditions without an expected count or a health condition", func() {
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(healthCondition()).To(BeNil())
+					_, found, err := unstructured.NestedInt64(resReq.Object, "status", "healthStatus", "expectedRecords")
+					Expect(err).NotTo(HaveOccurred())
+					Expect(found).To(BeFalse())
+					worksSucceeded := resourceutil.GetCondition(resReq, resourceutil.WorksSucceededCondition)
+					Expect(worksSucceeded).NotTo(BeNil())
+					Expect(string(worksSucceeded.Status)).To(Equal("True"))
+				})
+			})
+
+			Describe("the WorkPlacement watch", func() {
+				placement := func(promiseName, resourceName string) *v1alpha1.WorkPlacement {
+					return &v1alpha1.WorkPlacement{
+						ObjectMeta: metav1.ObjectMeta{Name: "placement", Namespace: "team-a"},
+						Spec:       v1alpha1.WorkPlacementSpec{PromiseName: promiseName, ResourceName: resourceName},
+					}
+				}
+
+				It("maps a placement of the promise's resource to that resource", func() {
+					requests := controller.WorkPlacementToResourceRequest(promise.GetName())(ctx, placement(promise.GetName(), "my-rr"))
+					Expect(requests).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "team-a", Name: "my-rr"}}))
+				})
+
+				It("ignores placements of other promises and of promise-level works", func() {
+					mapFn := controller.WorkPlacementToResourceRequest(promise.GetName())
+					Expect(mapFn(ctx, placement("another-promise", "my-rr"))).To(BeEmpty())
+					Expect(mapFn(ctx, placement(promise.GetName(), ""))).To(BeEmpty())
 				})
 			})
 		})
