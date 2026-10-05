@@ -154,6 +154,30 @@ var _ = Describe("updateStatus", func() {
 		})
 	})
 
+	When("status.yaml sets the HealthChecksSucceeded condition", func() {
+		BeforeEach(func() {
+			writeFile("status.yaml", "conditions:\n- type: HealthChecksSucceeded\n  status: \"True\"\n  reason: AllRecordsHealthy\n")
+		})
+
+		It("rejects the update and leaves the object untouched", func() {
+			Expect(run()).To(MatchError(ContainSubstring(
+				"'HealthChecksSucceeded' is a kratix managed condition that cannot be updated via workflows; " +
+					"remove it from the '/kratix/metadata/status.yaml' file")))
+			Expect(currentStatus()).NotTo(HaveKey("conditions"))
+		})
+	})
+
+	When("status.yaml sets another condition", func() {
+		BeforeEach(func() {
+			writeFile("status.yaml", "conditions:\n- type: BackupReady\n  status: \"True\"\n  reason: Done\n")
+		})
+
+		It("merges it as before", func() {
+			Expect(run()).To(Succeed())
+			Expect(currentStatus()["conditions"]).To(ContainElement(HaveKeyWithValue("type", "BackupReady")))
+		})
+	})
+
 	DescribeTable("leaves healthStatus untouched",
 		func(setup func()) {
 			setup()

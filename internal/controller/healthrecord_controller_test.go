@@ -888,6 +888,67 @@ var _ = Describe("HealthRecordController", func() {
 			})
 		})
 
+		When("the promise runs its pipelines in a dedicated namespace", func() {
+			BeforeEach(func() {
+				promise.Spec.Workflows.Config.PipelineNamespace = "kratix-pipelines"
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+			})
+
+			It("counts the works in the pipeline namespace that belong to this resource", func() {
+				work := createWorkForResource(promise, resource, "work-a", 1)
+				Expect(work.GetNamespace()).To(Equal("kratix-pipelines"))
+				placeWorkGroup(work, 0, "worker-1")
+				anotherRecord("b-name", "default", "healthy", version)
+
+				sameName := resource.DeepCopy()
+				sameName.SetNamespace("team-b")
+				sameName.SetResourceVersion("")
+				Expect(fakeK8sClient.Create(ctx, sameName)).To(Succeed())
+				other := createWorkForResource(promise, sameName, "work-b", 1)
+				placeWorkGroup(other, 0, "worker-1")
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("expectedRecords", int64(1)))
+				cond := condition(updated)
+				Expect(cond.Status).To(Equal(v1.ConditionTrue))
+				Expect(cond.Reason).To(Equal(resourceutil.HealthChecksAllRecordsHealthyReason))
+			})
+		})
+
+		When("a work carries a health-definitions annotation that is not a number", func() {
+			It("counts nothing for that work and still rolls up the state", func() {
+				work := createWorkForResource(promise, resource, "work-a", 1)
+				placeWorkGroup(work, 0, "worker-1")
+				work.Annotations[v1alpha1.HealthDefinitionsAnnotation] = "many"
+				Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("expectedRecords", int64(0)))
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("state", "healthy"))
+				cond := condition(updated)
+				Expect(cond.Reason).To(Equal(resourceutil.HealthChecksWaitingForRecordsReason))
+				Expect(cond.Message).To(Equal("health checks for v2.0.0 have not been placed on a destination yet"))
+			})
+		})
+
+		When("one of two works is being deleted", func() {
+			It("does not count the deleting work", func() {
+				work := createWorkForResource(promise, resource, "work-a", 1)
+				placeWorkGroup(work, 0, "worker-1")
+				deleting := createWorkForResource(promise, resource, "work-b", 1)
+				placeWorkGroup(deleting, 0, "worker-2")
+				deleting.Finalizers = []string{"kratix.io/test"}
+				Expect(fakeK8sClient.Update(ctx, deleting)).To(Succeed())
+				Expect(fakeK8sClient.Delete(ctx, deleting)).To(Succeed())
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("expectedRecords", int64(1)))
+			})
+		})
+
 		DescribeTable("the condition message",
 			func(healthDefinitions int64, placements int, states []string, reason, message string) {
 				setHealthDefinitions(healthDefinitions)
@@ -907,6 +968,7 @@ var _ = Describe("HealthRecordController", func() {
 			},
 			Entry("no health checks", int64(0), 0, nil, "NoHealthChecks", "v2.0.0 ships no health checks"),
 			Entry("not placed", int64(1), 0, nil, "WaitingForRecords", "health checks for v2.0.0 have not been placed on a destination yet"),
+			Entry("unhealthy before placement", int64(1), 0, []string{"unhealthy"}, "Unhealthy", "1 of 0 records at v2.0.0 is unhealthy"),
 			Entry("waiting", int64(1), 2, []string{"healthy"}, "WaitingForRecords", "1 of 2 records have reported at v2.0.0"),
 			Entry("unknown is not reported", int64(1), 2, []string{"healthy", "unknown"}, "WaitingForRecords", "1 of 2 records have reported at v2.0.0"),
 			Entry("one unhealthy", int64(1), 2, []string{"healthy", "unhealthy"}, "Unhealthy", "1 of 2 records at v2.0.0 is unhealthy"),
@@ -1019,15 +1081,15 @@ func createWorkForResource(
 			Workloads: []v1alpha1.Workload{{Filepath: "health.yaml", Content: string(content)}},
 		})
 	}
+	namespace, resourceNamespace := resource.GetNamespace(), ""
+	if promise.WorkflowPipelineNamespaceSet() {
+		namespace, resourceNamespace = promise.WorkflowPipelineNamespace(), resource.GetNamespace()
+	}
 	work := &v1alpha1.Work{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: resource.GetNamespace(),
-			Labels: map[string]string{
-				v1alpha1.PromiseNameLabel:  promise.GetName(),
-				v1alpha1.ResourceNameLabel: resource.GetName(),
-				v1alpha1.WorkTypeLabel:     v1alpha1.WorkTypeResource,
-			},
+			Namespace: namespace,
+			Labels:    resourceutil.GetWorkLabels(promise.GetName(), resource.GetName(), resourceNamespace, "", v1alpha1.WorkTypeResource),
 			Annotations: map[string]string{
 				v1alpha1.HealthDefinitionsVersionAnnotation: expectedPromiseVersion,
 				v1alpha1.HealthDefinitionsAnnotation:        strconv.Itoa(total),

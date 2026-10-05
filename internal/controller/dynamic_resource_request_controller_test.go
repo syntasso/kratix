@@ -1307,14 +1307,41 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				}
 
 				It("maps a placement of the promise's resource to that resource", func() {
-					requests := controller.WorkPlacementToResourceRequest(promise.GetName())(ctx, placement(promise.GetName(), "my-rr"))
+					requests := controller.WorkPlacementToResourceRequest(fakeK8sClient, promise)(ctx, placement(promise.GetName(), "my-rr"))
 					Expect(requests).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "team-a", Name: "my-rr"}}))
 				})
 
 				It("ignores placements of other promises and of promise-level works", func() {
-					mapFn := controller.WorkPlacementToResourceRequest(promise.GetName())
+					mapFn := controller.WorkPlacementToResourceRequest(fakeK8sClient, promise)
 					Expect(mapFn(ctx, placement("another-promise", "my-rr"))).To(BeEmpty())
 					Expect(mapFn(ctx, placement(promise.GetName(), ""))).To(BeEmpty())
+				})
+
+				When("the promise runs its pipelines in a dedicated namespace", func() {
+					var pipelinePromise *v1alpha1.Promise
+
+					BeforeEach(func() {
+						pipelinePromise = promise.DeepCopy()
+						pipelinePromise.Spec.Workflows.Config.PipelineNamespace = "team-a"
+					})
+
+					It("maps the placement to the resource namespace recorded on its work", func() {
+						Expect(fakeK8sClient.Create(ctx, &v1alpha1.Work{ObjectMeta: metav1.ObjectMeta{
+							Name: "work-x", Namespace: "team-a", Labels: map[string]string{v1alpha1.ResourceNamespaceLabel: "default"},
+						}})).To(Succeed())
+						labelled := placement(promise.GetName(), "my-rr")
+						labelled.Labels = map[string]string{"kratix.io/work": "work-x"}
+
+						requests := controller.WorkPlacementToResourceRequest(fakeK8sClient, pipelinePromise)(ctx, labelled)
+						Expect(requests).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "my-rr"}}))
+					})
+
+					It("enqueues nothing when the work is missing", func() {
+						labelled := placement(promise.GetName(), "my-rr")
+						labelled.Labels = map[string]string{"kratix.io/work": "missing"}
+
+						Expect(controller.WorkPlacementToResourceRequest(fakeK8sClient, pipelinePromise)(ctx, labelled)).To(BeEmpty())
+					})
 				})
 			})
 		})

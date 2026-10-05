@@ -55,3 +55,13 @@ var _ = Describe("Count", func() {
 		Expect(healthdefinition.Count([]byte(content))).To(Equal(0))
 	})
 })
+
+var _ = Describe("Is", func() {
+	It("accepts a HealthDefinition without a spec", func() {
+		Expect(healthdefinition.Count([]byte(healthDefinition))).To(Equal(1))
+	})
+
+	It("rejects a HealthDefinition whose spec is not a map", func() {
+		Expect(healthdefinition.Count([]byte(healthDefinition + "spec: \"x\"\n"))).To(Equal(0))
+	})
+})
