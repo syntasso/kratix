@@ -101,7 +101,7 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	if healthRecordIsBeingDeleted {
-		return r.deleteHealthRecord(ctx, healthRecord, resReq)
+		return r.deleteHealthRecord(ctx, promise, healthRecord, resReq)
 	}
 
 	if !controllerutil.ContainsFinalizer(healthRecord, healthRecordCleanupFinalizer) {
@@ -114,7 +114,7 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	if err = r.updateResourceStatus(ctx, resReq, healthRecord, logger); err != nil {
+	if err = r.updateResourceStatus(ctx, promise, resReq, healthRecord, logger); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -129,7 +129,7 @@ func (r *HealthRecordReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *HealthRecordReconciler) updateResourceStatus(
-	ctx context.Context, resReq *unstructured.Unstructured, healthRecord *platformv1alpha1.HealthRecord, logger logr.Logger,
+	ctx context.Context, promise *platformv1alpha1.Promise, resReq *unstructured.Unstructured, healthRecord *platformv1alpha1.HealthRecord, logger logr.Logger,
 ) error {
 	if resReq.Object["status"] == nil {
 		if err := unstructured.SetNestedMap(resReq.Object, map[string]interface{}{}, "status"); err != nil {
@@ -144,7 +144,7 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 
 	initialHealthStatusState := r.getInitialHealthStatusState(resReq)
 
-	if err := r.applyResourceHealth(ctx, logger, healthRecord.Data.PromiseRef.Name, resReq, resourceHealthRecords); err != nil {
+	if err := r.applyResourceHealth(ctx, logger, promise, resReq, resourceHealthRecords); err != nil {
 		return err
 	}
 
@@ -188,7 +188,7 @@ func resourceHealthRecords(
 }
 
 func (r *HealthRecordReconciler) applyResourceHealth(
-	ctx context.Context, logger logr.Logger, promiseName string, resReq *unstructured.Unstructured, records []platformv1alpha1.HealthRecord,
+	ctx context.Context, logger logr.Logger, promise *platformv1alpha1.Promise, resReq *unstructured.Unstructured, records []platformv1alpha1.HealthRecord,
 ) error {
 	healthData, state, err := getHealthDataAndStates(records)
 	if err != nil {
@@ -199,7 +199,7 @@ func (r *HealthRecordReconciler) applyResourceHealth(
 		return err
 	}
 
-	if _, err := reconcileExpectedHealth(ctx, r.Client, promiseName, resReq, records); err != nil {
+	if _, err := reconcileExpectedHealth(ctx, r.Client, logger, promise, resReq, records); err != nil {
 		return err
 	}
 
@@ -207,7 +207,7 @@ func (r *HealthRecordReconciler) applyResourceHealth(
 		return err
 	}
 
-	return syncResourceBindingHealth(ctx, r.Client, logger, promiseName, resReq)
+	return syncResourceBindingHealth(ctx, r.Client, logger, promise.GetName(), resReq)
 }
 
 func (r *HealthRecordReconciler) ignoreNotFound(logger logr.Logger, err error, msg string) ctrl.Result {
@@ -314,7 +314,7 @@ func getHealthDataAndStates(healthRecords []platformv1alpha1.HealthRecord) ([]an
 }
 
 func (r *HealthRecordReconciler) deleteHealthRecord(
-	ctx context.Context, healthRecord *platformv1alpha1.HealthRecord, resReq *unstructured.Unstructured,
+	ctx context.Context, promise *platformv1alpha1.Promise, healthRecord *platformv1alpha1.HealthRecord, resReq *unstructured.Unstructured,
 ) (ctrl.Result, error) {
 	resourceHealthRecords := r.getResourceHealthRecords(resReq)
 	var recordInResourceHealthRecords bool
@@ -340,7 +340,7 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 		return defaultRequeue, err
 	}
 
-	if err := r.applyResourceHealth(ctx, r.Log, healthRecord.Data.PromiseRef.Name, resReq, remainingRecords); err != nil {
+	if err := r.applyResourceHealth(ctx, r.Log, promise, resReq, remainingRecords); err != nil {
 		return defaultRequeue, err
 	}
 

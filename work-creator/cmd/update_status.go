@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/work-creator/lib"
 	"github.com/syntasso/kratix/work-creator/lib/helpers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -78,6 +79,11 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 	if _, ok := incomingStatus["healthStatus"]; ok {
 		return fmt.Errorf("'healthStatus' is a kratix managed status field that cannot be updated via workflows; " +
 			"remove update to 'healthStatus' from the '/kratix/metadata/status.yaml' file")
+	}
+
+	if hasCondition(incomingStatus, string(resourceutil.HealthChecksSucceededCondition)) {
+		return fmt.Errorf("'%s' is a kratix managed condition that cannot be updated via workflows; "+
+			"remove it from the '/kratix/metadata/status.yaml' file", resourceutil.HealthChecksSucceededCondition)
 	}
 
 	mergedStatus := lib.MergeStatuses(existingStatus, incomingStatus)
@@ -228,4 +234,15 @@ func readStatusFile(statusFile string) (map[string]any, error) {
 		}
 	}
 	return incomingStatus, nil
+}
+
+// hasCondition reports whether the incoming status carries a condition of conditionType.
+func hasCondition(status map[string]any, conditionType string) bool {
+	conditions, _ := status["conditions"].([]any)
+	for _, condition := range conditions {
+		if object, ok := condition.(map[string]any); ok && object["type"] == conditionType {
+			return true
+		}
+	}
+	return false
 }

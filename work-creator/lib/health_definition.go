@@ -94,19 +94,15 @@ func (v *healthDefinitionVersioner) addPromiseVersion(content []byte) ([]byte, e
 	return out.Bytes(), nil
 }
 
-// healthDefinition returns the document as a map when it is a HealthDefinition
-// with a spec that can take a promiseVersion. A missing spec is created.
+// healthDefinition returns the document as a map when it is a HealthDefinition;
+// a missing spec is created so promiseVersion has somewhere to go.
 func healthDefinition(document any) (map[string]any, bool) {
 	if !healthdefinition.Is(document) {
 		return nil, false
 	}
 	object := document.(map[string]any)
-	switch object["spec"].(type) {
-	case map[string]any:
-	case nil:
+	if object["spec"] == nil {
 		object["spec"] = map[string]any{}
-	default:
-		return nil, false
 	}
 	return object, true
 }

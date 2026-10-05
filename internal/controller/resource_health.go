@@ -25,7 +25,8 @@ import (
 // reconcileExpectedHealth writes expectedRecords and the HealthChecksSucceeded condition
 // onto rr when it expects records at a promise version; reports whether anything changed.
 func reconcileExpectedHealth(
-	ctx context.Context, c client.Client, promiseName string, rr *unstructured.Unstructured, records []v1alpha1.HealthRecord,
+	ctx context.Context, c client.Client, logger logr.Logger, promise *v1alpha1.Promise, rr *unstructured.Unstructured,
+	records []v1alpha1.HealthRecord,
 ) (bool, error) {
 	expectedVersion, _, _ := unstructured.NestedString(rr.Object, "status", "healthStatus", "expectedPromiseVersion")
 	if expectedVersion == "" {
@@ -33,7 +34,7 @@ func reconcileExpectedHealth(
 	}
 	healthDefinitions, _, _ := unstructured.NestedInt64(rr.Object, "status", "healthStatus", "healthDefinitions")
 
-	expectedRecords, err := expectedHealthRecords(ctx, c, promiseName, rr, expectedVersion, healthDefinitions)
+	expectedRecords, err := expectedHealthRecords(ctx, c, logger, promise, rr, expectedVersion, healthDefinitions)
 	if err != nil {
 		return false, err
 	}
@@ -54,32 +55,41 @@ func reconcileExpectedHealth(
 	return changed, nil
 }
 
+// resourceWorkScope returns where the work-creator puts a resource's Works and the labels it
+// gives them: the pipeline namespace, tagged with the resource namespace, when the promise sets one.
+func resourceWorkScope(promise *v1alpha1.Promise, rr *unstructured.Unstructured) (string, map[string]string) {
+	namespace, resourceNamespace := rr.GetNamespace(), ""
+	if promise.WorkflowPipelineNamespaceSet() {
+		namespace, resourceNamespace = promise.WorkflowPipelineNamespace(), rr.GetNamespace()
+	}
+	return namespace, resourceutil.GetWorkLabels(promise.GetName(), rr.GetName(), resourceNamespace, "", v1alpha1.WorkTypeResource)
+}
+
 // expectedHealthRecords counts the records a resource should receive at expectedVersion:
 // per workload group, its HealthDefinitions times the destinations it is placed on.
 func expectedHealthRecords(
-	ctx context.Context, c client.Client, promiseName string, rr *unstructured.Unstructured, expectedVersion string, healthDefinitions int64,
+	ctx context.Context, c client.Client, logger logr.Logger, promise *v1alpha1.Promise, rr *unstructured.Unstructured,
+	expectedVersion string, healthDefinitions int64,
 ) (int64, error) {
 	if healthDefinitions == 0 {
 		return 0, nil
 	}
 
-	works, err := resourceutil.GetAllWorksForResource(c, rr.GetNamespace(), promiseName, rr.GetName())
-	if err != nil {
+	namespace, workLabels := resourceWorkScope(promise, rr)
+	works := &v1alpha1.WorkList{}
+	if err := c.List(ctx, works, client.InNamespace(namespace), client.MatchingLabels(workLabels)); err != nil {
 		return 0, err
 	}
 
 	var expected int64
-	for i := range works {
-		work := &works[i]
-		if work.GetLabels()[v1alpha1.DryRunLabel] == "true" ||
+	for i := range works.Items {
+		work := &works.Items[i]
+		if !work.DeletionTimestamp.IsZero() || work.GetLabels()[v1alpha1.DryRunLabel] == "true" ||
 			work.GetAnnotations()[v1alpha1.HealthDefinitionsVersionAnnotation] != expectedVersion {
 			continue
 		}
 		for _, group := range work.Spec.WorkloadGroups {
-			count, err := groupHealthDefinitions(work, group)
-			if err != nil {
-				return 0, err
-			}
+			count := groupHealthDefinitions(logger, work, group)
 			if count == 0 {
 				continue
 			}
@@ -93,26 +103,29 @@ func expectedHealthRecords(
 	return expected, nil
 }
 
-// groupHealthDefinitions trusts the Work annotation when the Work has a single group,
-// since the annotation is the total across groups.
-func groupHealthDefinitions(work *v1alpha1.Work, group v1alpha1.WorkloadGroup) (int64, error) {
+// groupHealthDefinitions trusts the Work annotation when the Work has a single group, since
+// the annotation is the total across groups. Malformed input counts 0 rather than blocking.
+func groupHealthDefinitions(logger logr.Logger, work *v1alpha1.Work, group v1alpha1.WorkloadGroup) int64 {
 	if len(work.Spec.WorkloadGroups) == 1 {
 		count, err := strconv.ParseInt(work.GetAnnotations()[v1alpha1.HealthDefinitionsAnnotation], 10, 64)
 		if err != nil {
-			return 0, fmt.Errorf("work %s: invalid %s annotation: %w", work.GetName(), v1alpha1.HealthDefinitionsAnnotation, err)
+			logging.Warn(logger, "ignoring invalid health-definitions annotation", "work", work.GetName(), "error", err.Error())
+			return 0
 		}
-		return count, nil
+		return count
 	}
 
 	var count int64
 	for _, workload := range group.Workloads {
 		content, err := compression.DecompressContent([]byte(workload.Content))
 		if err != nil {
-			return 0, fmt.Errorf("work %s: decompressing %s: %w", work.GetName(), workload.Filepath, err)
+			logging.Warn(logger, "ignoring workload that failed to decompress",
+				"work", work.GetName(), "filepath", workload.Filepath, "error", err.Error())
+			continue
 		}
 		count += int64(healthdefinition.Count(content))
 	}
-	return count, nil
+	return count
 }
 
 func countWorkPlacements(ctx context.Context, c client.Client, work *v1alpha1.Work, groupID string) (int64, error) {
@@ -147,10 +160,6 @@ func healthChecksCondition(
 		return condition(v1.ConditionTrue, resourceutil.HealthChecksNoHealthChecksReason,
 			fmt.Sprintf("%s ships no health checks", expectedVersion))
 	}
-	if expectedRecords == 0 {
-		return condition(v1.ConditionUnknown, resourceutil.HealthChecksWaitingForRecordsReason,
-			fmt.Sprintf("health checks for %s have not been placed on a destination yet", expectedVersion))
-	}
 
 	var reported, unhealthy, degraded int64
 	for i := range records {
@@ -173,6 +182,9 @@ func healthChecksCondition(
 	case unhealthy > 0:
 		return condition(v1.ConditionFalse, resourceutil.HealthChecksUnhealthyReason,
 			recordsInState(unhealthy, expectedRecords, expectedVersion, "unhealthy"))
+	case expectedRecords == 0:
+		return condition(v1.ConditionUnknown, resourceutil.HealthChecksWaitingForRecordsReason,
+			fmt.Sprintf("health checks for %s have not been placed on a destination yet", expectedVersion))
 	case reported < expectedRecords:
 		return condition(v1.ConditionUnknown, resourceutil.HealthChecksWaitingForRecordsReason,
 			recordsReported(reported, expectedRecords, expectedVersion))
@@ -214,7 +226,7 @@ func syncResourceBindingHealth(
 	desiredCondition := resourceBindingHealthCondition(rr)
 	conditionType := string(resourceutil.HealthChecksSucceededCondition)
 	existingCondition := apiMeta.FindStatusCondition(binding.Status.Conditions, conditionType)
-	if reflect.DeepEqual(binding.Status.HealthStatus, desiredStatus) && reflect.DeepEqual(existingCondition, desiredCondition) {
+	if reflect.DeepEqual(binding.Status.HealthStatus, desiredStatus) && sameCondition(existingCondition, desiredCondition) {
 		return nil
 	}
 
@@ -253,4 +265,14 @@ func resourceBindingHealthCondition(rr *unstructured.Unstructured) *metav1.Condi
 		Message:            condition.Message,
 		LastTransitionTime: condition.LastTransitionTime,
 	}
+}
+
+// sameCondition compares the fields the controller writes; LastTransitionTime by instant,
+// since the two sides come from different serialisations.
+func sameCondition(a, b *metav1.Condition) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Type == b.Type && a.Status == b.Status && a.Reason == b.Reason && a.Message == b.Message &&
+		a.LastTransitionTime.Equal(&b.LastTransitionTime)
 }

@@ -27,9 +27,18 @@ func Count(content []byte) int {
 	return count
 }
 
+// Is reports whether document is a HealthDefinition whose spec, when present, is a map.
 func Is(document any) bool {
 	object, ok := document.(map[string]any)
-	return ok && object["apiVersion"] == APIVersion && object["kind"] == Kind
+	if !ok || object["apiVersion"] != APIVersion || object["kind"] != Kind {
+		return false
+	}
+	switch object["spec"].(type) {
+	case map[string]any, nil:
+		return true
+	default:
+		return false
+	}
 }
 
 // Decode parses every YAML document in content. ok is false when any
