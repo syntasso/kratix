@@ -400,6 +400,10 @@ func (r *DynamicResourceRequestController) reconcileAfterConfigure(
 		logging.Error(logger, err, "failed to update resource binding version status")
 		return ctrl.Result{}, err
 	}
+	if err := syncResourceBindingHealth(ctx, r.Client, logger, promise.GetName(), rr); err != nil {
+		logging.Error(logger, err, "failed to update resource binding health status")
+		return ctrl.Result{}, err
+	}
 
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if workflowsCompletedSuccessfully(workflowCompletedCondition) {
@@ -881,8 +885,25 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
 	reconciledUpdate := r.updateReconciledCondition(rr)
 	promiseVersionUpdate := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevision)
+	healthUpdate, err := r.updateExpectedHealth(ctx, rr)
+	if err != nil {
+		return false, err
+	}
 
-	return worksSucceededUpdate || reconciledUpdate || promiseVersionUpdate, nil
+	return worksSucceededUpdate || reconciledUpdate || promiseVersionUpdate || healthUpdate, nil
+}
+
+// updateExpectedHealth feeds reconcileExpectedHealth the same records the HealthRecord
+// controller uses; the version guard only spares the cluster-wide list.
+func (r *DynamicResourceRequestController) updateExpectedHealth(ctx context.Context, rr *unstructured.Unstructured) (bool, error) {
+	if version, _, _ := unstructured.NestedString(rr.Object, "status", "healthStatus", "expectedPromiseVersion"); version == "" {
+		return false, nil
+	}
+	records, err := resourceHealthRecords(ctx, r.Client, r.PromiseIdentifier, rr.GetName(), rr.GetNamespace())
+	if err != nil {
+		return false, err
+	}
+	return reconcileExpectedHealth(ctx, r.Client, r.PromiseIdentifier, rr, records)
 }
 
 func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, _, misplaced []string) bool {

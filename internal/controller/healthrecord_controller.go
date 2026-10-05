@@ -155,24 +155,36 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 	return nil
 }
 
-// listResourceHealthRecords returns the live records for healthRecord's resource. Records
-// being deleted are skipped: listing one re-adds it, and two deleted together never settle.
 func (r *HealthRecordReconciler) listResourceHealthRecords(
 	ctx context.Context, healthRecord *platformv1alpha1.HealthRecord, logger logr.Logger,
 ) ([]platformv1alpha1.HealthRecord, error) {
-	healthRecords := &platformv1alpha1.HealthRecordList{}
-	if err := r.List(ctx, healthRecords); err != nil {
+	ref := healthRecord.Data.ResourceRef
+	records, err := resourceHealthRecords(ctx, r.Client, healthRecord.Data.PromiseRef.Name, ref.Name, ref.Namespace)
+	if err != nil {
 		logging.Error(logger, err, "error listing health records")
+	}
+	return records, err
+}
+
+// resourceHealthRecords returns the live records for one resource. Records being
+// deleted are skipped: listing one re-adds it, and two deleted together never settle.
+func resourceHealthRecords(
+	ctx context.Context, c client.Client, promiseName, resourceName, namespace string,
+) ([]platformv1alpha1.HealthRecord, error) {
+	healthRecords := &platformv1alpha1.HealthRecordList{}
+	if err := c.List(ctx, healthRecords); err != nil {
 		return nil, err
 	}
 
-	var resourceHealthRecords []platformv1alpha1.HealthRecord
+	var records []platformv1alpha1.HealthRecord
 	for _, record := range healthRecords.Items {
-		if record.DeletionTimestamp.IsZero() && referToSameResource(&record, healthRecord) {
-			resourceHealthRecords = append(resourceHealthRecords, record)
+		ref := record.Data.ResourceRef
+		if record.DeletionTimestamp.IsZero() && record.Data.PromiseRef.Name == promiseName &&
+			ref.Name == resourceName && ref.Namespace == namespace {
+			records = append(records, record)
 		}
 	}
-	return resourceHealthRecords, nil
+	return records, nil
 }
 
 func (r *HealthRecordReconciler) applyResourceHealth(
@@ -252,12 +264,6 @@ func setHealthStatus(resReq *unstructured.Unstructured, state string, healthData
 		return err
 	}
 	return unstructured.SetNestedSlice(resReq.Object, healthData, "status", "healthStatus", "healthRecords")
-}
-
-func referToSameResource(a, b *platformv1alpha1.HealthRecord) bool {
-	return a.Data.PromiseRef.Name == b.Data.PromiseRef.Name &&
-		a.Data.ResourceRef.Name == b.Data.ResourceRef.Name &&
-		a.Data.ResourceRef.Namespace == b.Data.ResourceRef.Namespace
 }
 
 func getHealthDataAndStates(healthRecords []platformv1alpha1.HealthRecord) ([]any, string, error) {
