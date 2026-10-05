@@ -33,6 +33,10 @@ spec:
       jsonPath: .status.lastAppliedVersion
       name: Applied
       type: string
+    - description: Whether every expected health check passed at the applied version
+      jsonPath: .status.conditions[?(@.type=="HealthChecksSucceeded")].reason
+      name: Health
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -162,6 +166,24 @@ spec:
                   The promise version that was being attempted when the last upgrade failure occurred.
                   Cleared when an upgrade succeeds or a new upgrade attempt begins.
                 type: string
+              healthStatus:
+                description: Copy of the resource's health summary, written by Kratix
+                  after the resource status changes
+                properties:
+                  expectedPromiseVersion:
+                    description: Promise version the resource expects HealthRecords
+                      for
+                    type: string
+                  expectedRecords:
+                    description: Number of HealthRecords expected at expectedPromiseVersion;
+                      0 when that version ships no health check
+                    format: int64
+                    type: integer
+                  state:
+                    description: Worst state across every HealthRecord for the resource,
+                      whatever its promise version
+                    type: string
+                type: object
               lastAppliedVersion:
                 description: Reference to the Resource Request version
                 type: string

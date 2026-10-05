@@ -55,6 +55,11 @@ spec:
                 required:
                 - name
                 type: object
+              promiseVersion:
+                description: |-
+                  Promise version the HealthDefinition that produced this record was stamped with.
+                  Only records matching the resource's expectedPromiseVersion count toward HealthChecksSucceeded
+                type: string
               resourceRef:
                 description: Reference to the Resource Request this health record
                   belongs to. Required when the HealthRecord is for a resource request
