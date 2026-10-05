@@ -8,18 +8,28 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/compression"
+	"github.com/syntasso/kratix/lib/resourceutil"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/events"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const expectedPromiseVersion = "v2.0.0"
 
 var _ = Describe("HealthRecordController", func() {
 	var (
@@ -555,6 +565,373 @@ var _ = Describe("HealthRecordController", func() {
 			Expect(record.GetFinalizers()).To(ContainElement("kratix.io/health-record-cleanup"))
 		})
 	})
+	When("the resource expects health records at a promise version", func() {
+		const version = expectedPromiseVersion
+
+		var anotherRecord func(name, namespace, state, promiseVersion string) *v1alpha1.HealthRecord
+
+		condition := func(r *unstructured.Unstructured) *clusterv1.Condition {
+			GinkgoHelper()
+			cond := resourceutil.GetCondition(r, resourceutil.HealthChecksSucceededCondition)
+			Expect(cond).NotTo(BeNil(), "HealthChecksSucceeded condition missing")
+			return cond
+		}
+
+		setHealthDefinitions := func(count int64) {
+			GinkgoHelper()
+			Expect(unstructured.SetNestedField(resource.Object, count, "status", "healthStatus", "healthDefinitions")).To(Succeed())
+			Expect(fakeK8sClient.Status().Update(ctx, resource)).To(Succeed())
+		}
+
+		BeforeEach(func() {
+			anotherRecord = func(name, namespace, state, promiseVersion string) *v1alpha1.HealthRecord {
+				return createVersionedRecord(promise, resource, name, namespace, state, promiseVersion, now)
+			}
+
+			Expect(unstructured.SetNestedMap(resource.Object, map[string]any{
+				"healthStatus": map[string]any{"expectedPromiseVersion": version, "healthDefinitions": int64(1)},
+			}, "status")).To(Succeed())
+			Expect(fakeK8sClient.Status().Update(ctx, resource)).To(Succeed())
+
+			healthRecord.Data.State = "healthy"
+			healthRecord.Data.PromiseVersion = "v1.0.0"
+			Expect(fakeK8sClient.Update(ctx, healthRecord)).To(Succeed())
+		})
+
+		When("one HealthDefinition is placed on two destinations", func() {
+			var work *v1alpha1.Work
+
+			BeforeEach(func() {
+				work = createWorkForResource(promise, resource, "work-a", 1)
+				placeWorkGroup(work, 0, "worker-1")
+				placeWorkGroup(work, 0, "worker-2")
+			})
+
+			It("waits for records when only the previous version has reported", func() {
+				updated := reconcile()
+
+				healthStatus := getResourceHealthStatus(updated)
+				Expect(healthStatus).To(HaveKeyWithValue("expectedRecords", int64(2)))
+				Expect(healthStatus).To(HaveKeyWithValue("state", "healthy"))
+				records := getHealthRecordsList(getResourceStatus(updated))
+				Expect(records).To(HaveLen(1))
+				Expect(records[0]).To(HaveKeyWithValue("promiseVersion", "v1.0.0"))
+
+				cond := condition(updated)
+				Expect(cond.Status).To(Equal(v1.ConditionUnknown))
+				Expect(cond.Reason).To(Equal(resourceutil.HealthChecksWaitingForRecordsReason))
+				Expect(cond.Message).To(Equal("0 of 2 records have reported at v2.0.0"))
+			})
+
+			It("waits for records when one of two has reported", func() {
+				anotherRecord("b-name", "default", "healthy", version)
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("expectedRecords", int64(2)))
+				cond := condition(updated)
+				Expect(cond.Status).To(Equal(v1.ConditionUnknown))
+				Expect(cond.Reason).To(Equal(resourceutil.HealthChecksWaitingForRecordsReason))
+				Expect(cond.Message).To(Equal("1 of 2 records have reported at v2.0.0"))
+			})
+
+			It("succeeds when every destination has reported healthy", func() {
+				anotherRecord("b-name", "default", "healthy", version)
+				anotherRecord("c-name", "default", "ready", version)
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("state", "healthy"))
+				cond := condition(updated)
+				Expect(cond.Status).To(Equal(v1.ConditionTrue))
+				Expect(cond.Reason).To(Equal(resourceutil.HealthChecksAllRecordsHealthyReason))
+				Expect(cond.Message).To(Equal("2 of 2 records have reported at v2.0.0"))
+			})
+
+			It("fails when one record is unhealthy", func() {
+				anotherRecord("b-name", "default", "healthy", version)
+				anotherRecord("c-name", "default", "unhealthy", version)
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("state", "unhealthy"))
+				cond := condition(updated)
+				Expect(cond.Status).To(Equal(v1.ConditionFalse))
+				Expect(cond.Reason).To(Equal(resourceutil.HealthChecksUnhealthyReason))
+				Expect(cond.Message).To(Equal("1 of 2 records at v2.0.0 is unhealthy"))
+			})
+
+			It("fails when one record is degraded", func() {
+				anotherRecord("b-name", "default", "healthy", version)
+				anotherRecord("c-name", "default", "degraded", version)
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("state", "degraded"))
+				cond := condition(updated)
+				Expect(cond.Status).To(Equal(v1.ConditionFalse))
+				Expect(cond.Reason).To(Equal(resourceutil.HealthChecksDegradedReason))
+				Expect(cond.Message).To(Equal("1 of 2 records at v2.0.0 is degraded"))
+			})
+
+			It("reports no health checks when the version ships none", func() {
+				setHealthDefinitions(0)
+
+				updated := reconcile()
+
+				healthStatus := getResourceHealthStatus(updated)
+				Expect(healthStatus).To(HaveKeyWithValue("expectedRecords", int64(0)))
+				Expect(getHealthRecordsList(getResourceStatus(updated))).To(HaveLen(1))
+				cond := condition(updated)
+				Expect(cond.Status).To(Equal(v1.ConditionTrue))
+				Expect(cond.Reason).To(Equal(resourceutil.HealthChecksNoHealthChecksReason))
+				Expect(cond.Message).To(Equal("v2.0.0 ships no health checks"))
+			})
+
+			It("keeps the condition true when an unversioned record is unhealthy", func() {
+				healthRecord.Data.State = "unhealthy"
+				healthRecord.Data.PromiseVersion = ""
+				Expect(fakeK8sClient.Update(ctx, healthRecord)).To(Succeed())
+				anotherRecord("b-name", "default", "healthy", version)
+				anotherRecord("c-name", "default", "healthy", version)
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("state", "unhealthy"))
+				cond := condition(updated)
+				Expect(cond.Status).To(Equal(v1.ConditionTrue))
+				Expect(cond.Reason).To(Equal(resourceutil.HealthChecksAllRecordsHealthyReason))
+				Expect(cond.Message).To(Equal("2 of 2 records have reported at v2.0.0"))
+			})
+
+			It("keeps lastTransitionTime while the status stays the same", func() {
+				anHourAgo := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+				Expect(unstructured.SetNestedSlice(resource.Object, []any{map[string]any{
+					"type":               string(resourceutil.HealthChecksSucceededCondition),
+					"status":             string(v1.ConditionTrue),
+					"reason":             resourceutil.HealthChecksAllRecordsHealthyReason,
+					"message":            "2 of 2 records have reported at v2.0.0",
+					"lastTransitionTime": anHourAgo.Format(time.RFC3339),
+				}}, "status", "conditions")).To(Succeed())
+				Expect(fakeK8sClient.Status().Update(ctx, resource)).To(Succeed())
+				anotherRecord("b-name", "default", "healthy", version)
+				anotherRecord("c-name", "default", "healthy", version)
+
+				By("reconciling twice with the same inputs")
+				reconcile()
+				cond := condition(reconcile())
+				Expect(cond.Status).To(Equal(v1.ConditionTrue))
+				Expect(cond.Message).To(Equal("2 of 2 records have reported at v2.0.0"))
+				Expect(cond.LastTransitionTime.Time).To(BeTemporally("==", anHourAgo))
+
+				By("changing only the message")
+				anotherRecord("d-name", "default", "healthy", version)
+				cond = condition(reconcile())
+				Expect(cond.Status).To(Equal(v1.ConditionTrue))
+				Expect(cond.Message).To(Equal("3 of 2 records have reported at v2.0.0"))
+				Expect(cond.LastTransitionTime.Time).To(BeTemporally("==", anHourAgo))
+			})
+
+			It("counts every record that reported, even beyond the expected count", func() {
+				anotherRecord("b-name", "default", "healthy", version)
+				anotherRecord("c-name", "default", "healthy", version)
+				anotherRecord("d-name", "default", "healthy", version)
+
+				cond := condition(reconcile())
+				Expect(cond.Status).To(Equal(v1.ConditionTrue))
+				Expect(cond.Reason).To(Equal(resourceutil.HealthChecksAllRecordsHealthyReason))
+				Expect(cond.Message).To(Equal("3 of 2 records have reported at v2.0.0"))
+			})
+
+			It("judges only records in the resource namespace", func() {
+				anotherRecord("b-name", "default", "healthy", version)
+				anotherRecord("c-name", "other-ns", "healthy", version)
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("state", "healthy"))
+				Expect(getHealthRecordSources(getResourceStatus(updated))).To(ConsistOf(
+					"default/a-name", "default/b-name", "other-ns/c-name",
+				))
+				cond := condition(updated)
+				Expect(cond.Status).To(Equal(v1.ConditionUnknown))
+				Expect(cond.Message).To(Equal("1 of 2 records have reported at v2.0.0"))
+			})
+
+			It("returns to waiting when a reported record is deleted", func() {
+				anotherRecord("b-name", "default", "healthy", version)
+				deleted := anotherRecord("c-name", "default", "healthy", version)
+				_, err := t.reconcileUntilCompletion(reconciler, deleted)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(condition(reconcile()).Status).To(Equal(v1.ConditionTrue))
+
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(deleted), deleted)).To(Succeed())
+				Expect(fakeK8sClient.Delete(ctx, deleted)).To(Succeed())
+				_, err = t.reconcileUntilCompletion(reconciler, deleted)
+				Expect(err).NotTo(HaveOccurred())
+
+				updated := &unstructured.Unstructured{}
+				updated.SetGroupVersionKind(resource.GroupVersionKind())
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resource), updated)).To(Succeed())
+				Expect(getHealthRecordsList(getResourceStatus(updated))).To(HaveLen(2))
+				cond := condition(updated)
+				Expect(cond.Status).To(Equal(v1.ConditionUnknown))
+				Expect(cond.Reason).To(Equal(resourceutil.HealthChecksWaitingForRecordsReason))
+				Expect(cond.Message).To(Equal("1 of 2 records have reported at v2.0.0"))
+			})
+
+			It("copies the health summary and condition onto the resource binding", func() {
+				binding := &v1alpha1.ResourceBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "example-binding",
+						Namespace: resource.GetNamespace(),
+						Labels: map[string]string{
+							v1alpha1.PromiseNameLabel:  promise.GetName(),
+							v1alpha1.ResourceNameLabel: resource.GetName(),
+						},
+					},
+					Spec: v1alpha1.ResourceBindingSpec{
+						Version:     version,
+						PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
+						ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
+					},
+				}
+				Expect(fakeK8sClient.Create(ctx, binding)).To(Succeed())
+				anotherRecord("b-name", "default", "healthy", version)
+
+				updated := reconcile()
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(binding), binding)).To(Succeed())
+
+				expectedRecords := int64(2)
+				Expect(binding.Status.HealthStatus).To(Equal(&v1alpha1.ResourceBindingHealthStatus{
+					State:                  "healthy",
+					ExpectedPromiseVersion: version,
+					ExpectedRecords:        &expectedRecords,
+				}))
+
+				resourceCond := condition(updated)
+				bindingCond := apimeta.FindStatusCondition(binding.Status.Conditions, string(resourceutil.HealthChecksSucceededCondition))
+				Expect(bindingCond).NotTo(BeNil())
+				Expect(*bindingCond).To(Equal(metav1.Condition{
+					Type:               string(resourceCond.Type),
+					Status:             metav1.ConditionStatus(resourceCond.Status),
+					Reason:             resourceCond.Reason,
+					Message:            resourceCond.Message,
+					LastTransitionTime: resourceCond.LastTransitionTime,
+				}))
+				Expect(bindingCond.Message).To(Equal("1 of 2 records have reported at v2.0.0"))
+
+				statusJSON, err := json.Marshal(binding.Status)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(string(statusJSON)).NotTo(ContainSubstring("healthRecords"))
+			})
+		})
+
+		When("no destination has been given the health checks yet", func() {
+			It("waits for placement rather than reporting no health checks", func() {
+				createWorkForResource(promise, resource, "work-a", 1)
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("expectedRecords", int64(0)))
+				cond := condition(updated)
+				Expect(cond.Status).To(Equal(v1.ConditionUnknown))
+				Expect(cond.Reason).To(Equal(resourceutil.HealthChecksWaitingForRecordsReason))
+				Expect(cond.Message).To(Equal("health checks for v2.0.0 have not been placed on a destination yet"))
+			})
+		})
+
+		When("two HealthDefinitions are placed on one destination", func() {
+			It("expects a record per HealthDefinition", func() {
+				setHealthDefinitions(2)
+				work := createWorkForResource(promise, resource, "work-a", 2)
+				placeWorkGroup(work, 0, "worker-1")
+				anotherRecord("b-name", "default", "healthy", version)
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("expectedRecords", int64(2)))
+				cond := condition(updated)
+				Expect(cond.Status).To(Equal(v1.ConditionUnknown))
+				Expect(cond.Message).To(Equal("1 of 2 records have reported at v2.0.0"))
+			})
+		})
+
+		When("a second work carries no health check", func() {
+			It("expects records only from the work that does", func() {
+				withCheck := createWorkForResource(promise, resource, "work-a", 1)
+				placeWorkGroup(withCheck, 0, "worker-1")
+				withoutCheck := createWorkForResource(promise, resource, "work-b", 0)
+				placeWorkGroup(withoutCheck, 0, "worker-2")
+				anotherRecord("b-name", "default", "healthy", version)
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("expectedRecords", int64(1)))
+				cond := condition(updated)
+				Expect(cond.Status).To(Equal(v1.ConditionTrue))
+				Expect(cond.Reason).To(Equal(resourceutil.HealthChecksAllRecordsHealthyReason))
+				Expect(cond.Message).To(Equal("1 of 1 records have reported at v2.0.0"))
+			})
+		})
+
+		When("a work has several workload groups", func() {
+			It("counts the HealthDefinitions in each group's content", func() {
+				work := createWorkForResource(promise, resource, "work-a", 1, 0)
+				placeWorkGroup(work, 0, "worker-1")
+				placeWorkGroup(work, 1, "worker-2")
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("expectedRecords", int64(1)))
+				Expect(condition(updated).Message).To(Equal("0 of 1 records have reported at v2.0.0"))
+			})
+		})
+
+		DescribeTable("the condition message",
+			func(healthDefinitions int64, placements int, states []string, reason, message string) {
+				setHealthDefinitions(healthDefinitions)
+				if healthDefinitions > 0 {
+					work := createWorkForResource(promise, resource, "work-a", 1)
+					for i := range placements {
+						placeWorkGroup(work, 0, fmt.Sprintf("worker-%d", i))
+					}
+				}
+				for i, state := range states {
+					anotherRecord(fmt.Sprintf("record-%d", i), "default", state, version)
+				}
+
+				cond := condition(reconcile())
+				Expect(cond.Reason).To(Equal(reason))
+				Expect(cond.Message).To(Equal(message))
+			},
+			Entry("no health checks", int64(0), 0, nil, "NoHealthChecks", "v2.0.0 ships no health checks"),
+			Entry("not placed", int64(1), 0, nil, "WaitingForRecords", "health checks for v2.0.0 have not been placed on a destination yet"),
+			Entry("waiting", int64(1), 2, []string{"healthy"}, "WaitingForRecords", "1 of 2 records have reported at v2.0.0"),
+			Entry("unknown is not reported", int64(1), 2, []string{"healthy", "unknown"}, "WaitingForRecords", "1 of 2 records have reported at v2.0.0"),
+			Entry("one unhealthy", int64(1), 2, []string{"healthy", "unhealthy"}, "Unhealthy", "1 of 2 records at v2.0.0 is unhealthy"),
+			Entry("two unhealthy", int64(1), 2, []string{"unhealthy", "unhealthy"}, "Unhealthy", "2 of 2 records at v2.0.0 are unhealthy"),
+			Entry("one degraded", int64(1), 2, []string{"healthy", "degraded"}, "Degraded", "1 of 2 records at v2.0.0 is degraded"),
+			Entry("two degraded", int64(1), 2, []string{"degraded", "degraded"}, "Degraded", "2 of 2 records at v2.0.0 are degraded"),
+			Entry("all healthy", int64(1), 2, []string{"healthy", "ready"}, "AllRecordsHealthy", "2 of 2 records have reported at v2.0.0"),
+		)
+	})
+
+	When("the resource does not expect health records at a promise version", func() {
+		It("rolls up the state without writing a condition or an expected count", func() {
+			work := createWorkForResource(promise, resource, "work-a", 1)
+			placeWorkGroup(work, 0, "worker-1")
+
+			updated := reconcile()
+
+			healthStatus := getResourceHealthStatus(updated)
+			Expect(healthStatus).To(HaveKeyWithValue("state", "ready"))
+			Expect(getHealthRecordsList(getResourceStatus(updated))).To(HaveLen(1))
+			Expect(healthStatus).NotTo(HaveKey("expectedRecords"))
+			Expect(resourceutil.GetCondition(updated, resourceutil.HealthChecksSucceededCondition)).To(BeNil())
+		})
+	})
+
 })
 
 func getResourceStatus(r *unstructured.Unstructured) map[string]interface{} {
@@ -604,4 +981,92 @@ func getHealthRecordSources(status map[string]interface{}) (sources []string) {
 		sources = append(sources, fmt.Sprintf("%s/%s", source["namespace"], source["name"]))
 	}
 	return sources
+}
+
+func createVersionedRecord(
+	promise *v1alpha1.Promise, resource *unstructured.Unstructured, name, namespace, state, promiseVersion string, lastRun int64,
+) *v1alpha1.HealthRecord {
+	GinkgoHelper()
+	record := &v1alpha1.HealthRecord{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Data: v1alpha1.HealthRecordData{
+			PromiseRef:     v1alpha1.PromiseRef{Name: promise.GetName()},
+			ResourceRef:    v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
+			State:          state,
+			PromiseVersion: promiseVersion,
+			LastRun:        lastRun,
+		},
+	}
+	Expect(fakeK8sClient.Create(ctx, record)).To(Succeed())
+	return record
+}
+
+// createWorkForResource builds a Work with one workload group per entry in
+// healthDefinitions, each carrying that many HealthDefinition documents.
+func createWorkForResource(
+	promise *v1alpha1.Promise, resource *unstructured.Unstructured, name string, healthDefinitions ...int,
+) *v1alpha1.Work {
+	GinkgoHelper()
+	total := 0
+	var groups []v1alpha1.WorkloadGroup
+	for i, count := range healthDefinitions {
+		total += count
+		content, err := compression.CompressContent(healthDefinitionsYAML(count))
+		Expect(err).NotTo(HaveOccurred())
+		groups = append(groups, v1alpha1.WorkloadGroup{
+			ID:        fmt.Sprintf("%s-group-%d", name, i),
+			Directory: ".",
+			Workloads: []v1alpha1.Workload{{Filepath: "health.yaml", Content: string(content)}},
+		})
+	}
+	work := &v1alpha1.Work{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: resource.GetNamespace(),
+			Labels: map[string]string{
+				v1alpha1.PromiseNameLabel:  promise.GetName(),
+				v1alpha1.ResourceNameLabel: resource.GetName(),
+				v1alpha1.WorkTypeLabel:     v1alpha1.WorkTypeResource,
+			},
+			Annotations: map[string]string{
+				v1alpha1.HealthDefinitionsVersionAnnotation: expectedPromiseVersion,
+				v1alpha1.HealthDefinitionsAnnotation:        strconv.Itoa(total),
+			},
+		},
+		Spec: v1alpha1.WorkSpec{PromiseName: promise.GetName(), ResourceName: resource.GetName(), WorkloadGroups: groups},
+	}
+	Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+	return work
+}
+
+func healthDefinitionsYAML(count int) []byte {
+	var out strings.Builder
+	for i := range count {
+		fmt.Fprintf(&out, "apiVersion: platform.kratix.io/v1alpha1\nkind: HealthDefinition\nmetadata:\n  name: check-%d\n---\n", i)
+	}
+	out.WriteString("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: not-a-check\n")
+	return []byte(out.String())
+}
+
+func placeWorkGroup(work *v1alpha1.Work, group int, destination string) {
+	GinkgoHelper()
+	groupID := work.Spec.WorkloadGroups[group].ID
+	placement := &v1alpha1.WorkPlacement{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s.%s.%s", work.GetName(), groupID, destination),
+			Namespace: work.GetNamespace(),
+			Labels: map[string]string{
+				"kratix.io/work":                      work.GetName(),
+				"kratix.io/workload-group-id":         groupID,
+				controller.TargetDestinationNameLabel: destination,
+			},
+		},
+		Spec: v1alpha1.WorkPlacementSpec{
+			TargetDestinationName: destination,
+			PromiseName:           work.Spec.PromiseName,
+			ResourceName:          work.Spec.ResourceName,
+			ID:                    groupID,
+		},
+	}
+	Expect(fakeK8sClient.Create(ctx, placement)).To(Succeed())
 }
