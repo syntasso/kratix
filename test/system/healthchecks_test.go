@@ -13,6 +13,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega/gstruct"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -129,6 +130,17 @@ spec:
 `, promiseName)
 }
 
+// matchHealthCondition matches a HealthChecksSucceeded condition on a resource or a
+// ResourceBinding; extra keys such as severity or observedGeneration are ignored.
+func matchHealthCondition(status, reason, message string) OmegaMatcher {
+	return MatchKeys(IgnoreExtras, Keys{
+		"type":    Equal("HealthChecksSucceeded"),
+		"status":  Equal(status),
+		"reason":  Equal(reason),
+		"message": Equal(message),
+	})
+}
+
 var _ = Describe("Kratix Healthcheck promise version", func() {
 	const resourceName = "example"
 
@@ -170,6 +182,18 @@ var _ = Describe("Kratix Healthcheck promise version", func() {
 		return status
 	}
 
+	healthCondition := func(g Gomega, plural string) map[string]any {
+		conditions, _, err := unstructured.NestedSlice(resourceStatus(g, plural), "conditions")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(conditions).To(ContainElement(HaveKeyWithValue("type", "HealthChecksSucceeded")))
+		for _, c := range conditions {
+			if condition, ok := c.(map[string]any); ok && condition["type"] == "HealthChecksSucceeded" {
+				return condition
+			}
+		}
+		return nil
+	}
+
 	configureCompleted := func(g Gomega, plural string) {
 		g.Expect(platform.KubectlG(g, "get", plural, resourceName,
 			`-o=jsonpath={.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}`)).To(Equal("True"))
@@ -189,34 +213,91 @@ var _ = Describe("Kratix Healthcheck promise version", func() {
 
 		AfterEach(func() {
 			if CurrentSpecReport().State.Is(types.SpecStatePassed) {
+				platform.Kubectl("delete", "-f", "assets/healthchecks/versioned-health-record-1.yaml")
+				platform.Kubectl("delete", "-f", "assets/healthchecks/versioned-health-record-2.yaml")
 				platform.EventuallyKubectlDelete(promiseName, resourceName)
 				platform.EventuallyKubectlDelete("promise", promiseName)
 				platform.Kubectl("delete", "-f", "assets/healthchecks/versioned-destination.yaml")
 			}
 		})
 
-		It("adds the Promise version to HealthDefinitions and records what the resource expects", func() {
-			By("adding spec.promiseVersion to the HealthDefinition only", func() {
+		It("adds the Promise version to HealthDefinitions and reports when every expected record is healthy", func() {
+			By("adding spec.promiseVersion to both HealthDefinitions only", func() {
 				Eventually(func(g Gomega) {
 					workloads := resourceWorkloads(g, promiseName)
-					g.Expect(workloads).To(HaveKey("healthdefinition.yaml"))
-					healthDefinition := map[string]any{}
-					kubeutils.ParseOutput(string(workloads["healthdefinition.yaml"]), &healthDefinition)
-					g.Expect(healthDefinition["kind"]).To(Equal("HealthDefinition"))
-					promiseVersion, _, err := unstructured.NestedString(healthDefinition, "spec", "promiseVersion")
-					g.Expect(err).NotTo(HaveOccurred())
-					g.Expect(promiseVersion).To(Equal("v2.0.0"))
+					for _, file := range []string{"healthdefinition.yaml", "healthdefinition-2.yaml"} {
+						g.Expect(workloads).To(HaveKey(file))
+						healthDefinition := map[string]any{}
+						kubeutils.ParseOutput(string(workloads[file]), &healthDefinition)
+						g.Expect(healthDefinition["kind"]).To(Equal("HealthDefinition"))
+						promiseVersion, _, err := unstructured.NestedString(healthDefinition, "spec", "promiseVersion")
+						g.Expect(err).NotTo(HaveOccurred())
+						g.Expect(promiseVersion).To(Equal("v2.0.0"), file)
+					}
 
 					g.Expect(string(workloads["configmap.yaml"])).To(Equal(healthcheckConfigMap(promiseName)))
 				}).Should(Succeed())
 			})
 
-			By("recording the expected version and the HealthDefinition count on status.healthStatus", func() {
+			By("recording the expected version, HealthDefinition count and placed records on status.healthStatus", func() {
 				Eventually(func(g Gomega) {
 					g.Expect(resourceStatus(g, promiseName)).To(HaveKeyWithValue("healthStatus", map[string]any{
 						"expectedPromiseVersion": "v2.0.0",
-						"healthDefinitions":      int64(1),
+						"healthDefinitions":      int64(2),
+						"expectedRecords":        int64(2),
 					}))
+					g.Expect(healthCondition(g, promiseName)).To(matchHealthCondition(
+						"Unknown", "WaitingForRecords", "0 of 2 records have reported at v2.0.0"))
+				}).Should(Succeed())
+			})
+
+			By("waiting while only one of the two records has reported", func() {
+				platform.Kubectl("apply", "-f", "assets/healthchecks/versioned-health-record-1.yaml")
+				Eventually(func(g Gomega) {
+					g.Expect(healthCondition(g, promiseName)).To(matchHealthCondition(
+						"Unknown", "WaitingForRecords", "1 of 2 records have reported at v2.0.0"))
+				}).Should(Succeed())
+			})
+
+			By("succeeding once both records have reported healthy at v2.0.0", func() {
+				platform.Kubectl("apply", "-f", "assets/healthchecks/versioned-health-record-2.yaml")
+				Eventually(func(g Gomega) {
+					g.Expect(healthCondition(g, promiseName)).To(matchHealthCondition(
+						"True", "AllRecordsHealthy", "2 of 2 records have reported at v2.0.0"))
+
+					healthStatus, _, err := unstructured.NestedMap(resourceStatus(g, promiseName), "healthStatus")
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(healthStatus).To(HaveKeyWithValue("state", "healthy"))
+					g.Expect(healthStatus).To(HaveKeyWithValue("healthRecords", HaveExactElements(
+						HaveKeyWithValue("promiseVersion", "v2.0.0"),
+						HaveKeyWithValue("promiseVersion", "v2.0.0"),
+					)))
+				}).Should(Succeed())
+			})
+
+			By("mirroring the summary and the condition onto the ResourceBinding", func() {
+				Eventually(func(g Gomega) {
+					condition := healthCondition(g, promiseName)
+					selector := "kratix.io/promise-name=" + promiseName + ",kratix.io/resource-name=" + resourceName
+					bindings := &unstructured.UnstructuredList{}
+					g.Expect(bindings.UnmarshalJSON([]byte(platform.KubectlG(g,
+						"get", "resourcebindings", "-n", "default", "-l", selector, "-o", "json")))).To(Succeed())
+					g.Expect(bindings.Items).To(HaveLen(1))
+
+					g.Expect(bindings.Items[0].Object["status"]).To(SatisfyAll(
+						HaveKeyWithValue("healthStatus", map[string]any{
+							"state":                  "healthy",
+							"expectedPromiseVersion": "v2.0.0",
+							"expectedRecords":        int64(2),
+						}),
+						HaveKeyWithValue("conditions", ContainElement(MatchKeys(IgnoreExtras, Keys{
+							"type":               Equal("HealthChecksSucceeded"),
+							"status":             Equal(condition["status"]),
+							"reason":             Equal(condition["reason"]),
+							"message":            Equal(condition["message"]),
+							"lastTransitionTime": Equal(condition["lastTransitionTime"]),
+						}))),
+					))
 				}).Should(Succeed())
 			})
 		})
