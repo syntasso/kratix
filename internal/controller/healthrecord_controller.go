@@ -136,30 +136,15 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 			return err
 		}
 	}
-	// Get all associated healthrecords
-	healthRecords := &platformv1alpha1.HealthRecordList{}
 
-	err := r.List(ctx, healthRecords)
-	if err != nil {
-		logging.Error(logger, err, "error listing health records")
-		return err
-	}
-
-	var resourceHealthRecords []platformv1alpha1.HealthRecord
-	for _, record := range healthRecords.Items {
-		if referToSameResource(&record, healthRecord) {
-			resourceHealthRecords = append(resourceHealthRecords, record)
-		}
-	}
-
-	healthData, state, err := getHealthDataAndStates(resourceHealthRecords)
+	resourceHealthRecords, err := r.listResourceHealthRecords(ctx, healthRecord, logger)
 	if err != nil {
 		return err
 	}
 
 	initialHealthStatusState := r.getInitialHealthStatusState(resReq)
 
-	if err = setHealthStatus(resReq, state, healthData); err != nil {
+	if err := r.applyResourceHealth(ctx, logger, healthRecord.Data.PromiseRef.Name, resReq, resourceHealthRecords); err != nil {
 		return err
 	}
 
@@ -167,7 +152,50 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 		r.fireEvent(healthRecord, resReq)
 	}
 
-	return r.Status().Update(ctx, resReq)
+	return nil
+}
+
+// listResourceHealthRecords returns the live records for healthRecord's resource. Records
+// being deleted are skipped: listing one re-adds it, and two deleted together never settle.
+func (r *HealthRecordReconciler) listResourceHealthRecords(
+	ctx context.Context, healthRecord *platformv1alpha1.HealthRecord, logger logr.Logger,
+) ([]platformv1alpha1.HealthRecord, error) {
+	healthRecords := &platformv1alpha1.HealthRecordList{}
+	if err := r.List(ctx, healthRecords); err != nil {
+		logging.Error(logger, err, "error listing health records")
+		return nil, err
+	}
+
+	var resourceHealthRecords []platformv1alpha1.HealthRecord
+	for _, record := range healthRecords.Items {
+		if record.DeletionTimestamp.IsZero() && referToSameResource(&record, healthRecord) {
+			resourceHealthRecords = append(resourceHealthRecords, record)
+		}
+	}
+	return resourceHealthRecords, nil
+}
+
+func (r *HealthRecordReconciler) applyResourceHealth(
+	ctx context.Context, logger logr.Logger, promiseName string, resReq *unstructured.Unstructured, records []platformv1alpha1.HealthRecord,
+) error {
+	healthData, state, err := getHealthDataAndStates(records)
+	if err != nil {
+		return err
+	}
+
+	if err := setHealthStatus(resReq, state, healthData); err != nil {
+		return err
+	}
+
+	if _, err := reconcileExpectedHealth(ctx, r.Client, promiseName, resReq, records); err != nil {
+		return err
+	}
+
+	if err := r.Status().Update(ctx, resReq); err != nil {
+		return err
+	}
+
+	return syncResourceBindingHealth(ctx, r.Client, logger, promiseName, resReq)
 }
 
 func (r *HealthRecordReconciler) ignoreNotFound(logger logr.Logger, err error, msg string) ctrl.Result {
@@ -217,8 +245,8 @@ func (r *HealthRecordReconciler) getInitialHealthStatusState(resReq *unstructure
 	return initialHealthStatusState
 }
 
-// setHealthStatus writes state and healthRecords in place. Other keys under
-// healthStatus belong to the status-writer and are left alone.
+// setHealthStatus writes state and healthRecords in place. expectedRecords is written by
+// reconcileExpectedHealth; the other healthStatus keys belong to the status-writer.
 func setHealthStatus(resReq *unstructured.Unstructured, state string, healthData []any) error {
 	if err := unstructured.SetNestedField(resReq.Object, state, "status", "healthStatus", "state"); err != nil {
 		return err
@@ -259,6 +287,9 @@ func getHealthDataAndStates(healthRecords []platformv1alpha1.HealthRecord) ([]an
 				"namespace": hr.GetNamespace(),
 			},
 		}
+		if hr.Data.PromiseVersion != "" {
+			record["promiseVersion"] = hr.Data.PromiseVersion
+		}
 		if hr.Data.Details != nil {
 			var details interface{}
 			if err := json.Unmarshal(hr.Data.Details.Raw, &details); err != nil {
@@ -298,39 +329,12 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 		return ctrl.Result{}, r.removeFinalizer(ctx, healthRecord)
 	}
 
-	var updatedHealthRecords []platformv1alpha1.HealthRecord
-
-	healthRecords := &platformv1alpha1.HealthRecordList{}
-	err := r.List(ctx, healthRecords)
-	if err != nil {
-		logging.Error(r.Log, err, "error listing health records")
-		return defaultRequeue, err
-	}
-
-	for _, record := range healthRecords.Items {
-		// Skip records already being deleted: including one puts it back on the
-		// list, and two deleted together re-add each other forever.
-		if !record.DeletionTimestamp.IsZero() {
-			continue
-		}
-		if record.GetName() != healthRecord.GetName() && referToSameResource(&record, healthRecord) {
-			logging.Debug(r.Log, "updating health records list", "item", record.GetName())
-
-			updatedHealthRecords = append(updatedHealthRecords, record)
-		}
-	}
-
-	healthData, state, err := getHealthDataAndStates(updatedHealthRecords)
+	remainingRecords, err := r.listResourceHealthRecords(ctx, healthRecord, r.Log)
 	if err != nil {
 		return defaultRequeue, err
 	}
 
-	if err := setHealthStatus(resReq, state, healthData); err != nil {
-		return defaultRequeue, err
-	}
-
-	err = r.Status().Update(ctx, resReq)
-	if err != nil {
+	if err := r.applyResourceHealth(ctx, r.Log, healthRecord.Data.PromiseRef.Name, resReq, remainingRecords); err != nil {
 		return defaultRequeue, err
 	}
 

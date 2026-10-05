@@ -594,7 +594,7 @@ func shouldMarkResourceBindingUpgradeInProgress(resourceBinding *v1alpha1.Resour
 }
 
 func (r *DynamicResourceRequestController) getResourceBindingForRR(ctx context.Context, promiseName string, rr *unstructured.Unstructured) (*v1alpha1.ResourceBinding, error) {
-	return r.findResourceBinding(ctx, rr.GetNamespace(), rr.GetName(), promiseName)
+	return findResourceBinding(ctx, r.Client, rr.GetNamespace(), rr.GetName(), promiseName)
 }
 
 func (r *DynamicResourceRequestController) applyResourceBindingUpgradeStatus(
@@ -1552,19 +1552,18 @@ func (r *DynamicResourceRequestController) fetchResourceBinding(
 	rr *unstructured.Unstructured,
 	promise *v1alpha1.Promise,
 ) (*v1alpha1.ResourceBinding, error) {
-	return r.findResourceBinding(ctx, rr.GetNamespace(), rr.GetName(), promise.GetName())
+	return findResourceBinding(ctx, r.Client, rr.GetNamespace(), rr.GetName(), promise.GetName())
 }
 
-// findResourceBinding returns the ResourceBinding for a resource, identified by its labels.
-// Every path that reads, updates or deletes a Binding resolves it this way, so a Binding
-// created ahead of the resource request — to pin the request to a version other than latest
-// — is adopted rather than duplicated, whatever it is named.
-func (r *DynamicResourceRequestController) findResourceBinding(
+// findResourceBinding resolves a Binding by its labels, never by name, so one created ahead
+// of the resource request to pin a version is adopted rather than duplicated.
+func findResourceBinding(
 	ctx context.Context,
+	c client.Client,
 	namespace, resourceName, promiseName string,
 ) (*v1alpha1.ResourceBinding, error) {
 	bindings := &v1alpha1.ResourceBindingList{}
-	if err := r.Client.List(ctx, bindings, &client.ListOptions{
+	if err := c.List(ctx, bindings, &client.ListOptions{
 		Namespace:     namespace,
 		LabelSelector: labels.SelectorFromSet(resourceBindingLabelsFor(resourceName, promiseName)),
 	}); err != nil {
