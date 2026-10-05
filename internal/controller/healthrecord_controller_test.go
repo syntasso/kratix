@@ -110,6 +110,7 @@ var _ = Describe("HealthRecordController", func() {
 				Expect(records[0]).To(HaveKeyWithValue("details", HaveKeyWithValue("info", "message")))
 				Expect(records[0]).To(HaveKeyWithValue("source", HaveKeyWithValue("name", healthRecord.GetName())))
 				Expect(records[0]).To(HaveKeyWithValue("source", HaveKeyWithValue("namespace", healthRecord.GetNamespace())))
+				Expect(records[0]).NotTo(HaveKey("promiseVersion"))
 			})
 
 			DescribeTable("firing events detailing the healthStatus state",
@@ -781,22 +782,7 @@ var _ = Describe("HealthRecordController", func() {
 			})
 
 			It("copies the health summary and condition onto the resource binding", func() {
-				binding := &v1alpha1.ResourceBinding{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "example-binding",
-						Namespace: resource.GetNamespace(),
-						Labels: map[string]string{
-							v1alpha1.PromiseNameLabel:  promise.GetName(),
-							v1alpha1.ResourceNameLabel: resource.GetName(),
-						},
-					},
-					Spec: v1alpha1.ResourceBindingSpec{
-						Version:     version,
-						PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
-						ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
-					},
-				}
-				Expect(fakeK8sClient.Create(ctx, binding)).To(Succeed())
+				binding := bindingForResource(promise, resource, version)
 				anotherRecord("b-name", "default", "healthy", version)
 
 				updated := reconcile()
@@ -824,6 +810,28 @@ var _ = Describe("HealthRecordController", func() {
 				statusJSON, err := json.Marshal(binding.Status)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(string(statusJSON)).NotTo(ContainSubstring("healthRecords"))
+			})
+
+			It("drops the condition from the binding once the resource no longer carries it", func() {
+				binding := bindingForResource(promise, resource, version)
+				apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+					Type: v1alpha1.UpgradeSucceededCondition, Status: metav1.ConditionTrue, Reason: "Upgraded",
+				})
+				Expect(fakeK8sClient.Status().Update(ctx, binding)).To(Succeed())
+				healthType := string(resourceutil.HealthChecksSucceededCondition)
+
+				updated := reconcile()
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(binding), binding)).To(Succeed())
+				Expect(apimeta.FindStatusCondition(binding.Status.Conditions, healthType)).NotTo(BeNil())
+
+				removeCondition(updated, resourceutil.HealthChecksSucceededCondition)
+				unstructured.RemoveNestedField(updated.Object, "status", "healthStatus", "expectedPromiseVersion")
+				Expect(fakeK8sClient.Status().Update(ctx, updated)).To(Succeed())
+
+				reconcile()
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(binding), binding)).To(Succeed())
+				Expect(apimeta.FindStatusCondition(binding.Status.Conditions, healthType)).To(BeNil())
+				Expect(apimeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)).NotTo(BeNil())
 			})
 		})
 
@@ -949,6 +957,56 @@ var _ = Describe("HealthRecordController", func() {
 			})
 		})
 
+		When("a work is a dry run", func() {
+			It("does not count it", func() {
+				work := createWorkForResource(promise, resource, "work-a", 1)
+				placeWorkGroup(work, 0, "worker-1")
+				work.Labels[v1alpha1.DryRunLabel] = "true"
+				Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
+
+				Expect(getResourceHealthStatus(reconcile())).To(HaveKeyWithValue("expectedRecords", int64(0)))
+			})
+		})
+
+		When("a work carries health checks for another promise version", func() {
+			It("does not count it", func() {
+				work := createWorkForResource(promise, resource, "work-a", 1)
+				placeWorkGroup(work, 0, "worker-1")
+				work.Annotations[v1alpha1.HealthDefinitionsVersionAnnotation] = "v1.0.0"
+				Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
+
+				Expect(getResourceHealthStatus(reconcile())).To(HaveKeyWithValue("expectedRecords", int64(0)))
+			})
+		})
+
+		When("one of two placements is being deleted", func() {
+			It("does not count the deleting placement", func() {
+				work := createWorkForResource(promise, resource, "work-a", 1)
+				placeWorkGroup(work, 0, "worker-1")
+				placeWorkGroup(work, 0, "worker-2")
+				deleting := &v1alpha1.WorkPlacement{}
+				key := types.NamespacedName{Name: "work-a.work-a-group-0.worker-2", Namespace: work.GetNamespace()}
+				Expect(fakeK8sClient.Get(ctx, key, deleting)).To(Succeed())
+				deleting.Finalizers = []string{"kratix.io/test"}
+				Expect(fakeK8sClient.Update(ctx, deleting)).To(Succeed())
+				Expect(fakeK8sClient.Delete(ctx, deleting)).To(Succeed())
+
+				Expect(getResourceHealthStatus(reconcile())).To(HaveKeyWithValue("expectedRecords", int64(1)))
+			})
+		})
+
+		When("one group's workload content cannot be decompressed", func() {
+			It("counts nothing for that group and the rest of the work still counts", func() {
+				work := createWorkForResource(promise, resource, "work-a", 1, 1)
+				work.Spec.WorkloadGroups[1].Workloads[0].Content = "not compressed"
+				Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
+				placeWorkGroup(work, 0, "worker-1")
+				placeWorkGroup(work, 1, "worker-2")
+
+				Expect(getResourceHealthStatus(reconcile())).To(HaveKeyWithValue("expectedRecords", int64(1)))
+			})
+		})
+
 		DescribeTable("the condition message",
 			func(healthDefinitions int64, placements int, states []string, reason, message string) {
 				setHealthDefinitions(healthDefinitions)
@@ -991,6 +1049,16 @@ var _ = Describe("HealthRecordController", func() {
 			Expect(getHealthRecordsList(getResourceStatus(updated))).To(HaveLen(1))
 			Expect(healthStatus).NotTo(HaveKey("expectedRecords"))
 			Expect(resourceutil.GetCondition(updated, resourceutil.HealthChecksSucceededCondition)).To(BeNil())
+		})
+
+		It("mirrors the state onto the binding without an expected count", func() {
+			binding := bindingForResource(promise, resource, expectedPromiseVersion)
+
+			reconcile()
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(binding), binding)).To(Succeed())
+			Expect(binding.Status.HealthStatus).To(Equal(&v1alpha1.ResourceBindingHealthStatus{State: "ready"}))
+			Expect(binding.Status.Conditions).To(BeEmpty())
 		})
 	})
 
@@ -1131,4 +1199,25 @@ func placeWorkGroup(work *v1alpha1.Work, group int, destination string) {
 		},
 	}
 	Expect(fakeK8sClient.Create(ctx, placement)).To(Succeed())
+}
+
+func bindingForResource(promise *v1alpha1.Promise, resource *unstructured.Unstructured, version string) *v1alpha1.ResourceBinding {
+	GinkgoHelper()
+	binding := &v1alpha1.ResourceBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "example-binding",
+			Namespace: resource.GetNamespace(),
+			Labels: map[string]string{
+				v1alpha1.PromiseNameLabel:  promise.GetName(),
+				v1alpha1.ResourceNameLabel: resource.GetName(),
+			},
+		},
+		Spec: v1alpha1.ResourceBindingSpec{
+			Version:     version,
+			PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
+			ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
+		},
+	}
+	Expect(fakeK8sClient.Create(ctx, binding)).To(Succeed())
+	return binding
 }
