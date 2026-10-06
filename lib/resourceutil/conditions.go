@@ -40,9 +40,9 @@ func SetConditionIfChanged(obj *unstructured.Unstructured, condition *clusterv1.
 	return true
 }
 
-// SetConditionKeepingTransitionTime writes condition when status, reason or message differ.
+// SetConditionWithTransitionTime writes condition when status, reason or message differ.
 // Unlike conditionsutil.Set it keeps LastTransitionTime while the status is unchanged.
-func SetConditionKeepingTransitionTime(obj *unstructured.Unstructured, condition *clusterv1.Condition) bool {
+func SetConditionWithTransitionTime(obj *unstructured.Unstructured, condition *clusterv1.Condition) bool {
 	setter := conditionsutil.UnstructuredSetter(obj)
 	conditions := setter.GetConditions()
 	index := -1

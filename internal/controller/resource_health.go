@@ -49,15 +49,13 @@ func reconcileExpectedHealth(
 	}
 
 	condition := healthChecksCondition(records, rr.GetNamespace(), expectedVersion, healthDefinitions, expectedRecords)
-	if resourceutil.SetConditionKeepingTransitionTime(rr, &condition) {
+	if resourceutil.SetConditionWithTransitionTime(rr, &condition) {
 		changed = true
 	}
 	return changed, nil
 }
 
-// resourceWorkScope returns where the work-creator puts a resource's Works and the labels it
-// gives them: the pipeline namespace, tagged with the resource namespace, when the promise sets one.
-func resourceWorkScope(promise *v1alpha1.Promise, rr *unstructured.Unstructured) (string, map[string]string) {
+func resourceWorksNamespaceAndLabels(promise *v1alpha1.Promise, rr *unstructured.Unstructured) (string, map[string]string) {
 	namespace, resourceNamespace := rr.GetNamespace(), ""
 	if promise.WorkflowPipelineNamespaceSet() {
 		namespace, resourceNamespace = promise.WorkflowPipelineNamespace(), rr.GetNamespace()
@@ -75,7 +73,7 @@ func expectedHealthRecords(
 		return 0, nil
 	}
 
-	namespace, workLabels := resourceWorkScope(promise, rr)
+	namespace, workLabels := resourceWorksNamespaceAndLabels(promise, rr)
 	works := &v1alpha1.WorkList{}
 	if err := c.List(ctx, works, client.InNamespace(namespace), client.MatchingLabels(workLabels)); err != nil {
 		return 0, err

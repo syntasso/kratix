@@ -481,7 +481,7 @@ func (r *DynamicResourceRequestController) ensureResourceStatus(
 	bindingVersion string,
 	promiseRevisionUsed *v1alpha1.PromiseRevision,
 ) (bool, error) {
-	_, workLabels := resourceWorkScope(promise, rr)
+	_, workLabels := resourceWorksNamespaceAndLabels(promise, rr)
 
 	statusUpdate, err := r.generateResourceStatus(ctx, logger, promise, rr, workLabels, bindingVersion, promiseRevisionUsed)
 	if err != nil {

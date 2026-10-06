@@ -13,7 +13,7 @@ import (
 	"github.com/syntasso/kratix/lib/resourceutil"
 )
 
-var _ = Describe("SetConditionKeepingTransitionTime", func() {
+var _ = Describe("SetConditionWithTransitionTime", func() {
 	var (
 		obj       *unstructured.Unstructured
 		anHourAgo metav1.Time
@@ -33,7 +33,7 @@ var _ = Describe("SetConditionKeepingTransitionTime", func() {
 
 	It("adds a missing condition with a transition time of now", func() {
 		before := time.Now().Add(-time.Second)
-		Expect(resourceutil.SetConditionKeepingTransitionTime(obj, &condition)).To(BeTrue())
+		Expect(resourceutil.SetConditionWithTransitionTime(obj, &condition)).To(BeTrue())
 
 		written := resourceutil.GetCondition(obj, condition.Type)
 		Expect(written).NotTo(BeNil())
@@ -51,13 +51,13 @@ var _ = Describe("SetConditionKeepingTransitionTime", func() {
 		})
 
 		It("does not write when status, reason and message are unchanged", func() {
-			Expect(resourceutil.SetConditionKeepingTransitionTime(obj, &condition)).To(BeFalse())
+			Expect(resourceutil.SetConditionWithTransitionTime(obj, &condition)).To(BeFalse())
 			Expect(resourceutil.GetCondition(obj, condition.Type).LastTransitionTime.Time).To(BeTemporally("==", anHourAgo.Time))
 		})
 
 		It("keeps the transition time when only the message changes", func() {
 			condition.Message = "3 of 2 records have reported at v2.0.0"
-			Expect(resourceutil.SetConditionKeepingTransitionTime(obj, &condition)).To(BeTrue())
+			Expect(resourceutil.SetConditionWithTransitionTime(obj, &condition)).To(BeTrue())
 
 			written := resourceutil.GetCondition(obj, condition.Type)
 			Expect(written.Message).To(Equal("3 of 2 records have reported at v2.0.0"))
@@ -66,7 +66,7 @@ var _ = Describe("SetConditionKeepingTransitionTime", func() {
 
 		It("keeps the transition time when only the reason changes", func() {
 			condition.Reason = "AnotherReason"
-			Expect(resourceutil.SetConditionKeepingTransitionTime(obj, &condition)).To(BeTrue())
+			Expect(resourceutil.SetConditionWithTransitionTime(obj, &condition)).To(BeTrue())
 
 			written := resourceutil.GetCondition(obj, condition.Type)
 			Expect(written.Reason).To(Equal("AnotherReason"))
@@ -76,7 +76,7 @@ var _ = Describe("SetConditionKeepingTransitionTime", func() {
 		It("moves the transition time when the status changes", func() {
 			condition.Status = v1.ConditionFalse
 			condition.Reason = resourceutil.HealthChecksUnhealthyReason
-			Expect(resourceutil.SetConditionKeepingTransitionTime(obj, &condition)).To(BeTrue())
+			Expect(resourceutil.SetConditionWithTransitionTime(obj, &condition)).To(BeTrue())
 
 			written := resourceutil.GetCondition(obj, condition.Type)
 			Expect(written.Status).To(Equal(v1.ConditionFalse))
@@ -87,7 +87,7 @@ var _ = Describe("SetConditionKeepingTransitionTime", func() {
 			other := &clusterv1.Condition{Type: resourceutil.WorksSucceededCondition, Status: v1.ConditionTrue}
 			resourceutil.SetCondition(obj, other)
 			condition.Status = v1.ConditionFalse
-			Expect(resourceutil.SetConditionKeepingTransitionTime(obj, &condition)).To(BeTrue())
+			Expect(resourceutil.SetConditionWithTransitionTime(obj, &condition)).To(BeTrue())
 
 			Expect(resourceutil.GetCondition(obj, resourceutil.WorksSucceededCondition)).NotTo(BeNil())
 			Expect(resourceutil.GetCondition(obj, condition.Type).Status).To(Equal(v1.ConditionFalse))
