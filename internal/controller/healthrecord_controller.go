@@ -155,11 +155,12 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 		return err
 	}
 
+	// Fire before the binding copy: once the resource is written, a retry no longer sees the change.
 	if initialHealthStatusState != healthRecord.Data.State {
 		r.fireEvent(healthRecord, resReq)
 	}
 
-	return nil
+	return syncResourceBindingHealth(ctx, r.Client, logger, promise.GetName(), resReq)
 }
 
 func (r *HealthRecordReconciler) listResourceHealthRecords(
@@ -210,11 +211,7 @@ func (r *HealthRecordReconciler) applyResourceHealth(
 		return err
 	}
 
-	if err := r.Status().Update(ctx, resReq); err != nil {
-		return err
-	}
-
-	return syncResourceBindingHealth(ctx, r.Client, logger, promise.GetName(), resReq)
+	return r.Status().Update(ctx, resReq)
 }
 
 func (r *HealthRecordReconciler) ignoreNotFound(logger logr.Logger, err error, msg string) ctrl.Result {
@@ -352,6 +349,10 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 	}
 
 	if err := r.applyResourceHealth(ctx, r.Log, promise, resReq, remainingRecords); err != nil {
+		return defaultRequeue, err
+	}
+
+	if err := syncResourceBindingHealth(ctx, r.Client, r.Log, promise.GetName(), resReq); err != nil {
 		return defaultRequeue, err
 	}
 

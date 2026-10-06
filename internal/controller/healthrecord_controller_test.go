@@ -851,6 +851,18 @@ var _ = Describe("HealthRecordController", func() {
 				Expect(binding.Status.HealthStatus.ExpectedRecords).To(HaveValue(BeEquivalentTo(2)))
 			})
 
+			It("still announces the new state when the binding update conflicts", func() {
+				bindingForResource(promise, resource, "latest")
+				healthRecord.Data.State = "unhealthy"
+				Expect(fakeK8sClient.Update(ctx, healthRecord)).To(Succeed())
+				conflicting := &bindingHealthConflictClient{Client: fakeK8sClient, conflicts: 1}
+				reconciler.Client = conflicting
+
+				reconcile()
+				Expect(conflicting.conflicts).To(BeZero(), "the binding update never conflicted")
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring("Warning HealthRecord Health state is unhealthy")))
+			})
+
 			It("requeues without an error when the binding update conflicts while a record is deleted", func() {
 				binding := bindingForResource(promise, resource, "latest")
 				anotherRecord("b-name", "default", "healthy", version)
