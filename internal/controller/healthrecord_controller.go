@@ -115,6 +115,9 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	if err = r.updateResourceStatus(ctx, promise, resReq, healthRecord, logger); err != nil {
+		if apierrors.IsConflict(err) {
+			return fastRequeue, nil
+		}
 		return ctrl.Result{}, err
 	}
 

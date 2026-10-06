@@ -401,6 +401,9 @@ func (r *DynamicResourceRequestController) reconcileAfterConfigure(
 		return ctrl.Result{}, err
 	}
 	if err := syncResourceBindingHealth(ctx, r.Client, logger, promise.GetName(), rr); err != nil {
+		if apierrors.IsConflict(err) {
+			return fastRequeue, nil
+		}
 		logging.Error(logger, err, "failed to update resource binding health status")
 		return ctrl.Result{}, err
 	}

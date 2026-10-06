@@ -1268,6 +1268,23 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					}))
 				})
 
+				It("requeues without an error when another writer updated the binding first", func() {
+					work := createWorkForResource(promise, resReq, "test", 1)
+					placeWorkGroup(work, 0, "worker-1")
+					conflicting := &bindingHealthConflictClient{Client: fakeK8sClient, conflicts: 1}
+					reconciler.Client = conflicting
+
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(conflicting.conflicts).To(BeZero(), "the binding update never conflicted")
+
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Status.HealthStatus).To(Equal(&v1alpha1.ResourceBindingHealthStatus{
+						ExpectedPromiseVersion: "v2.0.0",
+						ExpectedRecords:        ptr.To(int64(1)),
+					}))
+				})
+
 				It("waits while the health checks are not placed on any destination", func() {
 					createWorkForResource(promise, resReq, "test", 1)
 

@@ -833,6 +833,23 @@ var _ = Describe("HealthRecordController", func() {
 				Expect(apimeta.FindStatusCondition(binding.Status.Conditions, healthType)).To(BeNil())
 				Expect(apimeta.FindStatusCondition(binding.Status.Conditions, v1alpha1.UpgradeSucceededCondition)).NotTo(BeNil())
 			})
+
+			It("requeues without an error when another writer updated the binding first", func() {
+				binding := bindingForResource(promise, resource, "latest")
+				anotherRecord("b-name", "default", "healthy", version)
+				conflicting := &bindingHealthConflictClient{Client: fakeK8sClient, conflicts: 1}
+				reconciler.Client = conflicting
+
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(healthRecord)})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+				Expect(conflicting.conflicts).To(BeZero(), "the binding update never conflicted")
+
+				reconcile()
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(binding), binding)).To(Succeed())
+				Expect(binding.Status.HealthStatus).NotTo(BeNil())
+				Expect(binding.Status.HealthStatus.ExpectedRecords).To(HaveValue(BeEquivalentTo(2)))
+			})
 		})
 
 		When("no destination has been given the health checks yet", func() {
