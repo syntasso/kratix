@@ -850,6 +850,29 @@ var _ = Describe("HealthRecordController", func() {
 				Expect(binding.Status.HealthStatus).NotTo(BeNil())
 				Expect(binding.Status.HealthStatus.ExpectedRecords).To(HaveValue(BeEquivalentTo(2)))
 			})
+
+			It("requeues without an error when the binding update conflicts while a record is deleted", func() {
+				binding := bindingForResource(promise, resource, "latest")
+				anotherRecord("b-name", "default", "healthy", version)
+				healthRecord.Data.State = "unhealthy"
+				Expect(fakeK8sClient.Update(ctx, healthRecord)).To(Succeed())
+				reconcile()
+
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(healthRecord), healthRecord)).To(Succeed())
+				Expect(fakeK8sClient.Delete(ctx, healthRecord)).To(Succeed())
+				conflicting := &bindingHealthConflictClient{Client: fakeK8sClient, conflicts: 1}
+				reconciler.Client = conflicting
+
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(healthRecord)})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+				Expect(conflicting.conflicts).To(BeZero(), "the binding update never conflicted")
+
+				_, err = t.reconcileUntilCompletion(reconciler, healthRecord)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(binding), binding)).To(Succeed())
+				Expect(binding.Status.HealthStatus.State).To(Equal("healthy"))
+			})
 		})
 
 		When("no destination has been given the health checks yet", func() {

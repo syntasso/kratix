@@ -101,7 +101,11 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	if healthRecordIsBeingDeleted {
-		return r.deleteHealthRecord(ctx, promise, healthRecord, resReq)
+		result, err := r.deleteHealthRecord(ctx, promise, healthRecord, resReq)
+		if apierrors.IsConflict(err) {
+			return fastRequeue, nil
+		}
+		return result, err
 	}
 
 	if !controllerutil.ContainsFinalizer(healthRecord, healthRecordCleanupFinalizer) {
@@ -335,6 +339,10 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 	}
 
 	if !recordInResourceHealthRecords {
+		// A retry after a failed binding update finds the resource already updated; finish the copy first.
+		if err := syncResourceBindingHealth(ctx, r.Client, r.Log, promise.GetName(), resReq); err != nil {
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, r.removeFinalizer(ctx, healthRecord)
 	}
 
