@@ -1,6 +1,8 @@
 FROM --platform=$BUILDPLATFORM golang:1.27 AS builder
 ARG TARGETARCH
 ARG TARGETOS
+# Fetch a module straight from its source if the proxy errors, not only on a 404.
+ARG GOPROXY=https://proxy.golang.org|direct
 
 WORKDIR /workspace
 
