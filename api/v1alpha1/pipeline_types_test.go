@@ -171,7 +171,6 @@ var _ = Describe("Pipeline", func() {
 					Expect(f.Namespace).To(Equal("whale"))
 				})
 			})
-
 		})
 
 		Describe("ForResource", func() {
@@ -387,7 +386,6 @@ var _ = Describe("Pipeline", func() {
 					})
 				})
 			})
-
 		})
 
 		Describe("Job", func() {
@@ -974,7 +972,6 @@ var _ = Describe("Pipeline", func() {
 							"--pipeline-name", pipeline.GetName(),
 							"--namespace", factory.Namespace,
 							"--workflow-type", string(factory.WorkflowType),
-							"--promise-version", "",
 						}))
 						Expect(container.VolumeMounts).To(ConsistOf(
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
@@ -1037,7 +1034,6 @@ var _ = Describe("Pipeline", func() {
 							"--pipeline-name", pipeline.GetName(),
 							"--namespace", factory.Namespace,
 							"--workflow-type", string(factory.WorkflowType),
-							"--promise-version", "",
 							"--resource-name", resourceRequest.GetName(),
 						}))
 						Expect(container.VolumeMounts).To(ConsistOf(
@@ -1154,7 +1150,6 @@ var _ = Describe("Pipeline", func() {
 							Expect(string(containers[1].ImagePullPolicy)).To(Equal("Always"))
 						})
 					})
-
 				})
 
 				When("no resources are configured for a pipeline container", func() {
@@ -1214,7 +1209,6 @@ var _ = Describe("Pipeline", func() {
 						Expect(containers[1].Resources.Claims[0].Request).To(Equal("pipeline-pod-request"))
 					})
 				})
-
 			})
 
 			Describe("StatusWriterContainer", func() {
@@ -1966,23 +1960,41 @@ var _ = Describe("Pipeline", func() {
 			return "", false
 		}
 
-		// work-writer takes the version as a flag, not an env var
-		expectVersionOnEveryContainer := func(job *batchv1.Job, version string) {
+		expectPromiseVersionEnvOnEveryContainer := func(job *batchv1.Job, version string) {
 			GinkgoHelper()
-			for _, c := range job.Spec.Template.Spec.InitContainers {
+			podSpec := job.Spec.Template.Spec
+			for _, c := range append(podSpec.InitContainers, podSpec.Containers...) {
 				if c.Name == "work-writer" {
-					Expect(flagValue(c.Args, "--promise-version")).To(Equal(version), c.Name)
+					// work-writer takes the version as a flag, not an env var
 					continue
 				}
 				v, found := envValue(c, "KRATIX_PROMISE_VERSION")
 				Expect(found).To(BeTrue(), c.Name)
 				Expect(v).To(Equal(version), c.Name)
 			}
-			for _, c := range job.Spec.Template.Spec.Containers {
-				v, found := envValue(c, "KRATIX_PROMISE_VERSION")
-				Expect(found).To(BeTrue(), c.Name)
-				Expect(v).To(Equal(version), c.Name)
+		}
+
+		getWorkWriterContainer := func(job *batchv1.Job) corev1.Container {
+			GinkgoHelper()
+			for _, c := range job.Spec.Template.Spec.InitContainers {
+				if c.Name == "work-writer" {
+					return c
+				}
 			}
+			Fail("work-writer container not found in job")
+			return corev1.Container{}
+		}
+
+		expectWorkWriterPromiseVersion := func(job *batchv1.Job, version string) {
+			GinkgoHelper()
+			c := getWorkWriterContainer(job)
+			Expect(flagValue(c.Args, "--promise-version")).To(Equal(version), c.Name)
+		}
+
+		expectNoWorkWriterPromiseVersion := func(job *batchv1.Job) {
+			GinkgoHelper()
+			c := getWorkWriterContainer(job)
+			Expect(c.Args).NotTo(ContainElement("--promise-version"), c.Name)
 		}
 
 		BeforeEach(func() {
@@ -1997,7 +2009,7 @@ var _ = Describe("Pipeline", func() {
 			job := resources.Job
 			Expect(job.Spec.Template.Spec.InitContainers).To(HaveLen(4))
 			Expect(job.Spec.Template.Spec.Containers).To(HaveLen(1))
-			expectVersionOnEveryContainer(job, "v2.0.0")
+			expectPromiseVersionEnvOnEveryContainer(job, "v2.0.0")
 
 			workWriter := job.Spec.Template.Spec.InitContainers[3]
 			Expect(workWriter.Name).To(Equal("work-writer"))
@@ -2021,7 +2033,7 @@ var _ = Describe("Pipeline", func() {
 
 			// delete jobs have no work-writer
 			Expect(resources.Job.Spec.Template.Spec.InitContainers).To(HaveLen(3))
-			expectVersionOnEveryContainer(resources.Job, "v2.0.0")
+			expectPromiseVersionEnvOnEveryContainer(resources.Job, "v2.0.0")
 		})
 
 		DescribeTable("defaults an unversioned promise to an empty version",
@@ -2030,7 +2042,8 @@ var _ = Describe("Pipeline", func() {
 				resources, err := factory.Resources(nil)
 				Expect(err).ToNot(HaveOccurred())
 
-				expectVersionOnEveryContainer(resources.Job, "")
+				expectNoWorkWriterPromiseVersion(resources.Job)
+				expectPromiseVersionEnvOnEveryContainer(resources.Job, "")
 			},
 			Entry("not-set", v1alpha1.PlaceholderPromiseVersion),
 			Entry("empty", ""),
@@ -2046,14 +2059,16 @@ var _ = Describe("Pipeline", func() {
 				resources, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionConfigure, logr.Discard())
 				Expect(err).ToNot(HaveOccurred())
 				Expect(resources).To(HaveLen(1))
-				expectVersionOnEveryContainer(resources[0].Job, "v1.2.3")
+				expectWorkWriterPromiseVersion(resources[0].Job, "v1.2.3")
+				expectPromiseVersionEnvOnEveryContainer(resources[0].Job, "v1.2.3")
 			})
 
 			It("uses an empty version when the promise is unlabelled", func() {
 				resources, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionConfigure, logr.Discard())
 				Expect(err).ToNot(HaveOccurred())
 				Expect(resources).To(HaveLen(1))
-				expectVersionOnEveryContainer(resources[0].Job, "")
+				expectNoWorkWriterPromiseVersion(resources[0].Job)
+				expectPromiseVersionEnvOnEveryContainer(resources[0].Job, "")
 			})
 		})
 
@@ -2065,7 +2080,8 @@ var _ = Describe("Pipeline", func() {
 				resources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, resourceRequest, "v2.0.0", logr.Discard())
 				Expect(err).ToNot(HaveOccurred())
 				Expect(resources).To(HaveLen(1))
-				expectVersionOnEveryContainer(resources[0].Job, "v2.0.0")
+				expectWorkWriterPromiseVersion(resources[0].Job, "v2.0.0")
+				expectPromiseVersionEnvOnEveryContainer(resources[0].Job, "v2.0.0")
 			})
 		})
 	})
