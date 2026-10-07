@@ -177,12 +177,13 @@ func healthChecksCondition(
 	}
 
 	switch {
-	case unhealthy > 0:
-		return condition(v1.ConditionFalse, resourceutil.HealthChecksUnhealthyReason,
-			recordsInState(unhealthy, expectedRecords, expectedVersion, "unhealthy"))
+	// Nothing placed means nothing to judge, even if a record is already unhealthy (ADR0016).
 	case expectedRecords == 0:
 		return condition(v1.ConditionUnknown, resourceutil.HealthChecksWaitingForRecordsReason,
 			fmt.Sprintf("health checks for %s have not been placed on a destination yet", expectedVersion))
+	case unhealthy > 0:
+		return condition(v1.ConditionFalse, resourceutil.HealthChecksUnhealthyReason,
+			recordsInState(unhealthy, expectedRecords, expectedVersion, "unhealthy"))
 	case reported < expectedRecords:
 		return condition(v1.ConditionUnknown, resourceutil.HealthChecksWaitingForRecordsReason,
 			recordsReported(reported, expectedRecords, expectedVersion))

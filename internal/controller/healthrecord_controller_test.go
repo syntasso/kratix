@@ -1078,7 +1078,7 @@ var _ = Describe("HealthRecordController", func() {
 			},
 			Entry("no health checks", int64(0), 0, nil, "NoHealthChecks", "v2.0.0 ships no health checks"),
 			Entry("not placed", int64(1), 0, nil, "WaitingForRecords", "health checks for v2.0.0 have not been placed on a destination yet"),
-			Entry("unhealthy before placement", int64(1), 0, []string{"unhealthy"}, "Unhealthy", "1 of 0 records at v2.0.0 is unhealthy"),
+			Entry("unhealthy before placement", int64(1), 0, []string{"unhealthy"}, "WaitingForRecords", "health checks for v2.0.0 have not been placed on a destination yet"),
 			Entry("waiting", int64(1), 2, []string{"healthy"}, "WaitingForRecords", "1 of 2 records have reported at v2.0.0"),
 			Entry("unknown is not reported", int64(1), 2, []string{"healthy", "unknown"}, "WaitingForRecords", "1 of 2 records have reported at v2.0.0"),
 			Entry("one unhealthy", int64(1), 2, []string{"healthy", "unhealthy"}, "Unhealthy", "1 of 2 records at v2.0.0 is unhealthy"),
