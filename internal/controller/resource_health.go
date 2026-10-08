@@ -73,15 +73,14 @@ func expectedHealthRecords(
 		return 0, nil
 	}
 
-	namespace, workLabels := resourceWorksNamespaceAndLabels(promise, rr)
-	works := &v1alpha1.WorkList{}
-	if err := c.List(ctx, works, client.InNamespace(namespace), client.MatchingLabels(workLabels)); err != nil {
+	works, err := resourceWorks(ctx, c, promise.GetName(), rr)
+	if err != nil {
 		return 0, err
 	}
 
 	var expected int64
-	for i := range works.Items {
-		work := &works.Items[i]
+	for i := range works {
+		work := &works[i]
 		if !work.DeletionTimestamp.IsZero() || work.GetLabels()[v1alpha1.DryRunLabel] == "true" ||
 			work.GetAnnotations()[v1alpha1.HealthDefinitionsVersionAnnotation] != expectedVersion {
 			continue
@@ -99,6 +98,32 @@ func expectedHealthRecords(
 		}
 	}
 	return expected, nil
+}
+
+// resourceWorks finds the resource's Works wherever a promise revision wrote them, so a
+// changed pipelineNamespace does not hide Works written under the old one.
+func resourceWorks(ctx context.Context, c client.Client, promiseName string, rr *unstructured.Unstructured) ([]v1alpha1.Work, error) {
+	works := &v1alpha1.WorkList{}
+	workLabels := resourceutil.GetWorkLabels(promiseName, rr.GetName(), "", "", v1alpha1.WorkTypeResource)
+	if err := c.List(ctx, works, client.MatchingLabels(workLabels)); err != nil {
+		return nil, err
+	}
+	var owned []v1alpha1.Work
+	for _, work := range works.Items {
+		if workResourceNamespace(&work) == rr.GetNamespace() {
+			owned = append(owned, work)
+		}
+	}
+	return owned, nil
+}
+
+// workResourceNamespace is the namespace of the resource a Work belongs to; only Works in a
+// pipeline namespace record it in a label.
+func workResourceNamespace(work *v1alpha1.Work) string {
+	if namespace := work.GetLabels()[v1alpha1.ResourceNamespaceLabel]; namespace != "" {
+		return namespace
+	}
+	return work.GetNamespace()
 }
 
 // groupHealthDefinitions trusts the Work annotation when the Work has a single group, since

@@ -976,6 +976,52 @@ var _ = Describe("HealthRecordController", func() {
 			})
 		})
 
+		When("the works were written under a different pipeline namespace than the live promise sets", func() {
+			It("counts works in the resource namespace after the promise adds a pipeline namespace", func() {
+				work := createWorkForResource(promise, resource, "work-a", 1)
+				placeWorkGroup(work, 0, "worker-1")
+				anotherRecord("b-name", "default", "healthy", version)
+				promise.Spec.Workflows.Config.PipelineNamespace = "kratix-pipelines"
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("expectedRecords", int64(1)))
+				Expect(condition(updated).Reason).To(Equal(resourceutil.HealthChecksAllRecordsHealthyReason))
+			})
+
+			It("counts works in a pipeline namespace the live promise no longer sets", func() {
+				pinned := promise.DeepCopy()
+				pinned.Spec.Workflows.Config.PipelineNamespace = "kratix-pipelines"
+				work := createWorkForResource(pinned, resource, "work-a", 1)
+				placeWorkGroup(work, 0, "worker-1")
+				anotherRecord("b-name", "default", "healthy", version)
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("expectedRecords", int64(1)))
+				Expect(condition(updated).Reason).To(Equal(resourceutil.HealthChecksAllRecordsHealthyReason))
+			})
+		})
+
+		When("a resource with the same name in another namespace has works", func() {
+			It("counts only the works of this resource", func() {
+				work := createWorkForResource(promise, resource, "work-a", 1)
+				placeWorkGroup(work, 0, "worker-1")
+
+				sameName := resource.DeepCopy()
+				sameName.SetNamespace("team-b")
+				sameName.SetResourceVersion("")
+				Expect(fakeK8sClient.Create(ctx, sameName)).To(Succeed())
+				other := createWorkForResource(promise, sameName, "work-b", 1)
+				placeWorkGroup(other, 0, "worker-1")
+
+				updated := reconcile()
+
+				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("expectedRecords", int64(1)))
+			})
+		})
+
 		When("a work carries a health-definitions annotation that is not a number", func() {
 			It("counts nothing for that work and still rolls up the state", func() {
 				work := createWorkForResource(promise, resource, "work-a", 1)
