@@ -1,6 +1,7 @@
 FROM --platform=$BUILDPLATFORM golang:1.27 AS builder
 ARG TARGETARCH
 ARG TARGETOS
+ARG GOPROXY=https://proxy.golang.org|direct
 
 WORKDIR /workspace
 

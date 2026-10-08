@@ -238,7 +238,10 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 		"--pipeline-name", p.Pipeline.GetName(),
 		"--namespace", p.Namespace,
 		"--workflow-type", string(p.WorkflowType),
-		"--promise-version", p.promiseVersion(),
+	}
+
+	if v := p.promiseVersion(); v != "" {
+		args = append(args, "--promise-version", v)
 	}
 
 	if p.ResourceWorkflow {
