@@ -400,6 +400,13 @@ func (r *DynamicResourceRequestController) reconcileAfterConfigure(
 		logging.Error(logger, err, "failed to update resource binding version status")
 		return ctrl.Result{}, err
 	}
+	if err := syncResourceBindingHealth(ctx, r.Client, logger, promise.GetName(), rr); err != nil {
+		if apierrors.IsConflict(err) {
+			return fastRequeue, nil
+		}
+		logging.Error(logger, err, "failed to update resource binding health status")
+		return ctrl.Result{}, err
+	}
 
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if workflowsCompletedSuccessfully(workflowCompletedCondition) {
@@ -477,13 +484,9 @@ func (r *DynamicResourceRequestController) ensureResourceStatus(
 	bindingVersion string,
 	promiseRevisionUsed *v1alpha1.PromiseRevision,
 ) (bool, error) {
-	rrNamespace := ""
-	if promise.WorkflowPipelineNamespaceSet() {
-		rrNamespace = rr.GetNamespace()
-	}
-	workLabels := resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), rrNamespace, "", v1alpha1.WorkTypeResource)
+	_, workLabels := resourceWorksNamespaceAndLabels(promise, rr)
 
-	statusUpdate, err := r.generateResourceStatus(ctx, logger, rr, workLabels, bindingVersion, promiseRevisionUsed)
+	statusUpdate, err := r.generateResourceStatus(ctx, logger, promise, rr, workLabels, bindingVersion, promiseRevisionUsed)
 	if err != nil {
 		return false, err
 	}
@@ -594,7 +597,7 @@ func shouldMarkResourceBindingUpgradeInProgress(resourceBinding *v1alpha1.Resour
 }
 
 func (r *DynamicResourceRequestController) getResourceBindingForRR(ctx context.Context, promiseName string, rr *unstructured.Unstructured) (*v1alpha1.ResourceBinding, error) {
-	return r.findResourceBinding(ctx, rr.GetNamespace(), rr.GetName(), promiseName)
+	return findResourceBinding(ctx, r.Client, rr.GetNamespace(), rr.GetName(), promiseName)
 }
 
 func (r *DynamicResourceRequestController) applyResourceBindingUpgradeStatus(
@@ -871,8 +874,8 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 	return true, result, r.setWorkflowSuspendedStatusCondition(ctx, rr, msg)
 }
 
-func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured,
-	workLabels map[string]string, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision,
+func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise,
+	rr *unstructured.Unstructured, workLabels map[string]string, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision,
 ) (bool, error) {
 	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, logger, rr, workLabels)
 	if err != nil {
@@ -881,8 +884,27 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
 	reconciledUpdate := r.updateReconciledCondition(rr)
 	promiseVersionUpdate := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevision)
+	healthUpdate, err := r.updateExpectedHealth(ctx, logger, promise, rr)
+	if err != nil {
+		return false, err
+	}
 
-	return worksSucceededUpdate || reconciledUpdate || promiseVersionUpdate, nil
+	return worksSucceededUpdate || reconciledUpdate || promiseVersionUpdate || healthUpdate, nil
+}
+
+// updateExpectedHealth feeds reconcileExpectedHealth the same records the HealthRecord
+// controller uses; the version guard only spares the cluster-wide list.
+func (r *DynamicResourceRequestController) updateExpectedHealth(
+	ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise, rr *unstructured.Unstructured,
+) (bool, error) {
+	if version, _, _ := unstructured.NestedString(rr.Object, "status", "healthStatus", "expectedPromiseVersion"); version == "" {
+		return false, nil
+	}
+	records, err := resourceHealthRecords(ctx, r.Client, r.PromiseIdentifier, rr.GetName(), rr.GetNamespace())
+	if err != nil {
+		return false, err
+	}
+	return reconcileExpectedHealth(ctx, r.Client, logger, promise, rr, records)
 }
 
 func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, _, misplaced []string) bool {
@@ -1552,19 +1574,18 @@ func (r *DynamicResourceRequestController) fetchResourceBinding(
 	rr *unstructured.Unstructured,
 	promise *v1alpha1.Promise,
 ) (*v1alpha1.ResourceBinding, error) {
-	return r.findResourceBinding(ctx, rr.GetNamespace(), rr.GetName(), promise.GetName())
+	return findResourceBinding(ctx, r.Client, rr.GetNamespace(), rr.GetName(), promise.GetName())
 }
 
-// findResourceBinding returns the ResourceBinding for a resource, identified by its labels.
-// Every path that reads, updates or deletes a Binding resolves it this way, so a Binding
-// created ahead of the resource request — to pin the request to a version other than latest
-// — is adopted rather than duplicated, whatever it is named.
-func (r *DynamicResourceRequestController) findResourceBinding(
+// findResourceBinding resolves a Binding by its labels, never by name, so one created ahead
+// of the resource request to pin a version is adopted rather than duplicated.
+func findResourceBinding(
 	ctx context.Context,
+	c client.Client,
 	namespace, resourceName, promiseName string,
 ) (*v1alpha1.ResourceBinding, error) {
 	bindings := &v1alpha1.ResourceBindingList{}
-	if err := r.Client.List(ctx, bindings, &client.ListOptions{
+	if err := c.List(ctx, bindings, &client.ListOptions{
 		Namespace:     namespace,
 		LabelSelector: labels.SelectorFromSet(resourceBindingLabelsFor(resourceName, promiseName)),
 	}); err != nil {

@@ -53,6 +53,10 @@ type HealthRecordData struct {
 	// Unix timestamp of the last healthcheck run
 	LastRun int64 `json:"lastRun,omitempty"`
 
+	// Promise version the HealthDefinition that produced this record was stamped with.
+	// Only records matching the resource's expectedPromiseVersion count toward HealthChecksSucceeded
+	PromiseVersion string `json:"promiseVersion,omitempty"`
+
 	// Arbitrary JSON details from the healthcheck pipeline
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Optional

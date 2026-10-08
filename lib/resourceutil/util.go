@@ -39,6 +39,13 @@ const (
 	pausedReconciliationReason             = "PausedReconciliation"
 	workflowSuspendedReason                = "WorkflowSuspended"
 	DryRunWorksSucceededReason             = "DryRunSucceeded"
+
+	HealthChecksSucceededCondition      = clusterv1.ConditionType("HealthChecksSucceeded")
+	HealthChecksAllRecordsHealthyReason = "AllRecordsHealthy"
+	HealthChecksNoHealthChecksReason    = "NoHealthChecks"
+	HealthChecksUnhealthyReason         = "Unhealthy"
+	HealthChecksDegradedReason          = "Degraded"
+	HealthChecksWaitingForRecordsReason = "WaitingForRecords"
 )
 
 func GetConfigureWorkflowCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
