@@ -550,40 +550,44 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 
 				When("the manual reconciliation label is added", func() {
-					It("suspends the current job", func() {
+					var runningJobName string
+
+					BeforeEach(func() {
+						runningJobName = listJobs(namespace)[0].Name
 						uPromise.SetLabels(map[string]string{
 							"kratix.io/manual-reconciliation": "true",
 						})
 
-						By("cancelling the current job", func() {
-							requeue := reconcile(opts, &promise)
-							Expect(requeue).To(BeTrue())
-
-							jobs := listJobs(namespace)
-							Expect(jobs).To(HaveLen(1))
-							Expect(*jobs[0].Spec.Suspend).To(BeTrue())
-						})
-
-						jobs := listJobs(namespace)
-						jobs[0].Status.Conditions = append(jobs[0].Status.Conditions, batchv1.JobCondition{
-							Type:   batchv1.JobSuspended,
-							Status: v1.ConditionTrue,
-						})
-						Expect(fakeK8sClient.Status().Update(ctx, &jobs[0])).To(Succeed())
-						resetWorkflowPipelineJobs(workflowPipelines)
-
-						By("creating a new job for the pipeline", func() {
-							Expect(reconcile(opts, &promise)).To(BeTrue())
-							jobs := listJobs(namespace)
-							Expect(jobs).To(HaveLen(2))
-
-							Expect(jobs[1].Spec.Suspend).To(BeNil())
-							Expect(promise.Status.Kratix.Workflows["configure"].Pipelines[0].Phase).To(Equal("Running"))
-							Expect(promise.Status.Kratix.Workflows["configure"].Pipelines[0].LastTransitionTime).NotTo(BeZero())
-							Expect(promise.Status.Kratix.Workflows["configure"].Pipelines[1].Phase).To(Equal("Pending"))
-							Expect(promise.Status.Kratix.Workflows["configure"].Pipelines[0].LastTransitionTime).NotTo(BeZero())
-						})
+						Expect(reconcile(opts, &promise)).To(BeTrue())
 					})
+
+					It("lets the current job keep running", func() {
+						jobs := listJobs(namespace)
+						Expect(jobs).To(HaveLen(1))
+						Expect(jobs[0].Spec.Suspend).To(BeNil())
+						Expect(uPromise.GetLabels()).To(HaveKeyWithValue("kratix.io/manual-reconciliation", "true"))
+					})
+
+					DescribeTable("restarts the workflow from the first pipeline once the current job finishes",
+						func(finish func(string)) {
+							finish(runningJobName)
+							resetWorkflowPipelineJobs(workflowPipelines)
+
+							Expect(reconcile(opts, &promise)).To(BeTrue())
+
+							jobs := resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
+							newestJob := jobs[len(jobs)-1]
+							Expect(newestJob.Name).NotTo(Equal(runningJobName))
+							Expect(newestJob.GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
+							Expect(newestJob.Spec.Suspend).To(BeNil())
+							Expect(promise.Status.Kratix.Workflows["configure"].Pipelines[0].Phase).To(Equal("Running"))
+							Expect(promise.Status.Kratix.Workflows["configure"].Pipelines[1].Phase).To(Equal("Pending"))
+							Expect(promise.GetLabels()).NotTo(HaveKey("kratix.io/manual-reconciliation"))
+						},
+						Entry("when it succeeds", markJobAsComplete),
+						Entry("when it fails", markJobAsFailed),
+						Entry("when someone deletes it because it would never finish", deleteJob),
+					)
 				})
 			})
 
@@ -851,7 +855,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 
 				When("manual reconciliation is also requested", func() {
-					It("suspends the running job", func() {
+					It("waits for the running job without suspending it", func() {
 						uPromise.SetLabels(map[string]string{
 							"kratix.io/manual-reconciliation": "true",
 						})
@@ -860,10 +864,10 @@ var _ = Describe("Workflow Reconciler", func() {
 						Expect(err).NotTo(HaveOccurred())
 						Expect(passiveRequeue).To(BeTrue())
 
+						Expect(listJobs(namespace)).To(HaveLen(1))
 						job := &batchv1.Job{}
 						Expect(fakeK8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: workflowPipelines[0].Job.Name}, job)).To(Succeed())
-						Expect(job.Spec.Suspend).NotTo(BeNil())
-						Expect(*job.Spec.Suspend).To(BeTrue())
+						Expect(job.Spec.Suspend).To(BeNil())
 					})
 				})
 
@@ -1117,7 +1121,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
-		When("the last pipeline never finishes and the workflow keeps restarting", func() {
+		When("the last pipeline never finishes, someone suspends it by hand, and the workflow keeps restarting", func() {
 			numberOfJobsToKeep := 2
 			restartsOverTheLimit := numberOfJobsToKeep + 2
 
@@ -1142,15 +1146,10 @@ var _ = Describe("Workflow Reconciler", func() {
 			suspendTheRunningPipeline := func() {
 				GinkgoHelper()
 
-				labelPromiseForManualReconciliation(promise.Name)
-				workflowPipelines, uPromise := setupTest(promise, pipelines)
-				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise,
-					workflowPipelines, "promise", numberOfJobsToKeep, namespace)
-
 				By("suspending the job that is still running", func() {
-					reconcileConfigure(opts)
-					markJobsAsSuspended()
+					suspendRunningJobsByHand()
 				})
+				labelPromiseForManualReconciliation(promise.Name)
 			}
 
 			It("keeps no more than numberOfJobsToKeep jobs per pipeline", func() {
@@ -1479,13 +1478,12 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(err).NotTo(HaveOccurred())
 				})
 
-				It("suspends the current job", func() {
+				It("lets the current job keep running", func() {
 					jobs := resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 					Expect(jobs).To(HaveLen(2))
 					Expect(jobs[0].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
 					Expect(jobs[1].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[1].Name))
-					Expect(jobs[1].Spec.Suspend).NotTo(BeNil())
-					Expect(*jobs[1].Spec.Suspend).To(BeTrue())
+					Expect(jobs[1].Spec.Suspend).To(BeNil())
 				})
 
 				It("aborts the reconciliation loop", func() {
@@ -2740,7 +2738,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 
 				When("a new manual reconciliation request is made", func() {
-					It("cancels the current job (allowing a new job to be queued up)", func() {
+					It("lets the current job keep running", func() {
 						uPromise.SetLabels(map[string]string{
 							"kratix.io/manual-reconciliation": "true",
 						})
@@ -2750,7 +2748,7 @@ var _ = Describe("Workflow Reconciler", func() {
 						Expect(err).NotTo(HaveOccurred())
 						Expect(passiveRequeue).To(BeTrue())
 						Expect(listJobs(namespace)).To(HaveLen(1))
-						Expect(*listJobs(namespace)[0].Spec.Suspend).To(BeTrue())
+						Expect(listJobs(namespace)[0].Spec.Suspend).To(BeNil())
 					})
 				})
 			})
@@ -3041,14 +3039,22 @@ func markJobAsFailed(name string) {
 	markJobAs(batchv1.JobFailed, name)
 }
 
-// Kratix sets spec.suspend; in a cluster the Job controller then reports the
-// Suspended condition.
-func markJobsAsSuspended() {
+func deleteJob(name string) {
 	GinkgoHelper()
+	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
+	Expect(fakeK8sClient.Delete(ctx, job)).To(Succeed())
+}
+
+func suspendRunningJobsByHand() {
+	GinkgoHelper()
+	suspend := true
 	for _, job := range listJobs(namespace) {
-		if job.Spec.Suspend != nil && *job.Spec.Suspend && len(job.Status.Conditions) == 0 {
-			markJobAs(batchv1.JobSuspended, job.GetName())
+		if len(job.Status.Conditions) != 0 {
+			continue
 		}
+		job.Spec.Suspend = &suspend
+		Expect(fakeK8sClient.Update(ctx, &job)).To(Succeed())
+		markJobAs(batchv1.JobSuspended, job.GetName())
 	}
 }
 
