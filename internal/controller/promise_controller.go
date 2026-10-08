@@ -1306,7 +1306,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		).
 		Watches(
 			&v1alpha1.WorkPlacement{},
-			handler.EnqueueRequestsFromMapFunc(WorkPlacementToResourceRequest(r.Client, promise)),
+			handler.EnqueueRequestsFromMapFunc(WorkPlacementToResourceRequest(r.Client, promise.GetName())),
 		).
 		Watches(
 			&v1alpha1.ResourceBinding{},
@@ -1382,23 +1382,18 @@ func (r *PromiseReconciler) restartDynamicControllerWatch(dynamicController *Dyn
 
 // WorkPlacementToResourceRequest enqueues the resource request a WorkPlacement of the promise
 // belongs to, so adding or removing a placement recomputes its expected health records.
-func WorkPlacementToResourceRequest(reader client.Reader, promise *v1alpha1.Promise) handler.MapFunc {
+func WorkPlacementToResourceRequest(reader client.Reader, promiseName string) handler.MapFunc {
 	return func(ctx context.Context, obj client.Object) []reconcile.Request {
 		placement := obj.(*v1alpha1.WorkPlacement)
-		if placement.Spec.PromiseName != promise.GetName() || placement.Spec.ResourceName == "" {
+		if placement.Spec.PromiseName != promiseName || placement.Spec.ResourceName == "" {
 			return nil
 		}
+		// Read the parent Work, not the Promise: the mapper outlives Promise updates.
 		namespace := placement.Namespace
-		if promise.WorkflowPipelineNamespaceSet() {
-			// Placements share the pipeline namespace; only the parent Work records the resource's.
-			work := &v1alpha1.Work{}
-			workKey := types.NamespacedName{Namespace: placement.Namespace, Name: placement.Labels[workLabelKey]}
-			if err := reader.Get(ctx, workKey, work); err != nil {
-				return nil
-			}
-			if namespace = work.GetLabels()[v1alpha1.ResourceNamespaceLabel]; namespace == "" {
-				return nil
-			}
+		work := &v1alpha1.Work{}
+		workKey := types.NamespacedName{Namespace: placement.Namespace, Name: placement.Labels[workLabelKey]}
+		if err := reader.Get(ctx, workKey, work); err == nil {
+			namespace = workResourceNamespace(work)
 		}
 		return []reconcile.Request{{
 			NamespacedName: types.NamespacedName{Namespace: namespace, Name: placement.Spec.ResourceName},

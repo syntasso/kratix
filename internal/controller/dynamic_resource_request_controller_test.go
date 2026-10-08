@@ -1324,12 +1324,24 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				}
 
 				It("maps a placement of the promise's resource to that resource", func() {
-					requests := controller.WorkPlacementToResourceRequest(fakeK8sClient, promise)(ctx, placement(promise.GetName(), "my-rr"))
+					requests := controller.WorkPlacementToResourceRequest(fakeK8sClient, promise.GetName())(ctx, placement(promise.GetName(), "my-rr"))
 					Expect(requests).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "team-a", Name: "my-rr"}}))
 				})
 
+				It("maps to the resource namespace recorded on the work when the promise sets no pipeline namespace", func() {
+					Expect(fakeK8sClient.Create(ctx, &v1alpha1.Work{ObjectMeta: metav1.ObjectMeta{
+						Name: "work-x", Namespace: "kratix-pipelines", Labels: map[string]string{v1alpha1.ResourceNamespaceLabel: "default"},
+					}})).To(Succeed())
+					labelled := placement(promise.GetName(), "my-rr")
+					labelled.Namespace = "kratix-pipelines"
+					labelled.Labels = map[string]string{"kratix.io/work": "work-x"}
+
+					requests := controller.WorkPlacementToResourceRequest(fakeK8sClient, promise.GetName())(ctx, labelled)
+					Expect(requests).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "my-rr"}}))
+				})
+
 				It("ignores placements of other promises and of promise-level works", func() {
-					mapFn := controller.WorkPlacementToResourceRequest(fakeK8sClient, promise)
+					mapFn := controller.WorkPlacementToResourceRequest(fakeK8sClient, promise.GetName())
 					Expect(mapFn(ctx, placement("another-promise", "my-rr"))).To(BeEmpty())
 					Expect(mapFn(ctx, placement(promise.GetName(), ""))).To(BeEmpty())
 				})
@@ -1349,15 +1361,27 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						labelled := placement(promise.GetName(), "my-rr")
 						labelled.Labels = map[string]string{"kratix.io/work": "work-x"}
 
-						requests := controller.WorkPlacementToResourceRequest(fakeK8sClient, pipelinePromise)(ctx, labelled)
+						requests := controller.WorkPlacementToResourceRequest(fakeK8sClient, pipelinePromise.GetName())(ctx, labelled)
 						Expect(requests).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "my-rr"}}))
 					})
 
-					It("enqueues nothing when the work is missing", func() {
+					It("maps to the placement namespace when the work records no resource namespace", func() {
+						Expect(fakeK8sClient.Create(ctx, &v1alpha1.Work{ObjectMeta: metav1.ObjectMeta{
+							Name: "work-y", Namespace: "team-a",
+						}})).To(Succeed())
+						labelled := placement(promise.GetName(), "my-rr")
+						labelled.Labels = map[string]string{"kratix.io/work": "work-y"}
+
+						requests := controller.WorkPlacementToResourceRequest(fakeK8sClient, pipelinePromise.GetName())(ctx, labelled)
+						Expect(requests).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "team-a", Name: "my-rr"}}))
+					})
+
+					It("maps to the placement namespace when the work is already gone", func() {
 						labelled := placement(promise.GetName(), "my-rr")
 						labelled.Labels = map[string]string{"kratix.io/work": "missing"}
 
-						Expect(controller.WorkPlacementToResourceRequest(fakeK8sClient, pipelinePromise)(ctx, labelled)).To(BeEmpty())
+						requests := controller.WorkPlacementToResourceRequest(fakeK8sClient, pipelinePromise.GetName())(ctx, labelled)
+						Expect(requests).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "team-a", Name: "my-rr"}}))
 					})
 				})
 			})
