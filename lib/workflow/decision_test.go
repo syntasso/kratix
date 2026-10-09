@@ -72,17 +72,14 @@ var _ = Describe("DecideNextAction", func() {
 			decision := workflow.DecideNextAction(opts, progress)
 
 			Expect(decision.Action).To(Equal(workflow.WaitForRunningJob))
-			Expect(decision.JobToSuspend).To(BeNil())
 		})
 
-		It("suspends that Job when a manual reconciliation is requested", func() {
+		It("waits for that Job even when a manual reconciliation is requested", func() {
 			progress.ManualReconcile = true
 
 			decision := workflow.DecideNextAction(opts, progress)
 
-			Expect(decision.Action).To(Equal(workflow.SuspendRunningJob))
-			Expect(decision.JobToSuspend).NotTo(BeNil())
-			Expect(decision.JobToSuspend.Name).To(Equal("some-other-job"))
+			Expect(decision.Action).To(Equal(workflow.WaitForRunningJob))
 		})
 
 		It("waits even when every pipeline has already succeeded", func() {

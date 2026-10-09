@@ -114,7 +114,6 @@ type NextAction string
 
 const (
 	WaitForRunningJob   NextAction = "waitForRunningJob"
-	SuspendRunningJob   NextAction = "suspendRunningJob"
 	StayPaused          NextAction = "stayPaused"
 	FinishWorkflow      NextAction = "finishWorkflow"
 	FailCurrentPipeline NextAction = "failCurrentPipeline"
@@ -128,8 +127,6 @@ type Decision struct {
 	Action NextAction
 	// Pipeline is set for FailCurrentPipeline, RecordJobOutcome and StartPipeline.
 	Pipeline *v1alpha1.PipelineJobResources
-	// JobToSuspend is set for SuspendRunningJob only.
-	JobToSuspend *batchv1.Job
 	// JobToRecord is set for RecordJobOutcome only. It has always finished, but it
 	// may have either succeeded or failed; the outcome is read off it later.
 	JobToRecord *batchv1.Job
@@ -150,8 +147,6 @@ func reconcileWorkflow(opts Opts) (bool, error) {
 	switch decision.Action {
 	case WaitForRunningJob, StayPaused:
 		return true, nil
-	case SuspendRunningJob:
-		return true, suspendJob(opts.ctx, opts.client, decision.JobToSuspend)
 	case FinishWorkflow:
 		if opts.Resources[0].WorkflowAction == v1alpha1.WorkflowActionDelete {
 			return false, cleanupJobs(opts, opts.namespace)
@@ -220,10 +215,7 @@ func pipelineStatusFromUnstructured(entry any) (v1alpha1.WorkflowPipelineStatus,
 func DecideNextAction(opts Opts, progress Progress) Decision {
 	// Never start anything while a Job is still going. That Job may belong to a
 	// different pipeline, a different workflow action, or an earlier run.
-	if runningJob := firstUnfinishedJob(progress.Jobs); runningJob != nil {
-		if progress.ManualReconcile {
-			return Decision{Action: SuspendRunningJob, JobToSuspend: runningJob}
-		}
+	if firstUnfinishedJob(progress.Jobs) != nil {
 		return Decision{Action: WaitForRunningJob}
 	}
 
@@ -346,13 +338,6 @@ func recordPipelineJobOutcome(opts Opts, decision Decision) (bool, error) {
 		return false, cleanupJobs(opts, opts.namespace)
 	}
 	return true, cleanupJobs(opts, opts.namespace)
-}
-
-func suspendJob(ctx context.Context, c client.Client, job *batchv1.Job) error {
-	trueBool := true
-	patch := client.MergeFrom(job.DeepCopy())
-	job.Spec.Suspend = &trueBool
-	return c.Patch(ctx, job, patch)
 }
 
 func labelsForJobs(opts Opts) map[string]string {
