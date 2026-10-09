@@ -32,6 +32,19 @@ const (
 	UpgradeFailedReason       = "UpgradeFailed"
 )
 
+// ResourceBindingHealthStatus is a copy of the resource's status.healthStatus summary; the resource is the source of truth.
+type ResourceBindingHealthStatus struct {
+	// Worst state across every HealthRecord for the resource, whatever its promise version
+	// +optional
+	State string `json:"state,omitempty"`
+	// Promise version the resource expects HealthRecords for
+	// +optional
+	ExpectedPromiseVersion string `json:"expectedPromiseVersion,omitempty"`
+	// Number of HealthRecords expected at expectedPromiseVersion; 0 when that version ships no health check
+	// +optional
+	ExpectedRecords *int64 `json:"expectedRecords,omitempty"`
+}
+
 // ResourceBindingSpec defines the desired state of ResourceBinding
 type ResourceBindingSpec struct {
 	// Version is the version of the Promise that this ResourceRequest was last reconciled with.
@@ -53,6 +66,7 @@ type ResourceBindingSpec struct {
 // +kubebuilder:printcolumn:name="Promise",type=string,JSONPath=".spec.promiseRef.name",description="Promise being used by the Resource"
 // +kubebuilder:printcolumn:name="Desired",type=string,JSONPath=".spec.version",description="Promise version the resource should be reconciled with"
 // +kubebuilder:printcolumn:name="Applied",type=string,JSONPath=".status.lastAppliedVersion",description="Promise version the resource was last reconciled with"
+// +kubebuilder:printcolumn:name="Health",type=string,JSONPath=`.status.conditions[?(@.type=="HealthChecksSucceeded")].reason`,description="Whether every expected health check passed at the applied version"
 
 // ResourceBinding is the Schema for the resourcebindings API
 type ResourceBinding struct {
@@ -85,6 +99,9 @@ type ResourceBindingStatus struct {
 	// Cleared when an upgrade succeeds or a new upgrade attempt begins.
 	// +optional
 	FailedVersion string `json:"failedVersion,omitempty"`
+	// Copy of the resource's health summary, written by Kratix after the resource status changes
+	// +optional
+	HealthStatus *ResourceBindingHealthStatus `json:"healthStatus,omitempty"`
 }
 
 // +kubebuilder:object:root=true

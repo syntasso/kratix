@@ -83,3 +83,27 @@ spec:
                             - name: health
                               image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
                     EOF
+                    cat <<'EOF' > /kratix/output/healthdefinition-2.yaml
+                    apiVersion: platform.kratix.io/v1alpha1
+                    kind: HealthDefinition
+                    metadata:
+                      name: healthcheckversioned-example-2
+                      namespace: default
+                    spec:
+                      promiseRef:
+                        name: healthcheckversioned
+                      resourceRef:
+                        name: example
+                        namespace: default
+                      schedule: "* * * * *"
+                      input: ""
+                      workflow:
+                        apiVersion: platform.kratix.io/v1alpha1
+                        kind: Pipeline
+                        metadata:
+                          name: health
+                        spec:
+                          containers:
+                            - name: health
+                              image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                    EOF

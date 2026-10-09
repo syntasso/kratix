@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -161,4 +162,36 @@ func (t *testReconciler) reconcileUntilCompletion(r kubebuilder.Reconciler, obj 
 	}
 
 	return t.reconcileUntilCompletion(r, obj, opts...)
+}
+
+// bindingHealthConflictClient fails the next `conflicts` ResourceBinding status updates that
+// change healthStatus, as the API server does when another writer got there first.
+type bindingHealthConflictClient struct {
+	client.Client
+	conflicts int
+}
+
+func (c *bindingHealthConflictClient) Status() client.SubResourceWriter {
+	return &bindingHealthConflictWriter{SubResourceWriter: c.Client.Status(), parent: c}
+}
+
+type bindingHealthConflictWriter struct {
+	client.SubResourceWriter
+	parent *bindingHealthConflictClient
+}
+
+func (w *bindingHealthConflictWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	binding, ok := obj.(*v1alpha1.ResourceBinding)
+	if ok && w.parent.conflicts > 0 {
+		stored := &v1alpha1.ResourceBinding{}
+		if err := w.parent.Get(ctx, client.ObjectKeyFromObject(binding), stored); err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(stored.Status.HealthStatus, binding.Status.HealthStatus) {
+			w.parent.conflicts--
+			return errors.NewConflict(v1alpha1.GroupVersion.WithResource("resourcebindings").GroupResource(),
+				binding.GetName(), fmt.Errorf("the object has been modified"))
+		}
+	}
+	return w.SubResourceWriter.Update(ctx, obj, opts...)
 }

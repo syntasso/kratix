@@ -208,7 +208,7 @@ func serverNameWithoutPort(serverName string) string {
 }
 
 func parseTLSCertificatesFromPath(sourceFile string) ([]string, error) {
-	data, err := os.ReadFile(sourceFile)
+	data, err := os.ReadFile(sourceFile) //nolint:gosec // callers check the path stays inside the data dir
 	if err != nil {
 		return nil, err
 	}
