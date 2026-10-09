@@ -765,15 +765,15 @@ func configureLoggerFromConfig(opts *zap.Options, cfg *KratixConfig, logger logr
 func setLeaderElectConfig(mgrOptions *ctrl.Options, kConfig *KratixConfig) {
 	if kConfig.ControllerLeaderElection.LeaseDuration != nil {
 		mgrOptions.LeaseDuration = &kConfig.ControllerLeaderElection.LeaseDuration.Duration
-		setupLog.Info("controller leader election configured", "LeaseDuration", mgrOptions.LeaseDuration)
+		setupLog.Info("controller leader election configured", "LeaseDuration", *mgrOptions.LeaseDuration)
 	}
 	if kConfig.ControllerLeaderElection.RenewDeadline != nil {
 		mgrOptions.RenewDeadline = &kConfig.ControllerLeaderElection.RenewDeadline.Duration
-		setupLog.Info("controller leader election configured", "RenewDeadline", mgrOptions.RenewDeadline)
+		setupLog.Info("controller leader election configured", "RenewDeadline", *mgrOptions.RenewDeadline)
 	}
 	if kConfig.ControllerLeaderElection.RetryPeriod != nil {
 		mgrOptions.RetryPeriod = &kConfig.ControllerLeaderElection.RetryPeriod.Duration
-		setupLog.Info("controller leader election configured", "RetryPeriod", mgrOptions.RetryPeriod)
+		setupLog.Info("controller leader election configured", "RetryPeriod", *mgrOptions.RetryPeriod)
 	}
 }
 
