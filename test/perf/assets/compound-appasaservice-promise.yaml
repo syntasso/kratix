@@ -1,0 +1,78 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: appasaservice
+spec:
+  destinationSelectors:
+    - matchLabels:
+        environment: platform
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: appasaservices.compound.kratix.io
+    spec:
+      group: compound.kratix.io
+      names:
+        kind: AppAsAService
+        plural: appasaservices
+        singular: appasaservice
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          served: true
+          storage: true
+          schema:
+            openAPIV3Schema:
+              type: object
+              properties:
+                spec:
+                  type: object
+                  properties:
+                    app:
+                      type: string
+                    image:
+                      type: string
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: schedule-workload
+          spec:
+            containers:
+              - name: schedule-workload
+                image: busybox:1.36
+                command:
+                  - sh
+                  - -c
+                  - |
+                    set -e
+                    NAME=$(cat /kratix/input/object.yaml | grep '^  name:' | head -1 | awk '{print $2}')
+                    APP=$(cat /kratix/input/object.yaml | grep 'app:' | head -1 | awk '{print $2}')
+                    if [ -z "$APP" ]; then APP="$NAME"; fi
+
+                    # Workload manifest: a ConfigMap for the app
+                    cat > /kratix/output/configmap.yaml <<EOF
+                    apiVersion: v1
+                    kind: ConfigMap
+                    metadata:
+                      name: app-${NAME}
+                      namespace: default
+                    data:
+                      app: "${APP}"
+                    EOF
+
+                    # Downstream Publisher RR
+                    cat > /kratix/output/publisher.yaml <<EOF
+                    apiVersion: compound.kratix.io/v1alpha1
+                    kind: Publisher
+                    metadata:
+                      name: publisher-${NAME}
+                      namespace: default
+                    spec:
+                      app: "${APP}"
+                      url: "https://${APP}.example.com"
+                    EOF
+                    exit 0
