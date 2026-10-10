@@ -1428,7 +1428,13 @@ var _ = Describe("PromiseController", func() {
 						Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
 						result, err := t.reconcileUntilCompletion(reconciler, promise)
 						Expect(result).To(Equal(ctrl.Result{}))
-						Expect(err).To(MatchError(workflow.ErrDeletePipelineFailed))
+						Expect(err).NotTo(HaveOccurred())
+					})
+
+					It("stops reconciling instead of requeuing the failed delete workflow", func() {
+						result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
 					})
 
 					It("sets the DeleteWorkflowCompleted condition to Failed", func() {

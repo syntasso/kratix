@@ -1608,11 +1608,14 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelines, "promise", r.NumberOfJobsToKeep, namespace)
 
 		requeue, err := reconcileDelete(jobOpts)
-		if err != nil {
+		if stderrors.Is(err, workflow.ErrDeletePipelineFailed) {
 			r.handlePromiseDeletePipelineFailure(o, promise, err)
+			logging.Info(o.logger, "promise delete workflow failed; waiting for a manual reconciliation")
+			return ctrl.Result{}, nil
+		}
+		if err != nil {
 			return ctrl.Result{}, err
 		}
-
 		if requeue {
 			return defaultRequeue, nil
 		}
