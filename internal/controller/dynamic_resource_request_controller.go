@@ -1291,8 +1291,12 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		}
 
 		requeue, err := reconcileDelete(jobOpts)
-		if err != nil {
+		if errors.Is(err, workflow.ErrDeletePipelineFailed) {
 			r.handleDeletePipelineFailure(o, promise, resourceRequest, err)
+			logging.Info(o.logger, "resource delete workflow failed; waiting for a manual reconciliation")
+			return ctrl.Result{}, nil
+		}
+		if err != nil {
 			return ctrl.Result{}, err
 		}
 		if requeue {

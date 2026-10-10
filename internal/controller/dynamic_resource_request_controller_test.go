@@ -455,7 +455,13 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
 				result, err := t.reconcileUntilCompletion(reconciler, resReq)
 				Expect(result).To(Equal(ctrl.Result{}))
-				Expect(err).To(MatchError(workflow.ErrDeletePipelineFailed))
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("stops reconciling instead of requeuing the failed delete workflow", func() {
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
 			})
 
 			It("updates the resource request status", func() {
