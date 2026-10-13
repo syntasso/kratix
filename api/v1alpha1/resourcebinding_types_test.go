@@ -60,12 +60,12 @@ var _ = Describe("ResourceBinding", func() {
 	})
 
 	Describe("UsesVersion", func() {
-		It("is true when the binding asks for the version", func() {
+		It("is true when the binding version matches", func() {
 			binding := &platformv1alpha1.ResourceBinding{Spec: platformv1alpha1.ResourceBindingSpec{Version: "v1.0.0"}}
 			Expect(binding.UsesVersion("v1.0.0")).To(BeTrue())
 		})
 
-		It("is true when the resource last ran at the version but the binding asks for another", func() {
+		It("is true when the resource last succeded at the version, but the binding is set to another", func() {
 			binding := &platformv1alpha1.ResourceBinding{
 				Spec:   platformv1alpha1.ResourceBindingSpec{Version: "latest"},
 				Status: platformv1alpha1.ResourceBindingStatus{LastAppliedVersion: "v1.0.0"},

@@ -98,7 +98,7 @@ func (v *PromiseRevisionCustomValidator) bindingsStillUsingVersionWarning(ctx co
 		return nil
 	}
 	return admission.Warnings{fmt.Sprintf(
-		"PromiseRevision %q is still used by %d ResourceBinding(s) on version %s. It will stay until they move to another version or are deleted; their resources are not deleted.",
+		"PromiseRevision %q is still used by %d ResourceBinding(s) on version %s and it won't be removed until the resources move to another version or are deleted",
 		revision.GetName(), len(bindings), revision.Spec.Version)}
 }
 

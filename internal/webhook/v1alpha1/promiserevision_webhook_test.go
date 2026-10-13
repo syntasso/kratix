@@ -78,7 +78,7 @@ var _ = Describe("PromiseRevision Webhook", func() {
 					ContainSubstring(`"redis-v1-0-0"`),
 					ContainSubstring("2 ResourceBinding(s)"),
 					ContainSubstring("v1.0.0"),
-					ContainSubstring("not deleted"),
+					ContainSubstring("won't be removed"),
 				)))
 			})
 
