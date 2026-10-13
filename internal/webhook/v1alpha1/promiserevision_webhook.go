@@ -19,9 +19,9 @@ import (
 var promiserevisionlog = logf.Log.WithName("promiserevision-resource")
 
 // SetupPromiseRevisionWebhookWithManager registers the webhook for PromiseRevision in the manager.
-func SetupPromiseRevisionWebhookWithManager(mgr ctrl.Manager, c client.Client) error {
+func SetupPromiseRevisionWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, &platformv1alpha1.PromiseRevision{}).
-		WithValidator(&PromiseRevisionCustomValidator{Client: c}).
+		WithValidator(&PromiseRevisionCustomValidator{Client: mgr.GetClient()}).
 		Complete()
 }
 
