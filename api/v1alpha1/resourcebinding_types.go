@@ -149,3 +149,13 @@ func (rb *ResourceBinding) InFlightVersion() string {
 	}
 	return rest
 }
+
+// UsesVersion reports whether the binding records that its resource needs the PromiseRevision for
+// this version: the binding asks for it, an upgrade to it is running, or status.lastAppliedVersion
+// says the resource last ran at it. A resource whose upgrade has not finished still runs its
+// delete pipeline from the revision it last ran at.
+func (rb *ResourceBinding) UsesVersion(version string) bool {
+	return rb.Spec.Version == version ||
+		rb.Status.LastAppliedVersion == version ||
+		rb.InFlightVersion() == version
+}
