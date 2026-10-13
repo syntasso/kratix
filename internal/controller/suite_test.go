@@ -110,13 +110,6 @@ var _ = BeforeEach(func() {
 			//Add redis.marketplace.kratix.io/v1alpha1 so we can update its status
 			resReq,
 		).
-		WithIndex(&v1alpha1.ResourceBinding{}, "spec.version", func(rawObj client.Object) []string {
-			rb := rawObj.(*v1alpha1.ResourceBinding)
-			if rb.Spec.Version == "" {
-				return nil
-			}
-			return []string{rb.Spec.Version}
-		}).
 		Build()
 
 	fakeApiExtensionsClient = fakeclientset.NewSimpleClientset().ApiextensionsV1()
