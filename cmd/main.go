@@ -465,7 +465,7 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "ResourceBinding")
 		os.Exit(1)
 	}
-	if err := kratixWebhook.SetupPromiseRevisionWebhookWithManager(mgr); err != nil {
+	if err := kratixWebhook.SetupPromiseRevisionWebhookWithManager(mgr, mgr.GetClient()); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "PromiseRevision")
 		os.Exit(1)
 	}

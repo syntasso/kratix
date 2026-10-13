@@ -7,6 +7,7 @@ import (
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -18,15 +19,17 @@ import (
 var promiserevisionlog = logf.Log.WithName("promiserevision-resource")
 
 // SetupPromiseRevisionWebhookWithManager registers the webhook for PromiseRevision in the manager.
-func SetupPromiseRevisionWebhookWithManager(mgr ctrl.Manager) error {
+func SetupPromiseRevisionWebhookWithManager(mgr ctrl.Manager, c client.Client) error {
 	return ctrl.NewWebhookManagedBy(mgr, &platformv1alpha1.PromiseRevision{}).
-		WithValidator(&PromiseRevisionCustomValidator{}).
+		WithValidator(&PromiseRevisionCustomValidator{Client: c}).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/validate-platform-kratix-io-v1alpha1-promiserevision,mutating=false,failurePolicy=fail,sideEffects=None,groups=platform.kratix.io,resources=promiserevisions,verbs=create;update;delete,versions=v1alpha1,name=vpromiserevision-v1alpha1.kb.io,admissionReviewVersions=v1
 
-type PromiseRevisionCustomValidator struct{}
+type PromiseRevisionCustomValidator struct {
+	Client client.Client
+}
 
 var _ admission.Validator[*platformv1alpha1.PromiseRevision] = &PromiseRevisionCustomValidator{}
 
@@ -79,7 +82,24 @@ func (v *PromiseRevisionCustomValidator) ValidateDelete(ctx context.Context, rev
 		promiserevisionlog.Info("This PromiseRevision is marked as latest; it cannot be deleted", "name", revision.GetName())
 		return nil, fmt.Errorf("can not delete the latest PromiseRevision")
 	}
-	return nil, nil
+	return v.bindingsStillUsingVersionWarning(ctx, revision), nil
+}
+
+func (v *PromiseRevisionCustomValidator) bindingsStillUsingVersionWarning(ctx context.Context, revision *platformv1alpha1.PromiseRevision) admission.Warnings {
+	if v.Client == nil {
+		return nil
+	}
+	bindings, err := platformv1alpha1.ResourceBindingsUsingVersion(ctx, v.Client, revision.GetPromiseName(), revision.Spec.Version)
+	if err != nil {
+		promiserevisionlog.Error(err, "could not list ResourceBindings for PromiseRevision", "name", revision.GetName())
+		return nil
+	}
+	if len(bindings) == 0 {
+		return nil
+	}
+	return admission.Warnings{fmt.Sprintf(
+		"PromiseRevision %q is still used by %d ResourceBinding(s) on version %s. It will stay until they move to another version or are deleted; their resources are not deleted.",
+		revision.GetName(), len(bindings), revision.Spec.Version)}
 }
 
 // isKratixController is a helper that checks if the request comes from
