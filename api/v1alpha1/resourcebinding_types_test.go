@@ -58,4 +58,41 @@ var _ = Describe("ResourceBinding", func() {
 			Expect(binding.InFlightVersion()).To(BeEmpty())
 		})
 	})
+
+	Describe("UsesVersion", func() {
+		It("is true when the binding asks for the version", func() {
+			binding := &platformv1alpha1.ResourceBinding{Spec: platformv1alpha1.ResourceBindingSpec{Version: "v1.0.0"}}
+			Expect(binding.UsesVersion("v1.0.0")).To(BeTrue())
+		})
+
+		It("is true when the resource last ran at the version but the binding asks for another", func() {
+			binding := &platformv1alpha1.ResourceBinding{
+				Spec:   platformv1alpha1.ResourceBindingSpec{Version: "latest"},
+				Status: platformv1alpha1.ResourceBindingStatus{LastAppliedVersion: "v1.0.0"},
+			}
+			Expect(binding.UsesVersion("v1.0.0")).To(BeTrue())
+		})
+
+		It("is true while an upgrade to the version is running", func() {
+			binding := &platformv1alpha1.ResourceBinding{
+				Spec:   platformv1alpha1.ResourceBindingSpec{Version: "latest"},
+				Status: platformv1alpha1.ResourceBindingStatus{LastAppliedVersion: "v0.9.0"},
+			}
+			binding.Status.Conditions = []metav1.Condition{{
+				Type:    platformv1alpha1.UpgradeSucceededCondition,
+				Status:  metav1.ConditionUnknown,
+				Reason:  platformv1alpha1.UpgradeInProgressReason,
+				Message: "Upgrade to version v1.0.0 is in progress",
+			}}
+			Expect(binding.UsesVersion("v1.0.0")).To(BeTrue())
+		})
+
+		It("is false when neither the requested nor the last applied version match", func() {
+			binding := &platformv1alpha1.ResourceBinding{
+				Spec:   platformv1alpha1.ResourceBindingSpec{Version: "v2.0.0"},
+				Status: platformv1alpha1.ResourceBindingStatus{LastAppliedVersion: "v2.0.0"},
+			}
+			Expect(binding.UsesVersion("v1.0.0")).To(BeFalse())
+		})
+	})
 })
