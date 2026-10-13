@@ -28,7 +28,7 @@ import (
 // only to replace its object (for example legacy DNS name → deterministic name) while keeping the
 // same promise version. When present, the PromiseRevision controller drops its cleanup finalizer
 // straight away: it does not wait for resources to leave the version, and it keeps the version's
-// pipeline RBAC, which the replacement revision still needs.
+// pipeline RBAC.
 const SkipResourceRequestCleanupOnDeleteAnnotation = KratixPrefix + "skip-resource-request-cleanup-on-delete"
 
 // LatestRevisionLabel marks the PromiseRevision that is currently latest for the promise (at most
@@ -106,8 +106,6 @@ func (pr *PromiseRevision) GetPromiseName() string {
 	return pr.Spec.PromiseRef.Name
 }
 
-// SetSkipResourceRequestCleanupOnDelete sets SkipResourceRequestCleanupOnDeleteAnnotation (name
-// migration only).
 func (pr *PromiseRevision) SetSkipResourceRequestCleanupOnDelete() {
 	ann := pr.GetAnnotations()
 	if ann == nil {
@@ -119,7 +117,6 @@ func (pr *PromiseRevision) SetSkipResourceRequestCleanupOnDelete() {
 	ann[SkipResourceRequestCleanupOnDeleteAnnotation] = MetadataBoolTrue
 }
 
-// SkipResourceRequestCleanupOnDelete reports whether SkipResourceRequestCleanupOnDeleteAnnotation is set.
 func (pr *PromiseRevision) SkipResourceRequestCleanupOnDelete() bool {
 	return pr.GetAnnotations()[SkipResourceRequestCleanupOnDeleteAnnotation] == MetadataBoolTrue
 }

@@ -174,8 +174,6 @@ func (r *PromiseRevisionReconciler) UnsetPreviousLatestRevision(
 	return nil
 }
 
-// reconcileDelete keeps the revision until no resource needs it: resources pinned to its version
-// look it up to reconcile and to run their delete pipelines.
 func (r *PromiseRevisionReconciler) reconcileDelete(ctx context.Context, logger logr.Logger, revision *v1alpha1.PromiseRevision) (ctrl.Result, error) {
 	if revision.SkipResourceRequestCleanupOnDelete() {
 		return r.removeCleanupFinalizer(ctx, revision)
