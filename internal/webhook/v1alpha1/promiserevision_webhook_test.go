@@ -8,6 +8,10 @@ import (
 	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
 	admissionv1 "k8s.io/api/admission/v1"
 	authv1 "k8s.io/api/authentication/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -37,6 +41,55 @@ var _ = Describe("PromiseRevision Webhook", func() {
 			It("allows deletion when revision .status.latest is not set to true", func() {
 				ctx := newCtxWithUserInfo("unit-test-user")
 				Expect(validator.ValidateDelete(ctx, obj)).Error().NotTo(HaveOccurred())
+			})
+		})
+
+		When("deleting a PromiseRevision whose version is still used by ResourceBindings", func() {
+			binding := func(name, promiseName, version string) *platformv1alpha1.ResourceBinding {
+				return &platformv1alpha1.ResourceBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      name,
+						Namespace: "default",
+						Labels:    map[string]string{platformv1alpha1.PromiseNameLabel: promiseName},
+					},
+					Spec: platformv1alpha1.ResourceBindingSpec{Version: version},
+				}
+			}
+
+			BeforeEach(func() {
+				obj.Name = "redis-v1-0-0"
+				obj.Spec.PromiseRef.Name = "redis"
+				obj.Spec.Version = "v1.0.0"
+			})
+
+			withBindings := func(bindings ...client.Object) {
+				Expect(platformv1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
+				validator.Client = clientfake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(bindings...).Build()
+			}
+
+			It("allows the deletion and warns that the bindings and their resources are kept", func() {
+				withBindings(
+					binding("a", "redis", "v1.0.0"),
+					binding("b", "redis", "v1.0.0"),
+				)
+				warnings, err := validator.ValidateDelete(newCtxWithUserInfo("unit-test-user"), obj)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(warnings).To(ConsistOf(SatisfyAll(
+					ContainSubstring(`"redis-v1-0-0"`),
+					ContainSubstring("2 ResourceBinding(s)"),
+					ContainSubstring("v1.0.0"),
+					ContainSubstring("not deleted"),
+				)))
+			})
+
+			It("does not warn about bindings on another version or another Promise", func() {
+				withBindings(
+					binding("a", "redis", "v2.0.0"),
+					binding("b", "postgres", "v1.0.0"),
+				)
+				warnings, err := validator.ValidateDelete(newCtxWithUserInfo("unit-test-user"), obj)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(warnings).To(BeEmpty())
 			})
 		})
 	})
