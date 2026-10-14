@@ -48,7 +48,7 @@ func reconcileExpectedHealth(
 		changed = true
 	}
 
-	condition := healthChecksCondition(records, rr.GetNamespace(), expectedVersion, healthDefinitions, expectedRecords)
+	condition := healthChecksCondition(records, expectedVersion, healthDefinitions, expectedRecords)
 	if resourceutil.SetConditionWithTransitionTime(rr, &condition) {
 		changed = true
 	}
@@ -169,10 +169,8 @@ func countWorkPlacements(ctx context.Context, c client.Client, work *v1alpha1.Wo
 	return count, nil
 }
 
-// healthChecksCondition judges only records in the resource's namespace (D2); state and
-// healthRecords stay cluster-wide, so the two can legitimately disagree.
 func healthChecksCondition(
-	records []v1alpha1.HealthRecord, namespace, expectedVersion string, healthDefinitions, expectedRecords int64,
+	records []v1alpha1.HealthRecord, expectedVersion string, healthDefinitions, expectedRecords int64,
 ) clusterv1.Condition {
 	condition := func(status v1.ConditionStatus, reason, message string) clusterv1.Condition {
 		return clusterv1.Condition{
@@ -187,7 +185,7 @@ func healthChecksCondition(
 	var reported, unhealthy, degraded int64
 	for i := range records {
 		record := &records[i]
-		if record.Data.PromiseVersion != expectedVersion || !record.DeletionTimestamp.IsZero() || record.GetNamespace() != namespace {
+		if record.Data.PromiseVersion != expectedVersion || !record.DeletionTimestamp.IsZero() {
 			continue
 		}
 		switch record.Data.State {
