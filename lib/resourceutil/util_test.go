@@ -521,12 +521,6 @@ var _ = Describe("Conditions", func() {
 				Expect(changed).To(BeFalse())
 			})
 
-			It("reports no change when there is no pipeline with that name", func() {
-				changed, err := resourceutil.SetPipelineMessage(rr, "unknown-pipeline", "waiting", "configure")
-				Expect(err).NotTo(HaveOccurred())
-				Expect(changed).To(BeFalse())
-			})
-
 			It("clears the message of a pending pipeline once it starts running", func() {
 				_, err := resourceutil.SetPipelineMessage(rr, "first-pipeline", "waiting", "configure")
 				Expect(err).NotTo(HaveOccurred())

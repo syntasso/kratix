@@ -3,13 +3,11 @@ kind: GitStateStore
 metadata:
   name: wait-for-output-store
 spec:
-  # gitea serves a self-signed certificate
   insecure: true
   authMethod: basicAuth
   branch: main
   gitAuthor:
     name: kratix
-  # the spec creates this secret, first with wrong credentials and then with the right ones
   secretRef:
     name: wait-for-output-credentials
     namespace: default

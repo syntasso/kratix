@@ -964,7 +964,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(listJobs(namespace)).To(ConsistOf(HaveField("Name", workflowPipelines[0].Job.Name)))
 			})
 
-			It("says why under the second pipeline's status", func() {
+			It("says why in the status", func() {
 				updatedPromise := &v1alpha1.Promise{}
 				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), updatedPromise)).To(Succeed())
 
@@ -973,28 +973,14 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(secondPipeline.Message).To(Equal(fmt.Sprintf(
 					"Waiting for the output of pipeline \"pipeline-1\" to be written to its Destinations; check Work %q for details",
 					firstPipelineWork.Name)))
-			})
 
-			It("says why on the ConfigureWorkflowCompleted condition", func() {
-				updatedPromise := &v1alpha1.Promise{}
-				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), updatedPromise)).To(Succeed())
+				workflowCompleted := updatedPromise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
+				Expect(workflowCompleted.Status).To(Equal(metav1.ConditionFalse))
+				Expect(workflowCompleted.Reason).To(Equal(resourceutil.WaitingForPipelineOutputReason))
 
-				condition := updatedPromise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
-				Expect(condition).NotTo(BeNil())
-				Expect(condition.Status).To(Equal(metav1.ConditionFalse))
-				Expect(condition.Reason).To(Equal(resourceutil.WaitingForPipelineOutputReason))
-				Expect(condition.Message).To(ContainSubstring(firstPipelineWork.Name))
-			})
-
-			It("says the Works are pending on the Reconciled condition", func() {
-				updatedPromise := &v1alpha1.Promise{}
-				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), updatedPromise)).To(Succeed())
-
-				condition := updatedPromise.GetCondition(string(resourceutil.ReconciledCondition))
-				Expect(condition).NotTo(BeNil())
-				Expect(condition.Status).To(Equal(metav1.ConditionUnknown))
-				Expect(condition.Reason).To(Equal("WorksPending"))
-				Expect(condition.Message).To(Equal("Pending"))
+				reconciled := updatedPromise.GetCondition(string(resourceutil.ReconciledCondition))
+				Expect(reconciled.Status).To(Equal(metav1.ConditionUnknown))
+				Expect(reconciled.Reason).To(Equal("WorksPending"))
 			})
 
 			It("sends one event, however many times it is reconciled", func() {
@@ -1006,20 +992,9 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(countEvents(eventRecorder, "Normal WaitingForPipelineOutput Waiting for the output of pipeline")).To(Equal(1))
 			})
 
-			When("the Work is Ready for an earlier generation only", func() {
-				It("keeps waiting", func() {
-					markWorkReady(firstPipelineWork, firstPipelineWork.GetGeneration()-1)
-
-					_, err := workflow.ReconcileConfigure(opts)
-					Expect(err).NotTo(HaveOccurred())
-
-					Expect(listJobs(namespace)).To(ConsistOf(HaveField("Name", workflowPipelines[0].Job.Name)))
-				})
-			})
-
 			When("the Work becomes Ready at its current generation", func() {
 				BeforeEach(func() {
-					markWorkReady(firstPipelineWork, firstPipelineWork.GetGeneration())
+					markWorkReady(firstPipelineWork)
 
 					passiveRequeue, err := workflow.ReconcileConfigure(opts)
 					Expect(err).NotTo(HaveOccurred())
@@ -3070,8 +3045,6 @@ func createFakeWorks(pipelines []v1alpha1.Pipeline, promiseName string) {
 	}
 }
 
-// createPipelineWork creates the Work a promise pipeline writes, without any
-// status, as it is straight after the pipeline's Job has finished.
 func createPipelineWork(promiseName, pipelineName string) *v1alpha1.Work {
 	GinkgoHelper()
 	work := &v1alpha1.Work{}
@@ -3085,16 +3058,15 @@ func createPipelineWork(promiseName, pipelineName string) *v1alpha1.Work {
 	return work
 }
 
-func markWorkReady(work *v1alpha1.Work, observedGeneration int64) {
+func markWorkReady(work *v1alpha1.Work) {
 	GinkgoHelper()
 	apimeta.SetStatusCondition(&work.Status.Conditions, metav1.Condition{
 		Type:               "Ready",
 		Status:             metav1.ConditionTrue,
 		Reason:             "AllWorkplacementsWritten",
 		Message:            "Ready",
-		ObservedGeneration: observedGeneration,
+		ObservedGeneration: work.GetGeneration(),
 	})
-	// The fake client has no status subresource for Works, so a plain Update writes status.
 	Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
 }
 

@@ -989,8 +989,6 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(work.Status.WorkPlacements).To(Equal(2))
 					Expect(work.Status.WorkPlacementsCreated).To(Equal(2))
 
-					// Nothing has been written yet, so Ready is left for the Work
-					// controller to set once the WorkPlacements are written.
 					readyCond := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
 					Expect(readyCond).To(BeNil())
 
@@ -1046,7 +1044,6 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(work.Status.WorkPlacements).To(Equal(2))
 						Expect(work.Status.WorkPlacementsCreated).To(Equal(2))
 
-						// A misplaced Work would have Ready set to Misplaced by the scheduler.
 						readyCond := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
 						Expect(readyCond).To(BeNil())
 

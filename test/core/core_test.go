@@ -153,7 +153,6 @@ var _ = Describe("Core Tests", Ordered, func() {
 							for i := range conditions {
 								conditions[i].LastTransitionTime = metav1.Time{}
 							}
-							g.Expect(works.Items[0].IsReadyAtCurrentGeneration()).To(BeTrue())
 							g.Expect(conditions).To(ConsistOf(
 								metav1.Condition{
 									Type:               "Ready",

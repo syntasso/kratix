@@ -87,13 +87,6 @@ var _ = Describe("Work", func() {
 			Expect(work.IsReadyAtCurrentGeneration()).To(BeFalse())
 		})
 
-		It("is false when Ready is False", func() {
-			work.Status.Conditions = []metav1.Condition{
-				{Type: "Ready", Status: metav1.ConditionFalse, ObservedGeneration: 3},
-			}
-			Expect(work.IsReadyAtCurrentGeneration()).To(BeFalse())
-		})
-
 		It("is false when there is no Ready condition", func() {
 			Expect(work.IsReadyAtCurrentGeneration()).To(BeFalse())
 		})

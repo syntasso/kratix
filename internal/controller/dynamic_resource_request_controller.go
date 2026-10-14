@@ -1087,7 +1087,6 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 	worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 
-	// A workflow waiting for a pipeline's output to be written is still running.
 	workflowRunning := workflowCompleted != nil && workflowCompleted.Status == v1.ConditionFalse &&
 		(workflowCompleted.Reason == resourceutil.PipelinesInProgressReason ||
 			workflowCompleted.Reason == resourceutil.WaitingForPipelineOutputReason)
@@ -1098,8 +1097,6 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 	worksFailed := worksSucceeded != nil && worksSucceeded.Status == v1.ConditionFalse
 	worksReady := worksSucceeded != nil && worksSucceeded.Status == v1.ConditionTrue
 
-	// The workflow is held up by a Work that has not been written yet, so say
-	// that the Works are pending rather than the workflow.
 	waitingForPipelineOutput := workflowCompleted != nil && workflowCompleted.Status == v1.ConditionFalse &&
 		workflowCompleted.Reason == resourceutil.WaitingForPipelineOutputReason
 

@@ -154,9 +154,6 @@ func NewPromiseDependenciesWork(promise *Promise, name string) (*Work, error) {
 	return work, nil
 }
 
-// IsReadyAtCurrentGeneration reports whether every WorkPlacement has been written
-// for the current spec. A Ready condition left over from an earlier generation
-// does not count, because it describes output that has since been replaced.
 func (w *Work) IsReadyAtCurrentGeneration() bool {
 	ready := meta.FindStatusCondition(w.Status.Conditions, "Ready")
 	if ready == nil {

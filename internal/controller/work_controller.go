@@ -174,9 +174,7 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 		}
 	}
 
-	// A write failure is shown on Ready only. Scheduling did succeed, and the
-	// scheduler owns ScheduleSucceeded, so setting it here would make it flip on
-	// every reconcile.
+	// The scheduler owns ScheduleSucceeded, so a write failure only sets Ready.
 	if len(failedWorkPlacements) > 0 {
 		readyCond := metav1.Condition{
 			Type:               "Ready",
@@ -192,9 +190,8 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 		return nil
 	}
 
-	// When some workload groups are unscheduled or misplaced, the scheduler has
-	// already set Ready to False and that is left alone.
-	if !apiMeta.IsStatusConditionTrue(work.Status.Conditions, v1alpha1.ScheduleSucceededConditionType) {
+	schedulerHasAlreadySetReady := !apiMeta.IsStatusConditionTrue(work.Status.Conditions, v1alpha1.ScheduleSucceededConditionType)
+	if schedulerHasAlreadySetReady {
 		return nil
 	}
 
@@ -220,13 +217,7 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 	return nil
 }
 
-// allWorkloadGroupsWrittenAtCurrentGeneration reports whether every workload group
-// of the Work has a WorkPlacement, and every one of those WorkPlacements has
-// written the current generation of the Work. The WorkPlacements are read from a
-// cache, so one the scheduler has just created or updated may be missing or out
-// of date. Checking each group has a WorkPlacement, and checking the generation,
-// stops that from being mistaken for a finished write. A Work with no workload
-// groups has nothing to write, so it counts as written.
+// The WorkPlacements come from a cache, so they may be missing or out of date.
 func allWorkloadGroupsWrittenAtCurrentGeneration(work *v1alpha1.Work, workplacements []v1alpha1.WorkPlacement) bool {
 	for _, workloadGroup := range work.Spec.WorkloadGroups {
 		workloadGroupHasWorkPlacement := false
@@ -408,9 +399,7 @@ func summarizeWorkPlacementConditions(wp *v1alpha1.WorkPlacement) workPlacementC
 	write := apiMeta.FindStatusCondition(wp.Status.Conditions, v1alpha1.WriteSucceededConditionType)
 	schedule := apiMeta.FindStatusCondition(wp.Status.Conditions, v1alpha1.ScheduleSucceededConditionType)
 
-	// The Work's Ready condition depends on which generation was written, so a
-	// write of a new generation must wake the Work up even when the status and
-	// reason have not changed.
+	// A write of a new generation must wake the Work, even if the status looks the same.
 	var writeObservedGeneration int64
 	if write != nil {
 		writeObservedGeneration = write.ObservedGeneration

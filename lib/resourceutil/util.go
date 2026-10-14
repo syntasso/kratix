@@ -68,8 +68,6 @@ func MarkConfigureWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstru
 	logging.Info(logger, "marking configure workflow as running", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", PipelinesInProgressReason)
 }
 
-// MarkConfigureWorkflowAsWaitingForPipelineOutput reports whether the condition
-// changed, so callers only announce the wait once rather than on every reconcile.
 func MarkConfigureWorkflowAsWaitingForPipelineOutput(obj *unstructured.Unstructured, message string) bool {
 	condition := clusterv1.Condition{
 		Type:               ConfigureWorkflowCompletedCondition,
@@ -457,9 +455,8 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger 
 		previousPhase == v1alpha1.WorkflowPhaseSuspended && status != v1alpha1.WorkflowPhaseSuspended {
 		delete(pipeline, "message")
 	}
-	// A pending pipeline only has a message while it waits for the output of the
-	// pipeline before it, so the message no longer applies once it moves on.
-	if pipeline["phase"] == v1alpha1.WorkflowPhasePending && status != v1alpha1.WorkflowPhasePending {
+	pipelineIsLeavingPending := pipeline["phase"] == v1alpha1.WorkflowPhasePending && status != v1alpha1.WorkflowPhasePending
+	if pipelineIsLeavingPending {
 		delete(pipeline, "message")
 	}
 
@@ -471,8 +468,6 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger 
 	return unstructured.SetNestedSlice(rr.Object, workflows, "status", "kratix", "workflows", workflowKey, "pipelines")
 }
 
-// SetPipelineMessage sets the message on the named pipeline's status entry. It
-// reports whether the message changed.
 func SetPipelineMessage(obj *unstructured.Unstructured, pipelineName, message, workflowKey string) (bool, error) {
 	pipelines, found, err := unstructured.NestedSlice(obj.Object, "status", "kratix", "workflows", workflowKey, "pipelines")
 	if err != nil {

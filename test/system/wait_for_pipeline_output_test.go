@@ -14,11 +14,6 @@ const (
 	waitForOutputSecretName  = "wait-for-output-credentials"
 )
 
-// A pipeline only starts once the output of the pipeline before it has been
-// written to its Destinations. The specs use their own state store secret,
-// GitStateStore and Destination, so breaking the credentials affects nothing
-// else and they do not need to be Serial. They share those objects with each
-// other though, so they are Ordered to stop them running at the same time.
 var _ = Describe("Waiting for a pipeline's output to be written", Ordered, func() {
 	BeforeEach(func() {
 		if os.Getenv("LRE") == "true" {
@@ -47,10 +42,7 @@ var _ = Describe("Waiting for a pipeline's output to be written", Ordered, func(
 		if os.Getenv("LRE") == "true" {
 			return
 		}
-		// Deleting the WorkPlacements removes their files from the state store, so
-		// the credentials must work again before anything is deleted.
 		fixWaitForOutputCredentials()
-		// Deleting the Promise also deletes its resources.
 		platform.Kubectl("delete", "promise", waitForOutputPromiseName, "--ignore-not-found")
 		platform.Kubectl("delete", "-f", "assets/wait-for-output/destination.yaml", "--ignore-not-found")
 		platform.Kubectl("delete", "-f", "assets/wait-for-output/state-store.yaml", "--ignore-not-found")

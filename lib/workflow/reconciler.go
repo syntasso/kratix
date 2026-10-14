@@ -108,10 +108,7 @@ type Progress struct {
 	ManualReconcile bool
 	RunFromStart    bool
 	Paused          bool
-	// PipelineWorks holds the Work each pipeline wrote, by pipeline name. It is only
-	// read for the Promise and resource configure workflows, the only ones that
-	// wait for a pipeline's output to be written before starting the next one.
-	PipelineWorks map[string]*v1alpha1.Work
+	PipelineWorks   map[string]*v1alpha1.Work
 }
 
 type NextAction string
@@ -138,9 +135,7 @@ type Decision struct {
 	JobToRecord *batchv1.Job
 	// Restart is set for StartPipeline only, when every pipeline starts again.
 	Restart bool
-	// PreviousPipelineName and PreviousPipelineWork are set for
-	// WaitForPreviousPipelineOutput only. They name the pipeline whose output has
-	// not been written yet, and the Work holding that output.
+	// PreviousPipelineName and PreviousPipelineWork are set for WaitForPreviousPipelineOutput only.
 	PreviousPipelineName string
 	PreviousPipelineWork *v1alpha1.Work
 }
@@ -215,8 +210,6 @@ func readWorkflowProgress(opts Opts) (Progress, error) {
 	return progress, nil
 }
 
-// readPipelineWorks returns the Work each pipeline wrote, by pipeline name. Dry run
-// Works are left out, because they are never written to a real Destination.
 func readPipelineWorks(opts Opts) (map[string]*v1alpha1.Work, error) {
 	works, err := resourceutil.GetWorksByType(opts.client, v1alpha1.Type(opts.workflowType), opts.parentObject)
 	if err != nil {
@@ -291,12 +284,10 @@ func DecideNextAction(opts Opts, progress Progress) Decision {
 		return Decision{Action: StartPipeline, Pipeline: pipeline}
 	}
 
-	// The pipeline before this one has succeeded, but its output may not have
-	// reached its Destinations yet. Only start this pipeline once it has. A
-	// pipeline that left no Work has nothing to wait for.
 	previousPipelineName := opts.Resources[index-1].Name
 	previousPipelineWork := progress.PipelineWorks[previousPipelineName]
-	if previousPipelineWork == nil || previousPipelineWork.IsReadyAtCurrentGeneration() {
+	previousPipelineLeftNoOutput := previousPipelineWork == nil
+	if previousPipelineLeftNoOutput || previousPipelineWork.IsReadyAtCurrentGeneration() {
 		return Decision{Action: StartPipeline, Pipeline: pipeline}
 	}
 	return Decision{
@@ -396,9 +387,6 @@ func recordPipelineJobOutcome(opts Opts, decision Decision) (bool, error) {
 	return true, cleanupJobs(opts, opts.namespace)
 }
 
-// waitForPreviousPipelineOutput tells the user why the next pipeline has not
-// started yet. Status is only written, and the event only sent, when something has
-// changed, so a long wait does not flood the parent object with updates.
 func waitForPreviousPipelineOutput(opts Opts, decision Decision) error {
 	workName := decision.PreviousPipelineWork.GetName()
 	logging.Info(opts.logger, "waiting for the previous pipeline's output to be written before starting the next pipeline",
@@ -408,14 +396,13 @@ func waitForPreviousPipelineOutput(opts Opts, decision Decision) error {
 		decision.PreviousPipelineName, workName)
 	patch := client.MergeFromWithOptions(opts.parentObject.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	conditionChanged := resourceutil.MarkConfigureWorkflowAsWaitingForPipelineOutput(opts.parentObject, message)
-	// The workflow is held up by a Work that has not been written yet, so say
-	// that the Works are pending rather than the workflow.
 	reconciledChanged := resourceutil.MarkReconciledPending(opts.parentObject, "WorksPending")
 	messageChanged, err := resourceutil.SetPipelineMessage(opts.parentObject, decision.Pipeline.Name, message, opts.workflowKey())
 	if err != nil {
 		return err
 	}
-	if !conditionChanged && !reconciledChanged && !messageChanged {
+	nothingChanged := !conditionChanged && !reconciledChanged && !messageChanged
+	if nothingChanged {
 		return nil
 	}
 

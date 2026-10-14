@@ -102,8 +102,6 @@ const (
 	ScheduleSucceededConditionType = "ScheduleSucceeded"
 )
 
-// SetWriteSucceededCondition records the generation that was written, so a reader
-// can tell a write of the current spec apart from a write of an older one.
 func (w *WorkPlacement) SetWriteSucceededCondition() bool {
 	return meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
 		Type:               WriteSucceededConditionType,
@@ -114,8 +112,6 @@ func (w *WorkPlacement) SetWriteSucceededCondition() bool {
 	})
 }
 
-// IsWrittenAtCurrentGeneration reports whether the workloads of the given Work
-// generation have been written to the State Store.
 func (w *WorkPlacement) IsWrittenAtCurrentGeneration(workGeneration int64) bool {
 	if w.Spec.WorkGeneration != workGeneration {
 		return false

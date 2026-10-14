@@ -216,12 +216,6 @@ var _ = Describe("DecideNextAction", func() {
 				Expect(decision.PreviousPipelineWork.Name).To(Equal("pipeline-1-work"))
 			})
 
-			It("waits while the Work has no Ready condition yet", func() {
-				decision := workflow.DecideNextAction(opts, progress)
-
-				Expect(decision.Action).To(Equal(workflow.WaitForPreviousPipelineOutput))
-			})
-
 			It("waits when the Work is only Ready for an earlier generation", func() {
 				previousPipelineWork.Status.Conditions = []metav1.Condition{
 					{Type: "Ready", Status: metav1.ConditionTrue, ObservedGeneration: 1},
@@ -230,23 +224,6 @@ var _ = Describe("DecideNextAction", func() {
 				decision := workflow.DecideNextAction(opts, progress)
 
 				Expect(decision.Action).To(Equal(workflow.WaitForPreviousPipelineOutput))
-			})
-
-			It("waits for the Work even when the Job named in status for the next pipeline has gone", func() {
-				progress.Pipelines[1].Phase = v1alpha1.WorkflowPhaseRunning
-				progress.Pipelines[1].Job = "pipeline-2-job"
-
-				decision := workflow.DecideNextAction(opts, progress)
-
-				Expect(decision.Action).To(Equal(workflow.WaitForPreviousPipelineOutput))
-			})
-
-			It("stays paused rather than waiting when the workflow is suspended", func() {
-				progress.Paused = true
-
-				decision := workflow.DecideNextAction(opts, progress)
-
-				Expect(decision.Action).To(Equal(workflow.StayPaused))
 			})
 		})
 

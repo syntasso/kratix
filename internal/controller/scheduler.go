@@ -144,8 +144,7 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 		if scheduleSucceededCond.Status == metav1.ConditionTrue {
 			s.EventRecorder.Eventf(w, nil, corev1.EventTypeNormal, "AllWorkplacementsScheduled", "AllWorkplacementsScheduled", "All workplacements scheduled successfully")
 		}
-		// Once everything is scheduled, the Work is not Ready until the WorkPlacements
-		// have been written. The Work controller sets Ready when that happens.
+		// The Work controller sets Ready once the WorkPlacements are written.
 		if scheduleSucceededCond.Status == metav1.ConditionFalse {
 			apimeta.SetStatusCondition(&w.Status.Conditions, readyCond)
 		}

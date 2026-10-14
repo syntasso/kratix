@@ -563,7 +563,6 @@ func desiredReconciledCondition(promise *v1alpha1.Promise) (metav1.Condition, bo
 	worksSucceeded := promise.GetCondition(v1alpha1.PromiseWorksSucceededCondition)
 	requirementsFulfilled := promise.GetCondition(v1alpha1.PromiseRequirementsFulfilledCondition)
 
-	// A workflow waiting for a pipeline's output to be written is still running.
 	workflowRunning := workflowCompleted != nil &&
 		workflowCompleted.Status == metav1.ConditionFalse &&
 		(workflowCompleted.Reason == resourceutil.PipelinesInProgressReason ||
@@ -582,8 +581,6 @@ func desiredReconciledCondition(promise *v1alpha1.Promise) (metav1.Condition, bo
 
 	requirementsMet := requirementsFulfilled == nil || requirementsFulfilled.Status == metav1.ConditionTrue
 
-	// The workflow is held up by a Work that has not been written yet, so say
-	// that the Works are pending rather than the workflow.
 	waitingForPipelineOutput := workflowCompleted != nil &&
 		workflowCompleted.Status == metav1.ConditionFalse &&
 		workflowCompleted.Reason == resourceutil.WaitingForPipelineOutputReason
