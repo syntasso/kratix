@@ -892,8 +892,6 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	return worksSucceededUpdate || reconciledUpdate || promiseVersionUpdate || healthUpdate, nil
 }
 
-// updateExpectedHealth feeds reconcileExpectedHealth the same records the HealthRecord
-// controller uses; the version guard only spares the cluster-wide list.
 func (r *DynamicResourceRequestController) updateExpectedHealth(
 	ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise, rr *unstructured.Unstructured,
 ) (bool, error) {
