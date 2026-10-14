@@ -321,19 +321,6 @@ var _ = Describe("HealthRecordController", func() {
 				"default/z-name",
 			}))
 		})
-
-		It("orders the healthRecords by source namespace before source name", func() {
-			createRecordForResource("zzz-ns", "a-name")
-			createRecordForResource("aaa-ns", "z-name")
-
-			status := getResourceStatus(reconcile())
-
-			Expect(getHealthRecordSources(status)).To(Equal([]string{
-				"aaa-ns/z-name",
-				"default/a-name",
-				"zzz-ns/a-name",
-			}))
-		})
 	})
 
 	When("there are healthRecords for other resources", func() {
@@ -543,6 +530,55 @@ var _ = Describe("HealthRecordController", func() {
 		})
 	})
 
+	When("a record outside the resource namespace points at the resource", func() {
+		var outsider *v1alpha1.HealthRecord
+
+		BeforeEach(func() {
+			_ = reconcile()
+			Eventually(eventRecorder.Events).Should(Receive())
+
+			outsider = &v1alpha1.HealthRecord{
+				ObjectMeta: metav1.ObjectMeta{Name: healthRecord.GetName(), Namespace: "other-ns"},
+				Data: v1alpha1.HealthRecordData{
+					PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
+					ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
+					State:       "unhealthy",
+					LastRun:     now,
+				},
+			}
+		})
+
+		It("leaves the resource untouched and adds no finalizer", func() {
+			Expect(fakeK8sClient.Create(ctx, outsider)).To(Succeed())
+
+			_, err := t.reconcileUntilCompletion(reconciler, outsider)
+			Expect(err).NotTo(HaveOccurred())
+
+			updated := &unstructured.Unstructured{}
+			updated.SetGroupVersionKind(resource.GroupVersionKind())
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resource), updated)).To(Succeed())
+			Expect(getHealthStatusState(getResourceStatus(updated))).To(Equal("ready"))
+			Expect(getHealthRecordSources(getResourceStatus(updated))).To(Equal([]string{"default/a-name"}))
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(outsider), outsider)).To(Succeed())
+			Expect(outsider.GetFinalizers()).To(BeEmpty())
+			Consistently(eventRecorder.Events).ShouldNot(Receive())
+		})
+
+		It("can be deleted when an older Kratix already gave it the finalizer", func() {
+			outsider.Finalizers = []string{"kratix.io/health-record-cleanup"}
+			Expect(fakeK8sClient.Create(ctx, outsider)).To(Succeed())
+			Expect(fakeK8sClient.Delete(ctx, outsider)).To(Succeed())
+
+			name := client.ObjectKeyFromObject(outsider)
+			Eventually(func(g Gomega) {
+				_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: name})
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(apierrors.IsNotFound(fakeK8sClient.Get(ctx, name, &v1alpha1.HealthRecord{}))).To(BeTrue())
+			}).Should(Succeed())
+		})
+	})
+
 	When("the promise has already been deleted but the healthRecord is not being deleted", func() {
 		var healthRecordName types.NamespacedName
 
@@ -744,15 +780,15 @@ var _ = Describe("HealthRecordController", func() {
 				Expect(cond.Message).To(Equal("3 of 2 records have reported at v2.0.0"))
 			})
 
-			It("judges only records in the resource namespace", func() {
+			It("ignores records outside the resource namespace", func() {
 				anotherRecord("b-name", "default", "healthy", version)
-				anotherRecord("c-name", "other-ns", "healthy", version)
+				anotherRecord("c-name", "other-ns", "unhealthy", version)
 
 				updated := reconcile()
 
 				Expect(getResourceHealthStatus(updated)).To(HaveKeyWithValue("state", "healthy"))
 				Expect(getHealthRecordSources(getResourceStatus(updated))).To(ConsistOf(
-					"default/a-name", "default/b-name", "other-ns/c-name",
+					"default/a-name", "default/b-name",
 				))
 				cond := condition(updated)
 				Expect(cond.Status).To(Equal(v1.ConditionUnknown))
