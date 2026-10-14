@@ -72,9 +72,17 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	logging.Info(logger, "reconciliation started")
 	defer logReconcileDuration(logger, start, result, retErr)()
 
+	healthRecordIsBeingDeleted := !healthRecord.DeletionTimestamp.IsZero()
+	if healthRecord.GetNamespace() != healthRecord.Data.ResourceRef.Namespace {
+		logging.Warn(logger, "ignoring health record outside its resource's namespace")
+		if healthRecordIsBeingDeleted && controllerutil.ContainsFinalizer(healthRecord, healthRecordCleanupFinalizer) {
+			return ctrl.Result{}, r.removeFinalizer(ctx, healthRecord)
+		}
+		return ctrl.Result{}, nil
+	}
+
 	promise := &platformv1alpha1.Promise{}
 	promiseName := client.ObjectKey{Name: healthRecord.Data.PromiseRef.Name}
-	healthRecordIsBeingDeleted := !healthRecord.DeletionTimestamp.IsZero()
 	if err := r.Get(ctx, promiseName, promise); err != nil {
 		if apierrors.IsNotFound(err) && healthRecordIsBeingDeleted {
 			logging.Debug(logger, "promise not found during deletion; removing finalizer", "healthRecord", req.Name)
@@ -180,7 +188,7 @@ func resourceHealthRecords(
 	ctx context.Context, c client.Client, promiseName, resourceName, namespace string,
 ) ([]platformv1alpha1.HealthRecord, error) {
 	healthRecords := &platformv1alpha1.HealthRecordList{}
-	if err := c.List(ctx, healthRecords); err != nil {
+	if err := c.List(ctx, healthRecords, client.InNamespace(namespace)); err != nil {
 		return nil, err
 	}
 
@@ -249,7 +257,7 @@ func (r *HealthRecordReconciler) fireEvent(
 
 func (r *HealthRecordReconciler) getInitialHealthStatusState(resReq *unstructured.Unstructured) string {
 	status := resReq.Object["status"]
-	var initialHealthStatusState = ""
+	initialHealthStatusState := ""
 
 	statusMap := status.(map[string]any)
 
@@ -272,14 +280,11 @@ func setHealthStatus(resReq *unstructured.Unstructured, state string, healthData
 
 func getHealthDataAndStates(healthRecords []platformv1alpha1.HealthRecord) ([]any, string, error) {
 	sort.Slice(healthRecords, func(i, j int) bool {
-		if healthRecords[i].GetNamespace() != healthRecords[j].GetNamespace() {
-			return healthRecords[i].GetNamespace() < healthRecords[j].GetNamespace()
-		}
 		return healthRecords[i].GetName() < healthRecords[j].GetName()
 	})
 
 	var healthData []any
-	var statePriority = map[string]int{
+	statePriority := map[string]int{
 		"unhealthy": 1,
 		"degraded":  2,
 		"unknown":   3,
@@ -287,7 +292,7 @@ func getHealthDataAndStates(healthRecords []platformv1alpha1.HealthRecord) ([]an
 		"ready":     5,
 	}
 
-	var state = "ready"
+	state := "ready"
 	for _, hr := range healthRecords {
 		record := map[string]any{
 			"state":   hr.Data.State,
