@@ -174,30 +174,76 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 		}
 	}
 
+	// A write failure is shown on Ready only. Scheduling did succeed, and the
+	// scheduler owns ScheduleSucceeded, so setting it here would make it flip on
+	// every reconcile.
 	if len(failedWorkPlacements) > 0 {
 		readyCond := metav1.Condition{
-			Type:    "Ready",
-			Status:  metav1.ConditionFalse,
-			Message: "Failing",
-			Reason:  "WorkplacementsFailing",
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Message:            "Failing",
+			Reason:             "WorkplacementsFailing",
+			ObservedGeneration: work.GetGeneration(),
 		}
-		scheduleCond := metav1.Condition{
-			Type:   v1alpha1.ScheduleSucceededConditionType,
-			Status: metav1.ConditionFalse,
-			Message: fmt.Sprintf(
-				"Workplacements failed to write: [%s]",
-				strings.Join(failedWorkPlacements, ","),
-			),
-			Reason: "WorkplacementsFailing",
-		}
-		if apiMeta.SetStatusCondition(&work.Status.Conditions, scheduleCond) {
-			apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
+		if apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond) {
 			r.EventRecorder.Eventf(work, nil, v1.EventTypeWarning, "WorkplacementsFailing", "WorkplacementsFailing", "Workplacements failed to write: [%s]", strings.Join(failedWorkPlacements, ","))
 			return r.Client.Status().Update(ctx, work)
 		}
+		return nil
 	}
 
+	// When some workload groups are unscheduled or misplaced, the scheduler has
+	// already set Ready to False and that is left alone.
+	if !apiMeta.IsStatusConditionTrue(work.Status.Conditions, v1alpha1.ScheduleSucceededConditionType) {
+		return nil
+	}
+
+	readyCond := metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionTrue,
+		Reason:             "AllWorkplacementsWritten",
+		Message:            "Ready",
+		ObservedGeneration: work.GetGeneration(),
+	}
+	if !allWorkloadGroupsWrittenAtCurrentGeneration(work, workplacements) {
+		readyCond = metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             "WaitingForWorkplacementsToBeWritten",
+			Message:            "Pending",
+			ObservedGeneration: work.GetGeneration(),
+		}
+	}
+	if apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond) {
+		return r.Client.Status().Update(ctx, work)
+	}
 	return nil
+}
+
+// allWorkloadGroupsWrittenAtCurrentGeneration reports whether every workload group
+// of the Work has a WorkPlacement, and every one of those WorkPlacements has
+// written the current generation of the Work. The WorkPlacements are read from a
+// cache, so one the scheduler has just created or updated may be missing or out
+// of date. Checking each group has a WorkPlacement, and checking the generation,
+// stops that from being mistaken for a finished write. A Work with no workload
+// groups has nothing to write, so it counts as written.
+func allWorkloadGroupsWrittenAtCurrentGeneration(work *v1alpha1.Work, workplacements []v1alpha1.WorkPlacement) bool {
+	for _, workloadGroup := range work.Spec.WorkloadGroups {
+		workloadGroupHasWorkPlacement := false
+		for _, wp := range workplacements {
+			if wp.Spec.ID != workloadGroup.ID {
+				continue
+			}
+			workloadGroupHasWorkPlacement = true
+			if !wp.IsWrittenAtCurrentGeneration(work.GetGeneration()) {
+				return false
+			}
+		}
+		if !workloadGroupHasWorkPlacement {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *WorkReconciler) deleteWork(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) error {
@@ -348,12 +394,13 @@ func workPlacementStatusUpdatePredicate() predicate.Funcs {
 }
 
 type workPlacementConditionSnapshot struct {
-	readyStatus    metav1.ConditionStatus
-	readyReason    string
-	writeStatus    metav1.ConditionStatus
-	writeReason    string
-	scheduleStatus metav1.ConditionStatus
-	scheduleReason string
+	readyStatus             metav1.ConditionStatus
+	readyReason             string
+	writeStatus             metav1.ConditionStatus
+	writeReason             string
+	writeObservedGeneration int64
+	scheduleStatus          metav1.ConditionStatus
+	scheduleReason          string
 }
 
 func summarizeWorkPlacementConditions(wp *v1alpha1.WorkPlacement) workPlacementConditionSnapshot {
@@ -361,13 +408,22 @@ func summarizeWorkPlacementConditions(wp *v1alpha1.WorkPlacement) workPlacementC
 	write := apiMeta.FindStatusCondition(wp.Status.Conditions, v1alpha1.WriteSucceededConditionType)
 	schedule := apiMeta.FindStatusCondition(wp.Status.Conditions, v1alpha1.ScheduleSucceededConditionType)
 
+	// The Work's Ready condition depends on which generation was written, so a
+	// write of a new generation must wake the Work up even when the status and
+	// reason have not changed.
+	var writeObservedGeneration int64
+	if write != nil {
+		writeObservedGeneration = write.ObservedGeneration
+	}
+
 	return workPlacementConditionSnapshot{
-		readyStatus:    conditionStatus(ready),
-		readyReason:    conditionSummary(ready),
-		writeStatus:    conditionStatus(write),
-		writeReason:    conditionSummary(write),
-		scheduleStatus: conditionStatus(schedule),
-		scheduleReason: conditionSummary(schedule),
+		readyStatus:             conditionStatus(ready),
+		readyReason:             conditionSummary(ready),
+		writeStatus:             conditionStatus(write),
+		writeReason:             conditionSummary(write),
+		writeObservedGeneration: writeObservedGeneration,
+		scheduleStatus:          conditionStatus(schedule),
+		scheduleReason:          conditionSummary(schedule),
 	}
 }
 

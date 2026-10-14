@@ -563,12 +563,14 @@ func desiredReconciledCondition(promise *v1alpha1.Promise) (metav1.Condition, bo
 	worksSucceeded := promise.GetCondition(v1alpha1.PromiseWorksSucceededCondition)
 	requirementsFulfilled := promise.GetCondition(v1alpha1.PromiseRequirementsFulfilledCondition)
 
+	// A workflow waiting for a pipeline's output to be written is still running.
 	workflowRunning := workflowCompleted != nil &&
 		workflowCompleted.Status == metav1.ConditionFalse &&
-		workflowCompleted.Reason == resourceutil.PipelinesInProgressReason
+		(workflowCompleted.Reason == resourceutil.PipelinesInProgressReason ||
+			workflowCompleted.Reason == resourceutil.WaitingForPipelineOutputReason)
 	workflowFailed := workflowCompleted != nil &&
 		workflowCompleted.Status == metav1.ConditionFalse &&
-		workflowCompleted.Reason != resourceutil.PipelinesInProgressReason
+		!workflowRunning
 	// Nothing writes ConfigureWorkflowCompleted for a Promise with no promise-level configure
 	// workflow, so those have no workflow left to wait on.
 	workflowDone := (workflowCompleted != nil && workflowCompleted.Status == metav1.ConditionTrue) ||
@@ -580,7 +582,15 @@ func desiredReconciledCondition(promise *v1alpha1.Promise) (metav1.Condition, bo
 
 	requirementsMet := requirementsFulfilled == nil || requirementsFulfilled.Status == metav1.ConditionTrue
 
+	// The workflow is held up by a Work that has not been written yet, so say
+	// that the Works are pending rather than the workflow.
+	waitingForPipelineOutput := workflowCompleted != nil &&
+		workflowCompleted.Status == metav1.ConditionFalse &&
+		workflowCompleted.Reason == resourceutil.WaitingForPipelineOutputReason
+
 	switch {
+	case waitingForPipelineOutput:
+		return promiseReconciledPendingCondition("WorksPending"), true
 	case workflowRunning:
 		return promiseReconciledPendingCondition("WorkflowPending"), true
 	case workflowFailed:

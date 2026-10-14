@@ -1,0 +1,69 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: waitforoutput
+spec:
+  destinationSelectors:
+    - matchLabels:
+        target: wait-for-output
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: waitforoutputs.test.kratix.io
+    spec:
+      group: test.kratix.io
+      names:
+        kind: WaitForOutput
+        plural: waitforoutputs
+        singular: waitforoutput
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  properties:
+                    writeOutput:
+                      type: boolean
+                  type: object
+              type: object
+          served: true
+          storage: true
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: first
+          spec:
+            containers:
+              - name: write-output
+                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                command: ["sh"]
+                args:
+                  - -c
+                  - |
+                    set -eux
+                    name=$(yq '.metadata.name' /kratix/input/object.yaml)
+                    if [ "$(yq '.spec.writeOutput' /kratix/input/object.yaml)" = "false" ]; then
+                      exit 0
+                    fi
+                    kubectl create configmap ${name}-first --namespace=default --dry-run=client --output=yaml > /kratix/output/first.yaml
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: second
+          spec:
+            containers:
+              - name: write-output
+                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                command: ["sh"]
+                args:
+                  - -c
+                  - |
+                    set -eux
+                    name=$(yq '.metadata.name' /kratix/input/object.yaml)
+                    kubectl create configmap ${name}-second --namespace=default --dry-run=client --output=yaml > /kratix/output/second.yaml

@@ -26,6 +26,7 @@ const (
 	DeleteWorkflowSuspendedMessage         = "The delete workflow is suspended"
 	PipelinesExecutedSuccessfully          = "PipelinesExecutedSuccessfully"
 	PipelinesInProgressReason              = "PipelinesInProgress"
+	WaitingForPipelineOutputReason         = "WaitingForPipelineOutput"
 	ManualReconciliationLabel              = "kratix.io/manual-reconciliation"
 	WorkflowRunFromStartLabel              = "internal.workflows.kratix.io/run-from-start"
 	ReconcileResourcesLabel                = "kratix.io/reconcile-resources"
@@ -65,6 +66,19 @@ func MarkConfigureWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstru
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 	logging.Info(logger, "marking configure workflow as running", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", PipelinesInProgressReason)
+}
+
+// MarkConfigureWorkflowAsWaitingForPipelineOutput reports whether the condition
+// changed, so callers only announce the wait once rather than on every reconcile.
+func MarkConfigureWorkflowAsWaitingForPipelineOutput(obj *unstructured.Unstructured, message string) bool {
+	condition := clusterv1.Condition{
+		Type:               ConfigureWorkflowCompletedCondition,
+		Status:             v1.ConditionFalse,
+		Message:            message,
+		Reason:             WaitingForPipelineOutputReason,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	}
+	return SetConditionIfChanged(obj, &condition)
 }
 
 func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured, failedPipeline string) {
@@ -443,6 +457,11 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger 
 		previousPhase == v1alpha1.WorkflowPhaseSuspended && status != v1alpha1.WorkflowPhaseSuspended {
 		delete(pipeline, "message")
 	}
+	// A pending pipeline only has a message while it waits for the output of the
+	// pipeline before it, so the message no longer applies once it moves on.
+	if pipeline["phase"] == v1alpha1.WorkflowPhasePending && status != v1alpha1.WorkflowPhasePending {
+		delete(pipeline, "message")
+	}
 
 	pipeline["phase"] = status
 	pipeline["hash"] = job.Labels[v1alpha1.KratixResourceHashLabel]
@@ -450,6 +469,35 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger 
 	pipeline["lastTransitionTime"] = metav1.Now().Format(time.RFC3339)
 	workflows[pipelineIndex] = pipeline
 	return unstructured.SetNestedSlice(rr.Object, workflows, "status", "kratix", "workflows", workflowKey, "pipelines")
+}
+
+// SetPipelineMessage sets the message on the named pipeline's status entry. It
+// reports whether the message changed.
+func SetPipelineMessage(obj *unstructured.Unstructured, pipelineName, message, workflowKey string) (bool, error) {
+	pipelines, found, err := unstructured.NestedSlice(obj.Object, "status", "kratix", "workflows", workflowKey, "pipelines")
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, nil
+	}
+
+	for i, entry := range pipelines {
+		pipeline, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if pipeline["name"] != pipelineName {
+			continue
+		}
+		if pipeline["message"] == message {
+			return false, nil
+		}
+		pipeline["message"] = message
+		pipelines[i] = pipeline
+		return true, unstructured.SetNestedSlice(obj.Object, pipelines, "status", "kratix", "workflows", workflowKey, "pipelines")
+	}
+	return false, nil
 }
 
 func ResetPipelineStatusToPending(obj *unstructured.Unstructured, pipelines []v1alpha1.PipelineJobResources, workflowKey string) error {

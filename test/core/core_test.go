@@ -117,6 +117,10 @@ var _ = Describe("Core Tests", Ordered, func() {
 								conditions := w.Status.Conditions
 								for i := range conditions {
 									conditions[i].LastTransitionTime = metav1.Time{}
+									if conditions[i].Type == "WriteSucceeded" {
+										g.Expect(conditions[i].ObservedGeneration).To(Equal(w.GetGeneration()))
+										conditions[i].ObservedGeneration = 0
+									}
 								}
 								g.Expect(conditions).To(ConsistOf(
 									metav1.Condition{
@@ -149,12 +153,14 @@ var _ = Describe("Core Tests", Ordered, func() {
 							for i := range conditions {
 								conditions[i].LastTransitionTime = metav1.Time{}
 							}
+							g.Expect(works.Items[0].IsReadyAtCurrentGeneration()).To(BeTrue())
 							g.Expect(conditions).To(ConsistOf(
 								metav1.Condition{
-									Type:    "Ready",
-									Status:  metav1.ConditionTrue,
-									Reason:  "AllWorkplacementsScheduled",
-									Message: "Ready",
+									Type:               "Ready",
+									Status:             metav1.ConditionTrue,
+									Reason:             "AllWorkplacementsWritten",
+									Message:            "Ready",
+									ObservedGeneration: works.Items[0].GetGeneration(),
 								},
 								metav1.Condition{
 									Type:    "ScheduleSucceeded",

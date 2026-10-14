@@ -181,6 +181,96 @@ var _ = Describe("DecideNextAction", func() {
 			Expect(decision.Pipeline.Name).To(Equal("pipeline-2"))
 		})
 
+		When("the previous pipeline has written a Work", func() {
+			var previousPipelineWork *v1alpha1.Work
+
+			BeforeEach(func() {
+				progress.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSucceeded
+				previousPipelineWork = &v1alpha1.Work{
+					ObjectMeta: metav1.ObjectMeta{Name: "pipeline-1-work", Generation: 2},
+				}
+				progress.PipelineWorks = map[string]*v1alpha1.Work{"pipeline-1": previousPipelineWork}
+			})
+
+			It("starts the next pipeline once the Work is Ready at its current generation", func() {
+				previousPipelineWork.Status.Conditions = []metav1.Condition{
+					{Type: "Ready", Status: metav1.ConditionTrue, ObservedGeneration: 2},
+				}
+
+				decision := workflow.DecideNextAction(opts, progress)
+
+				Expect(decision.Action).To(Equal(workflow.StartPipeline))
+				Expect(decision.Pipeline.Name).To(Equal("pipeline-2"))
+			})
+
+			It("waits while the Work is not Ready", func() {
+				previousPipelineWork.Status.Conditions = []metav1.Condition{
+					{Type: "Ready", Status: metav1.ConditionFalse, ObservedGeneration: 2},
+				}
+
+				decision := workflow.DecideNextAction(opts, progress)
+
+				Expect(decision.Action).To(Equal(workflow.WaitForPreviousPipelineOutput))
+				Expect(decision.Pipeline.Name).To(Equal("pipeline-2"))
+				Expect(decision.PreviousPipelineName).To(Equal("pipeline-1"))
+				Expect(decision.PreviousPipelineWork.Name).To(Equal("pipeline-1-work"))
+			})
+
+			It("waits while the Work has no Ready condition yet", func() {
+				decision := workflow.DecideNextAction(opts, progress)
+
+				Expect(decision.Action).To(Equal(workflow.WaitForPreviousPipelineOutput))
+			})
+
+			It("waits when the Work is only Ready for an earlier generation", func() {
+				previousPipelineWork.Status.Conditions = []metav1.Condition{
+					{Type: "Ready", Status: metav1.ConditionTrue, ObservedGeneration: 1},
+				}
+
+				decision := workflow.DecideNextAction(opts, progress)
+
+				Expect(decision.Action).To(Equal(workflow.WaitForPreviousPipelineOutput))
+			})
+
+			It("waits for the Work even when the Job named in status for the next pipeline has gone", func() {
+				progress.Pipelines[1].Phase = v1alpha1.WorkflowPhaseRunning
+				progress.Pipelines[1].Job = "pipeline-2-job"
+
+				decision := workflow.DecideNextAction(opts, progress)
+
+				Expect(decision.Action).To(Equal(workflow.WaitForPreviousPipelineOutput))
+			})
+
+			It("stays paused rather than waiting when the workflow is suspended", func() {
+				progress.Paused = true
+
+				decision := workflow.DecideNextAction(opts, progress)
+
+				Expect(decision.Action).To(Equal(workflow.StayPaused))
+			})
+		})
+
+		It("starts the next pipeline straight away when the previous pipeline left no Work", func() {
+			progress.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSucceeded
+			progress.PipelineWorks = map[string]*v1alpha1.Work{}
+
+			decision := workflow.DecideNextAction(opts, progress)
+
+			Expect(decision.Action).To(Equal(workflow.StartPipeline))
+			Expect(decision.Pipeline.Name).To(Equal("pipeline-2"))
+		})
+
+		It("does not wait for a Work before starting the first pipeline", func() {
+			progress.PipelineWorks = map[string]*v1alpha1.Work{
+				"pipeline-2": {ObjectMeta: metav1.ObjectMeta{Name: "pipeline-2-work", Generation: 2}},
+			}
+
+			decision := workflow.DecideNextAction(opts, progress)
+
+			Expect(decision.Action).To(Equal(workflow.StartPipeline))
+			Expect(decision.Pipeline.Name).To(Equal("pipeline-1"))
+		})
+
 		It("finishes the workflow once every pipeline has succeeded", func() {
 			progress.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSucceeded
 			progress.Pipelines[1].Phase = v1alpha1.WorkflowPhaseSucceeded

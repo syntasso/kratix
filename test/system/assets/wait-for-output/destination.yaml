@@ -1,0 +1,12 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: wait-for-output
+  labels:
+    target: wait-for-output
+spec:
+  strictMatchLabels: true
+  path: wait-for-output
+  stateStoreRef:
+    name: wait-for-output-store
+    kind: GitStateStore

@@ -4,6 +4,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var _ = Describe("Work", func() {
@@ -65,4 +66,36 @@ var _ = Describe("Work", func() {
 		})
 	})
 
+	Describe("IsReadyAtCurrentGeneration", func() {
+		var work *v1alpha1.Work
+
+		BeforeEach(func() {
+			work = &v1alpha1.Work{ObjectMeta: metav1.ObjectMeta{Generation: 3}}
+		})
+
+		It("is true when Ready is True at the current generation", func() {
+			work.Status.Conditions = []metav1.Condition{
+				{Type: "Ready", Status: metav1.ConditionTrue, ObservedGeneration: 3},
+			}
+			Expect(work.IsReadyAtCurrentGeneration()).To(BeTrue())
+		})
+
+		It("is false when Ready is True for an earlier generation", func() {
+			work.Status.Conditions = []metav1.Condition{
+				{Type: "Ready", Status: metav1.ConditionTrue, ObservedGeneration: 2},
+			}
+			Expect(work.IsReadyAtCurrentGeneration()).To(BeFalse())
+		})
+
+		It("is false when Ready is False", func() {
+			work.Status.Conditions = []metav1.Condition{
+				{Type: "Ready", Status: metav1.ConditionFalse, ObservedGeneration: 3},
+			}
+			Expect(work.IsReadyAtCurrentGeneration()).To(BeFalse())
+		})
+
+		It("is false when there is no Ready condition", func() {
+			Expect(work.IsReadyAtCurrentGeneration()).To(BeFalse())
+		})
+	})
 })

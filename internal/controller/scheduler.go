@@ -132,23 +132,23 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 		s.EventRecorder.Eventf(w, nil, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason, scheduleSucceededConditionMismatchReason, "Target destination no longer matches destinationSelectors for workloadGroups: [%s] ",
 			strings.Join(misplacedWorkloadGroupIDs, ","))
 	} else { // all works are scheduled and none is misplaced
-		readyCond = metav1.Condition{
-			Type:    "Ready",
-			Status:  metav1.ConditionTrue,
-			Reason:  "AllWorkplacementsScheduled",
-			Message: "Ready",
-		}
 		scheduleSucceededCond = metav1.Condition{
 			Type:    "ScheduleSucceeded",
 			Status:  metav1.ConditionTrue,
 			Reason:  "AllWorkplacementsScheduled",
 			Message: "All workplacements scheduled successfully",
 		}
-		s.EventRecorder.Eventf(w, nil, corev1.EventTypeNormal, "AllWorkplacementsScheduled", "AllWorkplacementsScheduled", "All workplacements scheduled successfully")
 	}
 
 	if apimeta.SetStatusCondition(&w.Status.Conditions, scheduleSucceededCond) {
-		apimeta.SetStatusCondition(&w.Status.Conditions, readyCond)
+		if scheduleSucceededCond.Status == metav1.ConditionTrue {
+			s.EventRecorder.Eventf(w, nil, corev1.EventTypeNormal, "AllWorkplacementsScheduled", "AllWorkplacementsScheduled", "All workplacements scheduled successfully")
+		}
+		// Once everything is scheduled, the Work is not Ready until the WorkPlacements
+		// have been written. The Work controller sets Ready when that happens.
+		if scheduleSucceededCond.Status == metav1.ConditionFalse {
+			apimeta.SetStatusCondition(&w.Status.Conditions, readyCond)
+		}
 		updated = true
 	}
 	return updated

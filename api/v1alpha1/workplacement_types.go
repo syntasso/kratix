@@ -102,13 +102,32 @@ const (
 	ScheduleSucceededConditionType = "ScheduleSucceeded"
 )
 
+// SetWriteSucceededCondition records the generation that was written, so a reader
+// can tell a write of the current spec apart from a write of an older one.
 func (w *WorkPlacement) SetWriteSucceededCondition() bool {
 	return meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
-		Type:    WriteSucceededConditionType,
-		Status:  metav1.ConditionTrue,
-		Reason:  "WorkloadsWrittenToStateStore",
-		Message: "Workloads written to State Store",
+		Type:               WriteSucceededConditionType,
+		Status:             metav1.ConditionTrue,
+		Reason:             "WorkloadsWrittenToStateStore",
+		Message:            "Workloads written to State Store",
+		ObservedGeneration: w.GetGeneration(),
 	})
+}
+
+// IsWrittenAtCurrentGeneration reports whether the workloads of the given Work
+// generation have been written to the State Store.
+func (w *WorkPlacement) IsWrittenAtCurrentGeneration(workGeneration int64) bool {
+	if w.Spec.WorkGeneration != workGeneration {
+		return false
+	}
+	writeSucceeded := meta.FindStatusCondition(w.Status.Conditions, WriteSucceededConditionType)
+	if writeSucceeded == nil {
+		return false
+	}
+	if writeSucceeded.ObservedGeneration != w.GetGeneration() {
+		return false
+	}
+	return writeSucceeded.Status == metav1.ConditionTrue
 }
 
 func (w *WorkPlacement) SetWorkplacementReadyStatus() bool {
@@ -136,10 +155,11 @@ func (w *WorkPlacement) SetWorkplacementReadyStatus() bool {
 
 func (w *WorkPlacement) SetWriteFailedCondition(err error) bool {
 	writeSucceededUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
-		Type:    WriteSucceededConditionType,
-		Status:  metav1.ConditionFalse,
-		Reason:  "WorkloadsFailedWrite",
-		Message: err.Error(),
+		Type:               WriteSucceededConditionType,
+		Status:             metav1.ConditionFalse,
+		Reason:             "WorkloadsFailedWrite",
+		Message:            err.Error(),
+		ObservedGeneration: w.GetGeneration(),
 	})
 	readyUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
 		Status:  metav1.ConditionFalse,

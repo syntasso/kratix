@@ -1,0 +1,7 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: WaitForOutput
+metadata:
+  name: with-output
+  namespace: default
+spec:
+  writeOutput: true
