@@ -233,80 +233,132 @@ var _ = Describe("PromiseRevisionController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 			})
 
-			It("deletes the request alongside the revision", func() {
-				Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
-				result, err := t.reconcileUntilCompletion(reconciler, revision)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
-
-				By("deleting the resource request", func() {
-					err = fakeK8sClient.Get(
-						ctx,
-						types.NamespacedName{
-							Name:      rr.GetName(),
-							Namespace: rr.GetNamespace(),
-						},
-						rr,
-					)
-					Expect(err).To(MatchError(ContainSubstring("not found")))
-				})
-
-				By("deleting the resourceBinding as part of revision teardown", func() {
-					err = fakeK8sClient.Get(
-						ctx,
-						types.NamespacedName{
-							Name:      resourceBinding.Name,
-							Namespace: resourceBinding.Namespace,
-						},
-						resourceBinding,
-					)
-					Expect(err).To(MatchError(ContainSubstring("not found")))
-				})
-
-				err = fakeK8sClient.Get(
-					ctx,
-					types.NamespacedName{
-						Name:      revision.GetName(),
-						Namespace: revision.GetNamespace(),
-					},
-					revision,
-				)
-				Expect(err).To(MatchError(ContainSubstring("not found")))
+			BeforeEach(func() {
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(revision), revision)).To(Succeed())
+				revision.ClearLatestRevisionLabel()
+				Expect(fakeK8sClient.Update(ctx, revision)).To(Succeed())
+				_, err := t.reconcileUntilCompletion(reconciler, revision)
+				Expect(err).NotTo(HaveOccurred())
 			})
 
-			It("deletes an orphan resourceBinding when the resource request was already removed", func() {
+			expectWaiting := func() {
+				GinkgoHelper()
+				result, err := t.reconcileUntilCompletion(reconciler, revision, &opts{requeueExpected: true})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(revision), revision)).To(Succeed())
+				Expect(revision.GetFinalizers()).To(ContainElement("kratix.io/resource-request-cleanup"))
+			}
+
+			expectRevisionGone := func() {
+				GinkgoHelper()
+				_, err := t.reconcileUntilCompletion(reconciler, revision)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(revision), revision)).To(
+					MatchError(ContainSubstring("not found")))
+			}
+
+			moveBindingTo := func(version string) {
+				GinkgoHelper()
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resourceBinding), resourceBinding)).To(Succeed())
+				resourceBinding.Spec.Version = version
+				Expect(fakeK8sClient.Update(ctx, resourceBinding)).To(Succeed())
+				resourceBinding.Status.LastAppliedVersion = version
+				Expect(fakeK8sClient.Status().Update(ctx, resourceBinding)).To(Succeed())
+			}
+
+			It("keeps the resource request and its binding, and waits for them to leave the version", func() {
+				Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
+				expectWaiting()
+
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(rr), rr)).To(Succeed())
+				Expect(rr.GetDeletionTimestamp()).To(BeNil())
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resourceBinding), resourceBinding)).To(Succeed())
+				Expect(resourceBinding.GetDeletionTimestamp()).To(BeNil())
+			})
+
+			It("removes the revision once no binding uses its version", func() {
+				Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
+				expectWaiting()
+
+				moveBindingTo("v2.0.0")
+				expectRevisionGone()
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(rr), rr)).To(Succeed())
+			})
+
+			It("waits while a resource last ran at the version, even though its binding asks for another", func() {
+				moveBindingTo(promiseVersion)
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resourceBinding), resourceBinding)).To(Succeed())
+				resourceBinding.Spec.Version = "latest"
+				Expect(fakeK8sClient.Update(ctx, resourceBinding)).To(Succeed())
+
+				Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
+				expectWaiting()
+			})
+
+			It("keeps a binding whose resource request is already gone", func() {
 				Expect(fakeK8sClient.Delete(ctx, rr)).To(Succeed())
 				Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
-				result, err := t.reconcileUntilCompletion(reconciler, revision)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
+				expectWaiting()
 
-				err = fakeK8sClient.Get(
-					ctx,
-					types.NamespacedName{
-						Name:      resourceBinding.Name,
-						Namespace: resourceBinding.Namespace,
-					},
-					resourceBinding,
-				)
-				Expect(err).To(MatchError(ContainSubstring("not found")))
-
-				err = fakeK8sClient.Get(ctx, types.NamespacedName{Name: revision.GetName()}, revision)
-				Expect(err).To(MatchError(ContainSubstring("not found")))
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resourceBinding), resourceBinding)).To(Succeed())
 			})
 
-			It("does not delete the other versions resource bindings or request", func() {
+			It("does not touch the other version's binding or request", func() {
 				Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
-				result, err := t.reconcileUntilCompletion(reconciler, revision)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
+				expectWaiting()
 
-				By("not deleting the other versions resource bindings", func() {
-					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: previousVersionResourceBinding.Name, Namespace: previousVersionResourceBinding.Namespace}, previousVersionResourceBinding)).To(Succeed())
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(previousVersionResourceBinding), previousVersionResourceBinding)).To(Succeed())
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(rro), rro)).To(Succeed())
+			})
+
+			It("removes the revision straight away when skip-resource-request-cleanup-on-delete is set", func() {
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(revision), revision)).To(Succeed())
+				revision.SetSkipResourceRequestCleanupOnDelete()
+				Expect(fakeK8sClient.Update(ctx, revision)).To(Succeed())
+
+				Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
+				expectRevisionGone()
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resourceBinding), resourceBinding)).To(Succeed())
+			})
+
+			When("the revision waiting to be removed becomes the latest again", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
+					_, err := t.reconcileUntilCompletion(reconciler, revision, &opts{singleReconcile: true})
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(revision), revision)).To(Succeed())
+					revision.SetLatestRevisionLabel()
+					Expect(fakeK8sClient.Update(ctx, revision)).To(Succeed())
 				})
 
-				By("not deleting the other request", func() {
-					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rro.GetName(), Namespace: rro.GetNamespace()}, rro)).To(Succeed())
+				It("marks it as latest so resources on latest keep using it", func() {
+					expectWaiting()
+					Expect(revision.Status.Latest).To(BeTrue())
+				})
+
+				It("keeps it while its Promise is still installed, even when no binding uses the version", func() {
+					Expect(fakeK8sClient.Delete(ctx, resourceBinding)).To(Succeed())
+					expectWaiting()
+				})
+
+				It("removes it while its Promise is being deleted and no binding uses the version", func() {
+					Expect(fakeK8sClient.Delete(ctx, resourceBinding)).To(Succeed())
+					promise := &v1alpha1.Promise{}
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, promise)).To(Succeed())
+					promise.SetFinalizers([]string{"kratix.io/revision-cleanup"})
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+					expectRevisionGone()
+				})
+
+				It("removes it once its Promise is deleted and no binding uses the version", func() {
+					Expect(fakeK8sClient.Delete(ctx, resourceBinding)).To(Succeed())
+					promise := &v1alpha1.Promise{}
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, promise)).To(Succeed())
+					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+					expectRevisionGone()
 				})
 			})
 
@@ -350,10 +402,10 @@ var _ = Describe("PromiseRevisionController", func() {
 					}
 				})
 
-				It("cleans up that version's pipeline objects", func() {
+				It("cleans up that version's pipeline objects once no binding uses the version", func() {
+					Expect(fakeK8sClient.Delete(ctx, resourceBinding)).To(Succeed())
 					Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
-					_, err := t.reconcileUntilCompletion(reconciler, revision)
-					Expect(err).NotTo(HaveOccurred())
+					expectRevisionGone()
 
 					for _, obj := range versionObjects {
 						Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(
@@ -364,14 +416,9 @@ var _ = Describe("PromiseRevisionController", func() {
 					}
 				})
 
-				It("keeps that version's pipeline objects while a request on it is still being deleted", func() {
-					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(rr), rr)).To(Succeed())
-					rr.SetFinalizers([]string{"kratix.io/delete-workflows"})
-					Expect(fakeK8sClient.Update(ctx, rr)).To(Succeed())
-
+				It("keeps that version's pipeline objects while a binding still uses the version", func() {
 					Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
-					_, err := t.reconcileUntilCompletion(reconciler, revision, &opts{singleReconcile: true})
-					Expect(err).NotTo(HaveOccurred())
+					expectWaiting()
 
 					for _, obj := range versionObjects {
 						Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed(), obj.GetName())
@@ -384,30 +431,15 @@ var _ = Describe("PromiseRevisionController", func() {
 						revision.SetSkipResourceRequestCleanupOnDelete()
 						Expect(fakeK8sClient.Update(ctx, revision)).To(Succeed())
 
+						Expect(fakeK8sClient.Delete(ctx, resourceBinding)).To(Succeed())
 						Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
-						_, err := t.reconcileUntilCompletion(reconciler, revision)
-						Expect(err).NotTo(HaveOccurred())
+						expectRevisionGone()
 
 						for _, obj := range versionObjects {
 							Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed(), obj.GetName())
 						}
 					})
 				})
-
-			})
-
-			It("does not delete the resource request when skip annotation is set", func() {
-				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: revision.Name}, revision)).To(Succeed())
-				revCopy := revision.DeepCopy()
-				revCopy.SetSkipResourceRequestCleanupOnDelete()
-				Expect(fakeK8sClient.Update(ctx, revCopy)).To(Succeed())
-
-				Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
-				result, err := t.reconcileUntilCompletion(reconciler, revision)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
-
-				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()}, rr)).To(Succeed())
 			})
 		})
 	})

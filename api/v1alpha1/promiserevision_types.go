@@ -26,8 +26,9 @@ import (
 
 // SkipResourceRequestCleanupOnDeleteAnnotation is set on a PromiseRevision that is being removed
 // only to replace its object (for example legacy DNS name → deterministic name) while keeping the
-// same promise version. When present, the PromiseRevision controller must not delete ResourceRequests
-// for this revision and must only drop its resource-request cleanup finalizer.
+// same promise version. When present, the PromiseRevision controller drops its cleanup finalizer
+// straight away: it does not wait for resources to leave the version, and it keeps the version's
+// pipeline RBAC.
 const SkipResourceRequestCleanupOnDeleteAnnotation = KratixPrefix + "skip-resource-request-cleanup-on-delete"
 
 // LatestRevisionLabel marks the PromiseRevision that is currently latest for the promise (at most
@@ -105,8 +106,6 @@ func (pr *PromiseRevision) GetPromiseName() string {
 	return pr.Spec.PromiseRef.Name
 }
 
-// SetSkipResourceRequestCleanupOnDelete sets SkipResourceRequestCleanupOnDeleteAnnotation so
-// deletion of this object does not trigger ResourceRequest cleanup (name migration only).
 func (pr *PromiseRevision) SetSkipResourceRequestCleanupOnDelete() {
 	ann := pr.GetAnnotations()
 	if ann == nil {
@@ -118,7 +117,6 @@ func (pr *PromiseRevision) SetSkipResourceRequestCleanupOnDelete() {
 	ann[SkipResourceRequestCleanupOnDeleteAnnotation] = MetadataBoolTrue
 }
 
-// SkipResourceRequestCleanupOnDelete reports whether ResourceRequest cleanup must be skipped on delete.
 func (pr *PromiseRevision) SkipResourceRequestCleanupOnDelete() bool {
 	return pr.GetAnnotations()[SkipResourceRequestCleanupOnDeleteAnnotation] == MetadataBoolTrue
 }

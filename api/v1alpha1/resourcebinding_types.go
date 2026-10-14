@@ -17,12 +17,14 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
 	"strings"
 	"unicode"
 
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -148,4 +150,25 @@ func (rb *ResourceBinding) InFlightVersion() string {
 		rest = rest[:i]
 	}
 	return rest
+}
+
+func (rb *ResourceBinding) UsesVersion(version string) bool {
+	return rb.Spec.Version == version ||
+		rb.Status.LastAppliedVersion == version ||
+		rb.InFlightVersion() == version
+}
+
+// ResourceBindingsUsingVersion lists the Promise's ResourceBindings in every namespace that use the version.
+func ResourceBindingsUsingVersion(ctx context.Context, c client.Reader, promiseName, version string) ([]ResourceBinding, error) {
+	bindings := &ResourceBindingList{}
+	if err := c.List(ctx, bindings, client.MatchingLabels{PromiseNameLabel: promiseName}); err != nil {
+		return nil, err
+	}
+	var using []ResourceBinding
+	for i := range bindings.Items {
+		if bindings.Items[i].UsesVersion(version) {
+			using = append(using, bindings.Items[i])
+		}
+	}
+	return using, nil
 }

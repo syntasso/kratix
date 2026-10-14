@@ -241,6 +241,26 @@ var _ = Describe("Promise Revisions", func() {
 			Expect(canServiceAccountGet(rrOneSA, "configmaps")).To(BeFalse())
 		})
 
+		initialRevisionName := func() string {
+			return strings.TrimSpace(platform.Kubectl("get", "promiserevisions",
+				"-l", fmt.Sprintf("%s=%s", platformv1alpha1.PromiseNameLabel, promiseName),
+				fmt.Sprintf(`-o=jsonpath={.items[?(@.spec.version=="%s")].metadata.name}`, initialPromiseVersion)))
+		}
+
+		By("keeping a resource pinned to a version when that version's revision is deleted", func() {
+			revisionName := initialRevisionName()
+			Expect(revisionName).NotTo(BeEmpty())
+
+			Expect(platform.Kubectl("delete", "promiserevision", revisionName, "--wait=false")).To(
+				ContainSubstring("is still used by"))
+
+			Consistently(func() string {
+				return platform.Kubectl("get", "upgrades", rrTwoName, "-o=jsonpath={.metadata.deletionTimestamp}")
+			}, 10*time.Second).Should(BeEmpty())
+			Expect(platform.Kubectl("get", "--namespace=default", getBindingName(promiseName, rrTwoName))).NotTo(BeEmpty())
+			Expect(platform.Kubectl("get", "promiserevision", revisionName, "-o=jsonpath={.metadata.deletionTimestamp}")).NotTo(BeEmpty())
+		})
+
 		By("updating the resource binding to the new promise version", func() {
 			bindingName := getBindingName(promiseName, rrTwoName)
 
@@ -273,7 +293,7 @@ var _ = Describe("Promise Revisions", func() {
 			}).Should(Succeed())
 		})
 
-		By("removing a version's RBAC when its revision is deleted", func() {
+		By("removing the deleted revision and its version's RBAC once no resource uses the version", func() {
 			initialVersionRBAC := fmt.Sprintf("%s=%s,%s=%s",
 				platformv1alpha1.PromiseNameLabel, promiseName, platformv1alpha1.PromiseVersionLabel, initialPromiseVersion)
 			getInitialVersionRBAC := func() string {
@@ -281,12 +301,7 @@ var _ = Describe("Promise Revisions", func() {
 			}
 			Expect(getInitialVersionRBAC()).NotTo(BeEmpty())
 
-			revisionName := strings.TrimSpace(platform.Kubectl("get", "promiserevisions",
-				"-l", fmt.Sprintf("%s=%s", platformv1alpha1.PromiseNameLabel, promiseName),
-				fmt.Sprintf(`-o=jsonpath={.items[?(@.spec.version=="%s")].metadata.name}`, initialPromiseVersion)))
-			Expect(revisionName).NotTo(BeEmpty())
-			platform.EventuallyKubectlDelete("promiserevision", revisionName)
-
+			Eventually(initialRevisionName).Should(BeEmpty())
 			Eventually(getInitialVersionRBAC).Should(BeEmpty())
 			_, rrTwoSA := latestConfigurePipelineJob(promiseName, rrTwoName)
 			Expect(canServiceAccountGet(rrTwoSA, "secrets")).To(BeTrue())
