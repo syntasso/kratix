@@ -51,16 +51,18 @@ func (s *Scheduler) ReconcileWork(ctx context.Context, work *v1alpha1.Work) ([]s
 		workloadGroupScheduleStatus, err := s.reconcileWorkloadGroup(ctx, wg, work)
 		if err != nil {
 			readyCond := metav1.Condition{
-				Type:    "Ready",
-				Status:  metav1.ConditionFalse,
-				Reason:  "FailedToScheduleWorkloads",
-				Message: "Pending",
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "FailedToScheduleWorkloads",
+				Message:            "Pending",
+				ObservedGeneration: work.GetGeneration(),
 			}
 			scheduleSucceededCond := metav1.Condition{
-				Type:    "ScheduleSucceeded",
-				Status:  metav1.ConditionFalse,
-				Reason:  "FailedToScheduleWorkloads",
-				Message: fmt.Sprintf("Failed to schedule or update for workloadGroups: [%s]", wg.ID),
+				Type:               "ScheduleSucceeded",
+				Status:             metav1.ConditionFalse,
+				Reason:             "FailedToScheduleWorkloads",
+				Message:            fmt.Sprintf("Failed to schedule or update for workloadGroups: [%s]", wg.ID),
+				ObservedGeneration: work.GetGeneration(),
 			}
 			apimeta.SetStatusCondition(&work.Status.Conditions, scheduleSucceededCond)
 			apimeta.SetStatusCondition(&work.Status.Conditions, readyCond)
@@ -99,10 +101,11 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 
 	if len(unscheduledWorkloadGroupIDs) > 0 {
 		readyCond = metav1.Condition{
-			Type:    "Ready",
-			Status:  metav1.ConditionFalse,
-			Reason:  "UnscheduledWorkloads",
-			Message: "Pending",
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             "UnscheduledWorkloads",
+			Message:            "Pending",
+			ObservedGeneration: w.GetGeneration(),
 		}
 		scheduleSucceededCond = metav1.Condition{
 			Type:   "ScheduleSucceeded",
@@ -112,6 +115,7 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 				"No matching destination found for workloadGroups: [%s]",
 				strings.Join(unscheduledWorkloadGroupIDs, ","),
 			),
+			ObservedGeneration: w.GetGeneration(),
 		}
 	} else if len(misplacedWorkloadGroupIDs) > 0 {
 		scheduleSucceededCond = metav1.Condition{
@@ -122,21 +126,24 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 			Message: fmt.Sprintf(
 				"Target destination no longer matches destinationSelectors for workloadGroups: [%s]",
 				strings.Join(misplacedWorkloadGroupIDs, ",")),
+			ObservedGeneration: w.GetGeneration(),
 		}
 		readyCond = metav1.Condition{
-			Type:    "Ready",
-			Status:  metav1.ConditionFalse,
-			Reason:  "Misplaced",
-			Message: "Misplaced",
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             "Misplaced",
+			Message:            "Misplaced",
+			ObservedGeneration: w.GetGeneration(),
 		}
 		s.EventRecorder.Eventf(w, nil, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason, scheduleSucceededConditionMismatchReason, "Target destination no longer matches destinationSelectors for workloadGroups: [%s] ",
 			strings.Join(misplacedWorkloadGroupIDs, ","))
 	} else { // all works are scheduled and none is misplaced
 		scheduleSucceededCond = metav1.Condition{
-			Type:    "ScheduleSucceeded",
-			Status:  metav1.ConditionTrue,
-			Reason:  "AllWorkplacementsScheduled",
-			Message: "All workplacements scheduled successfully",
+			Type:               "ScheduleSucceeded",
+			Status:             metav1.ConditionTrue,
+			Reason:             "AllWorkplacementsScheduled",
+			Message:            "All workplacements scheduled successfully",
+			ObservedGeneration: w.GetGeneration(),
 		}
 	}
 
@@ -440,12 +447,14 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 			Type:               v1alpha1.ScheduleSucceededConditionType,
 			Status:             metav1.ConditionFalse,
 			LastTransitionTime: metav1.NewTime(time.Now()),
+			ObservedGeneration: updatedwp.GetGeneration(),
 		}
 		readyUpdated := apimeta.SetStatusCondition(&updatedwp.Status.Conditions, metav1.Condition{
-			Type:    "Ready",
-			Status:  metav1.ConditionFalse,
-			Reason:  "Misplaced",
-			Message: "Misplaced",
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             "Misplaced",
+			Message:            "Misplaced",
+			ObservedGeneration: updatedwp.GetGeneration(),
 		})
 		scheduleUpdated := apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond)
 		s.EventRecorder.Eventf(updatedwp, nil, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason, scheduleSucceededConditionMismatchReason, "labels for destination: %s no longer match the expected labels, marking this workplacement as misplaced", updatedwp.Spec.TargetDestinationName)
@@ -461,6 +470,7 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 		Type:               v1alpha1.ScheduleSucceededConditionType,
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.NewTime(time.Now()),
+		ObservedGeneration: updatedwp.GetGeneration(),
 	}
 	scheduleUpdated := apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond)
 
@@ -469,10 +479,11 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 		writeSucceededCond := apimeta.FindStatusCondition(updatedwp.Status.Conditions, v1alpha1.WriteSucceededConditionType)
 		if writeSucceededCond == nil || writeSucceededCond.Status != metav1.ConditionTrue {
 			readyUpdated = apimeta.SetStatusCondition(&updatedwp.Status.Conditions, metav1.Condition{
-				Type:    "Ready",
-				Status:  metav1.ConditionFalse,
-				Reason:  "ScheduledToDestination",
-				Message: "Pending",
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "ScheduledToDestination",
+				Message:            "Pending",
+				ObservedGeneration: updatedwp.GetGeneration(),
 			})
 		}
 	}

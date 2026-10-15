@@ -132,10 +132,11 @@ func (w *WorkPlacement) SetWorkplacementReadyStatus() bool {
 	if writeSucceeded && !misplaced {
 		return meta.SetStatusCondition(&w.Status.Conditions,
 			metav1.Condition{
-				Type:    "Ready",
-				Status:  metav1.ConditionTrue,
-				Reason:  "WorkloadsWrittenToTargetDestination",
-				Message: "Ready",
+				Type:               "Ready",
+				Status:             metav1.ConditionTrue,
+				Reason:             "WorkloadsWrittenToTargetDestination",
+				Message:            "Ready",
+				ObservedGeneration: w.GetGeneration(),
 			},
 		)
 	}
@@ -151,10 +152,11 @@ func (w *WorkPlacement) SetWriteFailedCondition(err error) bool {
 		ObservedGeneration: w.GetGeneration(),
 	})
 	readyUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
-		Status:  metav1.ConditionFalse,
-		Type:    "Ready",
-		Reason:  "WorkloadsFailedWrite",
-		Message: "Failing",
+		Status:             metav1.ConditionFalse,
+		Type:               "Ready",
+		Reason:             "WorkloadsFailedWrite",
+		Message:            "Failing",
+		ObservedGeneration: w.GetGeneration(),
 	})
 	return writeSucceededUpdated || readyUpdated
 }
