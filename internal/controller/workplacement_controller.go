@@ -217,12 +217,9 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 		return fastRequeue, nil
 	}
 
-	versionID, requeue, err := w.writeToStateStore(repo)
+	versionID, err := w.writeToStateStore(repo)
 	if err != nil {
 		return ctrl.Result{}, err
-	}
-	if requeue.RequeueAfter > 0 {
-		return requeue, nil
 	}
 
 	if err := w.updateResourceStatus(versionID, nil); err != nil {
@@ -535,7 +532,7 @@ func (w *workPlacementReconcileContext) delete(repo *Repository, workloadsToDele
 	return ctrl.Result{}, nil
 }
 
-func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (string, ctrl.Result, error) {
+func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (string, error) {
 	metricAttrs := telemetry.WorkPlacementWriteAttributes(
 		w.workPlacement.Spec.PromiseName,
 		w.workPlacement.Spec.ResourceName,
@@ -549,16 +546,16 @@ func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (str
 		telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
 		w.logAndRecordError(workloadErr, "FailedWriteToDestination", "error writing to destination; check kubectl get destination for more info")
 		if err := w.updateResourceStatus("", workloadErr); err != nil {
-			return "", ctrl.Result{}, err
+			return "", err
 		}
-		return "", ctrl.Result{}, workloadErr
+		return "", workloadErr
 	}
 
 	telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultSuccess, metricAttrs...)
 	w.setVersionID(versionID)
 	w.publishWriteEvent("WorkloadsWrittenToStateStore", versionID, nil)
 
-	return versionID, ctrl.Result{}, nil
+	return versionID, nil
 }
 
 func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Repository) (string, error) {
