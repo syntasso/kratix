@@ -992,6 +992,29 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(countEvents(eventRecorder, "Normal WaitingForPipelineOutput Waiting for the output of pipeline")).To(Equal(1))
 			})
 
+			When("the Work fails to be written", func() {
+				BeforeEach(func() {
+					markWorkFailing(firstPipelineWork)
+
+					passiveRequeue, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(passiveRequeue).To(BeTrue())
+				})
+
+				It("still does not start the second pipeline", func() {
+					Expect(listJobs(namespace)).To(ConsistOf(HaveField("Name", workflowPipelines[0].Job.Name)))
+				})
+
+				It("marks the Promise as failing", func() {
+					updatedPromise := &v1alpha1.Promise{}
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), updatedPromise)).To(Succeed())
+
+					reconciled := updatedPromise.GetCondition(string(resourceutil.ReconciledCondition))
+					Expect(reconciled.Status).To(Equal(metav1.ConditionFalse))
+					Expect(reconciled.Reason).To(Equal("WorksFailing"))
+				})
+			})
+
 			When("the Work becomes Ready at its current generation", func() {
 				BeforeEach(func() {
 					markWorkReady(firstPipelineWork)
@@ -3065,6 +3088,18 @@ func markWorkReady(work *v1alpha1.Work) {
 		Status:             metav1.ConditionTrue,
 		Reason:             "AllWorkplacementsWritten",
 		Message:            "Ready",
+		ObservedGeneration: work.GetGeneration(),
+	})
+	Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
+}
+
+func markWorkFailing(work *v1alpha1.Work) {
+	GinkgoHelper()
+	apimeta.SetStatusCondition(&work.Status.Conditions, metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionFalse,
+		Reason:             "WorkplacementsFailing",
+		Message:            "Failing",
 		ObservedGeneration: work.GetGeneration(),
 	})
 	Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
