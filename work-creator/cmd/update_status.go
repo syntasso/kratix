@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -86,21 +85,24 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 			"remove it from the '/kratix/metadata/status.yaml' file", resourceutil.HealthChecksSucceededCondition)
 	}
 
+	if params.WorkflowType == v1alpha1.WorkflowTypePromise {
+		kratixOwnedKeys := []string{
+			"version", "kind", "apiVersion", "status", "requiredPromises",
+			"requiredBy", "lastAvailableTime", "observedGeneration",
+		}
+		for _, key := range kratixOwnedKeys {
+			if _, ok := incomingStatus[key]; ok {
+				return fmt.Errorf("'%s' is a kratix managed status field that cannot be updated via workflows; "+
+					"remove update to '%s' from the '/kratix/metadata/status.yaml' file", key, key)
+			}
+		}
+	}
+
 	mergedStatus := lib.MergeStatuses(existingStatus, incomingStatus)
 
 	mergedStatus, err = recordExpectedHealth(baseDir, params, mergedStatus)
 	if err != nil {
 		return err
-	}
-
-	if params.WorkflowType == v1alpha1.WorkflowTypePromise {
-		if nonMessageKeys := lib.NonMessageStatusKeys(incomingStatus); len(nonMessageKeys) > 0 {
-			fmt.Fprintf(
-				os.Stdout,
-				"Warning: promise workflow status has unsupported keys: %s in status.yaml; only 'message' can be updated in Promise status.\n",
-				strings.Join(nonMessageKeys, ", "),
-			)
-		}
 	}
 
 	control, err := lib.ReadWorkflowControlFile(filepath.Join(baseDir, "workflow-control.yaml"))

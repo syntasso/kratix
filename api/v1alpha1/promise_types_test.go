@@ -27,6 +27,81 @@ var _ = Describe("Promise", func() {
 		Expect(promise.Status.Kratix.Workflows["example"].Pipelines[0].Hash).To(Equal("abc"))
 	})
 
+	Describe("Status", func() {
+		var statusWithCustomFields map[string]any
+
+		BeforeEach(func() {
+			statusWithCustomFields = map[string]any{"status": map[string]any{
+				"message": "Promise configured",
+				"childResources": []any{
+					map[string]any{"kind": "Database", "name": "db-1"},
+				},
+				"owner": "team-a",
+			}}
+		})
+
+		It("keeps custom fields through JSON", func() {
+			data, err := json.Marshal(statusWithCustomFields)
+			Expect(err).NotTo(HaveOccurred())
+
+			promise := &platformv1alpha1.Promise{}
+			Expect(json.Unmarshal(data, promise)).To(Succeed())
+			Expect(promise.Status.Message).To(Equal("Promise configured"))
+
+			promise.Status.Message = "updated by kratix"
+			roundTripped, err := json.Marshal(promise)
+			Expect(err).NotTo(HaveOccurred())
+
+			result := map[string]any{}
+			Expect(json.Unmarshal(roundTripped, &result)).To(Succeed())
+			Expect(result["status"]).To(Equal(map[string]any{
+				"message": "updated by kratix",
+				"childResources": []any{
+					map[string]any{"kind": "Database", "name": "db-1"},
+				},
+				"owner":  "team-a",
+				"kratix": map[string]any{},
+			}))
+		})
+
+		It("keeps custom fields through the unstructured converter", func() {
+			promise := &platformv1alpha1.Promise{}
+			Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(statusWithCustomFields, promise)).To(Succeed())
+
+			promise.Status.Kind = "Database"
+			result, err := runtime.DefaultUnstructuredConverter.ToUnstructured(promise)
+			Expect(err).NotTo(HaveOccurred())
+
+			status := result["status"].(map[string]any)
+			Expect(status).To(HaveKeyWithValue("kind", "Database"))
+			Expect(status).To(HaveKeyWithValue("owner", "team-a"))
+			Expect(status).To(HaveKey("childResources"))
+		})
+
+		It("keeps custom fields through DeepCopy", func() {
+			promise := &platformv1alpha1.Promise{}
+			Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(statusWithCustomFields, promise)).To(Succeed())
+
+			copied := promise.DeepCopy()
+			data, err := json.Marshal(copied)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(data)).To(ContainSubstring(`"owner":"team-a"`))
+		})
+
+		It("lets Kratix-owned fields win over custom fields with the same name", func() {
+			promise := &platformv1alpha1.Promise{}
+			promise.Status.Custom = map[string]apiextensionsv1.JSON{
+				"message": {Raw: []byte(`"from custom"`)},
+			}
+			promise.Status.Message = "from kratix"
+
+			data, err := json.Marshal(promise.Status)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(data)).To(ContainSubstring(`"message":"from kratix"`))
+			Expect(string(data)).NotTo(ContainSubstring("from custom"))
+		})
+	})
+
 	Describe("Scheduling", func() {
 		It("generates the correct set of matchLabels", func() {
 			input := []platformv1alpha1.PromiseScheduling{
