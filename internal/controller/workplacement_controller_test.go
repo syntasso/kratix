@@ -250,12 +250,11 @@ var _ = Describe("WorkPlacementReconciler", func() {
 			It("records a failure metric when the state store write fails", func() {
 				fakeWriter.UpdateFilesReturns("", fmt.Errorf("boom"))
 
-				result, err := t.reconcileUntilCompletion(reconciler, &workPlacement, &opts{requeueExpected: true})
-				Expect(err).ToNot(HaveOccurred())
-				Expect(result.RequeueAfter).To(Equal(15 * time.Second))
+				_, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+				Expect(err).To(MatchError(ContainSubstring("boom")))
 
 				counts := collectWorkPlacementWriteMetrics(ctx, metricsReader)
-				Expect(counts).To(HaveKeyWithValue(telemetry.WorkPlacementWriteResultFailure, int64(30)))
+				Expect(counts).To(HaveKeyWithValue(telemetry.WorkPlacementWriteResultFailure, int64(1)))
 				Expect(counts).NotTo(HaveKey(telemetry.WorkPlacementWriteResultSuccess))
 			})
 
@@ -906,6 +905,55 @@ files:
 							Message: "Failing"}))
 					Eventually(workplacementRecorder.Events).Should(Receive(ContainSubstring(
 						"error writing to destination; check kubectl get destination for more info: whatever error")))
+				})
+			})
+
+			When("the destination is not ready", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&destination), &destination)).To(Succeed())
+					destination.SetNotReadyStatus("StateStoreNotReady", "GitStateStore/test-state-store: permission denied")
+					Expect(fakeK8sClient.Status().Update(ctx, &destination)).To(Succeed())
+				})
+
+				It("does not write and sets WriteSucceeded to false with the destination's message", func() {
+					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement, &opts{requeueExpected: true})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result.RequeueAfter).To(Equal(15 * time.Second))
+
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(0))
+
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					for i := range workPlacement.Status.Conditions {
+						workPlacement.Status.Conditions[i].LastTransitionTime = metav1.Time{}
+					}
+					Expect(workPlacement.Status.Conditions).To(ConsistOf(
+						metav1.Condition{
+							Type:    "WriteSucceeded",
+							Status:  metav1.ConditionFalse,
+							Reason:  "DestinationNotReady",
+							Message: `Destination "test-destination" is not ready: GitStateStore/test-state-store: permission denied`},
+						metav1.Condition{
+							Type:    "Ready",
+							Status:  metav1.ConditionFalse,
+							Reason:  "DestinationNotReady",
+							Message: "Failing"}))
+				})
+
+				It("still cleans up when the work placement is deleted", func() {
+					workPlacement.SetFinalizers([]string{
+						"finalizers.workplacement.kratix.io/repo-cleanup",
+						"finalizers.workplacement.kratix.io/kratix-dot-files-cleanup",
+					})
+					Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+					fakeWriter.ReadFileReturns(nil, writers.ErrFileNotFound)
+
+					_, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(1))
+					err = fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &v1alpha1.WorkPlacement{})
+					Expect(errors.IsNotFound(err)).To(BeTrue())
 				})
 			})
 		})

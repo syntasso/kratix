@@ -34,6 +34,8 @@ import (
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -177,6 +179,12 @@ func (w *workPlacementReconcileContext) reconcileWithSpanAttributes() (result ct
 }
 
 func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr error) {
+	destinationReady := apiMeta.FindStatusCondition(w.destination.Status.Conditions, "Ready")
+	destinationNotReady := destinationReady != nil && destinationReady.Status == metav1.ConditionFalse
+	if destinationNotReady && w.workPlacement.DeletionTimestamp.IsZero() {
+		return w.markDestinationNotReady(destinationReady.Message)
+	}
+
 	repo, err := w.repositoryCache.GetRepositoryByTypeAndName(
 		w.destination.Spec.StateStoreRef.Kind,
 		w.destination.Spec.StateStoreRef.Name,
@@ -228,6 +236,22 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 	// corrects any drift even when nothing in the system has changed. When the
 	// interval is zero this behaves as before and does not requeue.
 	return ctrl.Result{RequeueAfter: w.stateStoreReconciliationInterval}, nil
+}
+
+func (w *workPlacementReconcileContext) markDestinationNotReady(destinationMessage string) (ctrl.Result, error) {
+	logging.Debug(w.logger, "destination is not ready, skipping write")
+	message := fmt.Sprintf("Destination %q is not ready: %s", w.destination.GetName(), destinationMessage)
+	if !w.workPlacement.SetDestinationNotReadyCondition(message) {
+		return defaultRequeue, nil
+	}
+
+	if err := w.client.Status().Update(w.ctx, w.workPlacement); err != nil {
+		if apierrors.IsConflict(err) {
+			return fastRequeue, nil
+		}
+		return ctrl.Result{}, err
+	}
+	return defaultRequeue, nil
 }
 
 func (w *workPlacementReconcileContext) updateResourceStatus(versionID string, err error) error {
@@ -524,7 +548,10 @@ func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (str
 	if workloadErr != nil {
 		telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
 		w.logAndRecordError(workloadErr, "FailedWriteToDestination", "error writing to destination; check kubectl get destination for more info")
-		return "", defaultRequeue, w.updateResourceStatus("", workloadErr)
+		if err := w.updateResourceStatus("", workloadErr); err != nil {
+			return "", ctrl.Result{}, err
+		}
+		return "", ctrl.Result{}, workloadErr
 	}
 
 	telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultSuccess, metricAttrs...)

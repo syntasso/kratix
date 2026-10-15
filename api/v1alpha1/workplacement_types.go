@@ -160,3 +160,21 @@ func (w *WorkPlacement) SetWriteFailedCondition(err error) bool {
 	})
 	return writeSucceededUpdated || readyUpdated
 }
+
+func (w *WorkPlacement) SetDestinationNotReadyCondition(message string) bool {
+	writeSucceededUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+		Type:               WriteSucceededConditionType,
+		Status:             metav1.ConditionFalse,
+		Reason:             "DestinationNotReady",
+		Message:            message,
+		ObservedGeneration: w.GetGeneration(),
+	})
+	readyUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+		Status:             metav1.ConditionFalse,
+		Type:               "Ready",
+		Reason:             "DestinationNotReady",
+		Message:            "Failing",
+		ObservedGeneration: w.GetGeneration(),
+	})
+	return writeSucceededUpdated || readyUpdated
+}
