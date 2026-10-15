@@ -117,7 +117,9 @@ var _ = Describe("Core Tests", Ordered, func() {
 								conditions := w.Status.Conditions
 								for i := range conditions {
 									conditions[i].LastTransitionTime = metav1.Time{}
-									g.Expect(conditions[i].ObservedGeneration).To(Equal(w.GetGeneration()))
+									if conditions[i].ObservedGeneration != 0 {
+										g.Expect(conditions[i].ObservedGeneration).To(Equal(w.GetGeneration()))
+									}
 									conditions[i].ObservedGeneration = 0
 								}
 								g.Expect(conditions).To(ConsistOf(
@@ -148,23 +150,29 @@ var _ = Describe("Core Tests", Ordered, func() {
 							kubeutils.ParseOutput(platform.Kubectl("get", "works", asYaml, systemNamespaceFlag, promiseLabel), &works)
 							g.Expect(works.Items).To(HaveLen(1))
 							conditions := works.Items[0].Status.Conditions
+							// The downgrade test runs this test against the previous release, which
+							// sets no observedGeneration and marks the Work Ready once it is scheduled.
+							readyReason := "AllWorkplacementsScheduled"
 							for i := range conditions {
 								conditions[i].LastTransitionTime = metav1.Time{}
+								if conditions[i].ObservedGeneration != 0 {
+									g.Expect(conditions[i].ObservedGeneration).To(Equal(works.Items[0].GetGeneration()))
+									readyReason = "AllWorkplacementsWritten"
+								}
+								conditions[i].ObservedGeneration = 0
 							}
 							g.Expect(conditions).To(ConsistOf(
 								metav1.Condition{
-									Type:               "Ready",
-									Status:             metav1.ConditionTrue,
-									Reason:             "AllWorkplacementsWritten",
-									Message:            "Ready",
-									ObservedGeneration: works.Items[0].GetGeneration(),
+									Type:    "Ready",
+									Status:  metav1.ConditionTrue,
+									Reason:  readyReason,
+									Message: "Ready",
 								},
 								metav1.Condition{
-									Type:               "ScheduleSucceeded",
-									Status:             metav1.ConditionTrue,
-									Reason:             "AllWorkplacementsScheduled",
-									Message:            "All workplacements scheduled successfully",
-									ObservedGeneration: works.Items[0].GetGeneration(),
+									Type:    "ScheduleSucceeded",
+									Status:  metav1.ConditionTrue,
+									Reason:  "AllWorkplacementsScheduled",
+									Message: "All workplacements scheduled successfully",
 								}))
 						}, 30*time.Second, interval).Should(Succeed())
 					})
