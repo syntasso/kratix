@@ -942,6 +942,134 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
+		When("the first pipeline has succeeded but its output has not been written yet", func() {
+			var opts workflow.Opts
+			var firstPipelineWork *v1alpha1.Work
+
+			BeforeEach(func() {
+				opts = workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+				_, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				markJobAsComplete(workflowPipelines[0].Job.Name)
+				setParentPipelinesSucceeded(uPromise, workflowPipelines, 1)
+				firstPipelineWork = createPipelineWork(promise.Name, "pipeline-1")
+
+				passiveRequeue, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(passiveRequeue).To(BeTrue())
+			})
+
+			It("does not start the second pipeline", func() {
+				Expect(listJobs(namespace)).To(ConsistOf(HaveField("Name", workflowPipelines[0].Job.Name)))
+			})
+
+			It("says why in the status", func() {
+				updatedPromise := &v1alpha1.Promise{}
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), updatedPromise)).To(Succeed())
+
+				secondPipeline := updatedPromise.Status.Kratix.Workflows["configure"].Pipelines[1]
+				Expect(secondPipeline.Phase).To(Equal(v1alpha1.WorkflowPhasePending))
+				Expect(secondPipeline.Message).To(Equal(fmt.Sprintf(
+					"Waiting for the output of pipeline \"pipeline-1\" to be written to its Destinations; check Work %q for details",
+					firstPipelineWork.Name)))
+
+				workflowCompleted := updatedPromise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
+				Expect(workflowCompleted.Status).To(Equal(metav1.ConditionFalse))
+				Expect(workflowCompleted.Reason).To(Equal(resourceutil.WaitingForPipelineOutputReason))
+
+				reconciled := updatedPromise.GetCondition(string(resourceutil.ReconciledCondition))
+				Expect(reconciled.Status).To(Equal(metav1.ConditionUnknown))
+				Expect(reconciled.Reason).To(Equal("WorksPending"))
+			})
+
+			It("sends one event, however many times it is reconciled", func() {
+				_, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				_, err = workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(countEvents(eventRecorder, "Normal WaitingForPipelineOutput Waiting for the output of pipeline")).To(Equal(1))
+			})
+
+			When("the Work fails to be written", func() {
+				BeforeEach(func() {
+					markWorkFailing(firstPipelineWork)
+
+					passiveRequeue, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(passiveRequeue).To(BeTrue())
+				})
+
+				It("still does not start the second pipeline", func() {
+					Expect(listJobs(namespace)).To(ConsistOf(HaveField("Name", workflowPipelines[0].Job.Name)))
+				})
+
+				It("marks the Promise as failing", func() {
+					updatedPromise := &v1alpha1.Promise{}
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), updatedPromise)).To(Succeed())
+
+					reconciled := updatedPromise.GetCondition(string(resourceutil.ReconciledCondition))
+					Expect(reconciled.Status).To(Equal(metav1.ConditionFalse))
+					Expect(reconciled.Reason).To(Equal("WorksFailing"))
+				})
+			})
+
+			When("the Work becomes Ready at its current generation", func() {
+				BeforeEach(func() {
+					markWorkReady(firstPipelineWork)
+
+					passiveRequeue, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(passiveRequeue).To(BeTrue())
+				})
+
+				It("starts the second pipeline", func() {
+					Expect(listJobs(namespace)).To(ConsistOf(
+						HaveField("Name", workflowPipelines[0].Job.Name),
+						HaveField("Name", workflowPipelines[1].Job.Name),
+					))
+				})
+
+				It("clears the waiting message and reason", func() {
+					updatedPromise := &v1alpha1.Promise{}
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), updatedPromise)).To(Succeed())
+
+					secondPipeline := updatedPromise.Status.Kratix.Workflows["configure"].Pipelines[1]
+					Expect(secondPipeline.Phase).To(Equal(v1alpha1.WorkflowPhaseRunning))
+					Expect(secondPipeline.Message).To(BeEmpty())
+
+					condition := updatedPromise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
+					Expect(condition.Reason).To(Equal(resourceutil.PipelinesInProgressReason))
+
+					reconciledCondition := updatedPromise.GetCondition(string(resourceutil.ReconciledCondition))
+					Expect(reconciledCondition.Reason).To(Equal("WorkflowPending"))
+				})
+			})
+		})
+
+		When("the first pipeline's only Work is a dry run", func() {
+			It("starts the second pipeline without waiting", func() {
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+				_, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				markJobAsComplete(workflowPipelines[0].Job.Name)
+				setParentPipelinesSucceeded(uPromise, workflowPipelines, 1)
+				dryRunWork := createPipelineWork(promise.Name, "pipeline-1")
+				dryRunWork.Labels[v1alpha1.DryRunLabel] = "true"
+				Expect(fakeK8sClient.Update(ctx, dryRunWork)).To(Succeed())
+
+				_, err = workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(listJobs(namespace)).To(ConsistOf(
+					HaveField("Name", workflowPipelines[0].Job.Name),
+					HaveField("Name", workflowPipelines[1].Job.Name),
+				))
+			})
+		})
+
 		Context("resource workflow", func() {
 			var resource *unstructured.Unstructured
 			var opts workflow.Opts
@@ -2938,6 +3066,43 @@ func createFakeWorks(pipelines []v1alpha1.Pipeline, promiseName string) {
 		work.Labels = resourceutil.GetWorkLabels(promiseName, "", "", pipeline.Name, v1alpha1.WorkTypePromise)
 		Expect(fakeK8sClient.Create(ctx, &work)).To(Succeed())
 	}
+}
+
+func createPipelineWork(promiseName, pipelineName string) *v1alpha1.Work {
+	GinkgoHelper()
+	work := &v1alpha1.Work{}
+	work.Name = fmt.Sprintf("work-%s", uuid.New().String()[0:5])
+	work.Namespace = namespace
+	work.Spec.PromiseName = promiseName
+	work.Labels = resourceutil.GetWorkLabels(promiseName, "", "", pipelineName, v1alpha1.WorkTypePromise)
+	work.Generation = 2
+	Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+	Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(work), work)).To(Succeed())
+	return work
+}
+
+func markWorkReady(work *v1alpha1.Work) {
+	GinkgoHelper()
+	apimeta.SetStatusCondition(&work.Status.Conditions, metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionTrue,
+		Reason:             "AllWorkplacementsWritten",
+		Message:            "Ready",
+		ObservedGeneration: work.GetGeneration(),
+	})
+	Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
+}
+
+func markWorkFailing(work *v1alpha1.Work) {
+	GinkgoHelper()
+	apimeta.SetStatusCondition(&work.Status.Conditions, metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionFalse,
+		Reason:             "WorkplacementsFailing",
+		Message:            "Failing",
+		ObservedGeneration: work.GetGeneration(),
+	})
+	Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
 }
 
 func createStaticDependencyWork(promiseName string) {

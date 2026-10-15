@@ -1088,7 +1088,8 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 
 	workflowRunning := workflowCompleted != nil && workflowCompleted.Status == v1.ConditionFalse &&
-		workflowCompleted.Reason == resourceutil.PipelinesInProgressReason
+		(workflowCompleted.Reason == resourceutil.PipelinesInProgressReason ||
+			workflowCompleted.Reason == resourceutil.WaitingForPipelineOutputReason)
 	workflowFailed := workflowCompleted != nil && workflowCompleted.Status == v1.ConditionFalse && !workflowRunning
 	workflowDone := workflowCompleted != nil && workflowCompleted.Status == v1.ConditionTrue
 
@@ -1096,7 +1097,12 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 	worksFailed := worksSucceeded != nil && worksSucceeded.Status == v1.ConditionFalse
 	worksReady := worksSucceeded != nil && worksSucceeded.Status == v1.ConditionTrue
 
+	waitingForPipelineOutput := workflowCompleted != nil && workflowCompleted.Status == v1.ConditionFalse &&
+		workflowCompleted.Reason == resourceutil.WaitingForPipelineOutputReason
+
 	switch {
+	case waitingForPipelineOutput:
+		return resourceutil.MarkReconciledPending(rr, "WorksPending")
 	case workflowRunning:
 		return resourceutil.MarkReconciledPending(rr, "WorkflowPending")
 	case workflowFailed:
@@ -1490,7 +1496,8 @@ func workflowCompletedWithFailure(workflowCompletedCondition *clusterv1.Conditio
 func workflowInProgress(workflowCompletedCondition *clusterv1.Condition) bool {
 	return workflowCompletedCondition != nil &&
 		workflowCompletedCondition.Status == v1.ConditionFalse &&
-		workflowCompletedCondition.Reason == resourceutil.PipelinesInProgressReason
+		(workflowCompletedCondition.Reason == resourceutil.PipelinesInProgressReason ||
+			workflowCompletedCondition.Reason == resourceutil.WaitingForPipelineOutputReason)
 }
 
 func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger, promiseRevisionUsed *v1alpha1.PromiseRevision) ctrl.Result {

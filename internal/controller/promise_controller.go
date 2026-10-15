@@ -565,10 +565,11 @@ func desiredReconciledCondition(promise *v1alpha1.Promise) (metav1.Condition, bo
 
 	workflowRunning := workflowCompleted != nil &&
 		workflowCompleted.Status == metav1.ConditionFalse &&
-		workflowCompleted.Reason == resourceutil.PipelinesInProgressReason
+		(workflowCompleted.Reason == resourceutil.PipelinesInProgressReason ||
+			workflowCompleted.Reason == resourceutil.WaitingForPipelineOutputReason)
 	workflowFailed := workflowCompleted != nil &&
 		workflowCompleted.Status == metav1.ConditionFalse &&
-		workflowCompleted.Reason != resourceutil.PipelinesInProgressReason
+		!workflowRunning
 	// Nothing writes ConfigureWorkflowCompleted for a Promise with no promise-level configure
 	// workflow, so those have no workflow left to wait on.
 	workflowDone := (workflowCompleted != nil && workflowCompleted.Status == metav1.ConditionTrue) ||
@@ -580,7 +581,13 @@ func desiredReconciledCondition(promise *v1alpha1.Promise) (metav1.Condition, bo
 
 	requirementsMet := requirementsFulfilled == nil || requirementsFulfilled.Status == metav1.ConditionTrue
 
+	waitingForPipelineOutput := workflowCompleted != nil &&
+		workflowCompleted.Status == metav1.ConditionFalse &&
+		workflowCompleted.Reason == resourceutil.WaitingForPipelineOutputReason
+
 	switch {
+	case waitingForPipelineOutput:
+		return promiseReconciledPendingCondition("WorksPending"), true
 	case workflowRunning:
 		return promiseReconciledPendingCondition("WorkflowPending"), true
 	case workflowFailed:

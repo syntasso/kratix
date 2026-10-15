@@ -1096,6 +1096,24 @@ var _ = Describe("PromiseController", func() {
 					})
 				})
 
+				When("workflows are waiting for a pipeline's output to be written", func() {
+					It("sets the condition to unknown and says the Works are pending", func() {
+						createAndUpdateWork(work, metav1.ConditionTrue, "Ready")
+						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
+						markPromiseWorkflowAsWaitingForPipelineOutput(fakeK8sClient, promise)
+						_, err := t.reconcileUntilCompletion(reconciler, promise)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
+
+						condition, err := getCondition(promise, string(resourceutil.ReconciledCondition))
+						Expect(err).ToNot(HaveOccurred())
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("Unknown"))
+						Expect(condition.Reason).To(Equal("WorksPending"))
+						Expect(condition.Message).To(ContainSubstring("Pending"))
+					})
+				})
+
 				When("workflows have failed", func() {
 					It("sets condition to false", func() {
 						createAndUpdateWork(work, metav1.ConditionTrue, "Ready")
@@ -3086,6 +3104,19 @@ func markPromiseWorkflowAsRunning(client client.Client, p *v1alpha1.Promise) {
 			Status:             metav1.ConditionFalse,
 			Message:            "Pipelines are still in progress",
 			Reason:             resourceutil.PipelinesInProgressReason,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		},
+	}
+	Expect(client.Status().Update(ctx, p)).To(Succeed())
+}
+
+func markPromiseWorkflowAsWaitingForPipelineOutput(client client.Client, p *v1alpha1.Promise) {
+	p.Status.Conditions = []metav1.Condition{
+		{
+			Type:               string(resourceutil.ConfigureWorkflowCompletedCondition),
+			Status:             metav1.ConditionFalse,
+			Message:            "Waiting for the output of pipeline \"first\" to be written to its Destinations",
+			Reason:             resourceutil.WaitingForPipelineOutputReason,
 			LastTransitionTime: metav1.NewTime(time.Now()),
 		},
 	}
