@@ -104,11 +104,19 @@ const (
 
 func (w *WorkPlacement) SetWriteSucceededCondition() bool {
 	return meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
-		Type:    WriteSucceededConditionType,
-		Status:  metav1.ConditionTrue,
-		Reason:  "WorkloadsWrittenToStateStore",
-		Message: "Workloads written to State Store",
+		Type:               WriteSucceededConditionType,
+		Status:             metav1.ConditionTrue,
+		Reason:             "WorkloadsWrittenToStateStore",
+		Message:            "Workloads written to State Store",
+		ObservedGeneration: w.GetGeneration(),
 	})
+}
+
+func (w *WorkPlacement) IsWrittenAtCurrentGeneration(workGeneration int64) bool {
+	writeSucceeded := meta.FindStatusCondition(w.Status.Conditions, WriteSucceededConditionType)
+	return writeSucceeded != nil && writeSucceeded.Status == metav1.ConditionTrue &&
+		writeSucceeded.ObservedGeneration == w.GetGeneration() &&
+		w.Spec.WorkGeneration == workGeneration
 }
 
 func (w *WorkPlacement) SetWorkplacementReadyStatus() bool {
@@ -124,10 +132,11 @@ func (w *WorkPlacement) SetWorkplacementReadyStatus() bool {
 	if writeSucceeded && !misplaced {
 		return meta.SetStatusCondition(&w.Status.Conditions,
 			metav1.Condition{
-				Type:    "Ready",
-				Status:  metav1.ConditionTrue,
-				Reason:  "WorkloadsWrittenToTargetDestination",
-				Message: "Ready",
+				Type:               "Ready",
+				Status:             metav1.ConditionTrue,
+				Reason:             "WorkloadsWrittenToTargetDestination",
+				Message:            "Ready",
+				ObservedGeneration: w.GetGeneration(),
 			},
 		)
 	}
@@ -136,16 +145,36 @@ func (w *WorkPlacement) SetWorkplacementReadyStatus() bool {
 
 func (w *WorkPlacement) SetWriteFailedCondition(err error) bool {
 	writeSucceededUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
-		Type:    WriteSucceededConditionType,
-		Status:  metav1.ConditionFalse,
-		Reason:  "WorkloadsFailedWrite",
-		Message: err.Error(),
+		Type:               WriteSucceededConditionType,
+		Status:             metav1.ConditionFalse,
+		Reason:             "WorkloadsFailedWrite",
+		Message:            err.Error(),
+		ObservedGeneration: w.GetGeneration(),
 	})
 	readyUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
-		Status:  metav1.ConditionFalse,
-		Type:    "Ready",
-		Reason:  "WorkloadsFailedWrite",
-		Message: "Failing",
+		Status:             metav1.ConditionFalse,
+		Type:               "Ready",
+		Reason:             "WorkloadsFailedWrite",
+		Message:            "Failing",
+		ObservedGeneration: w.GetGeneration(),
+	})
+	return writeSucceededUpdated || readyUpdated
+}
+
+func (w *WorkPlacement) SetDestinationNotReadyCondition(message string) bool {
+	writeSucceededUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+		Type:               WriteSucceededConditionType,
+		Status:             metav1.ConditionFalse,
+		Reason:             "DestinationNotReady",
+		Message:            message,
+		ObservedGeneration: w.GetGeneration(),
+	})
+	readyUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+		Status:             metav1.ConditionFalse,
+		Type:               "Ready",
+		Reason:             "DestinationNotReady",
+		Message:            "Failing",
+		ObservedGeneration: w.GetGeneration(),
 	})
 	return writeSucceededUpdated || readyUpdated
 }

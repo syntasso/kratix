@@ -1,0 +1,14 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: GitStateStore
+metadata:
+  name: wait-for-output-store
+spec:
+  insecure: true
+  authMethod: basicAuth
+  branch: main
+  gitAuthor:
+    name: kratix
+  secretRef:
+    name: wait-for-output-credentials
+    namespace: default
+  url: https://gitea-http.gitea.svc.cluster.local/gitea_admin/kratix

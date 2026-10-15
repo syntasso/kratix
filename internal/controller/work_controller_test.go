@@ -33,6 +33,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -124,6 +125,8 @@ var _ = Describe("WorkReconciler", func() {
 
 	When("scheduled workplacements failed to write", func() {
 		BeforeEach(func() {
+			markWorkAsScheduled(work)
+
 			wp := v1alpha1.WorkPlacement{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      "test",
@@ -156,12 +159,15 @@ var _ = Describe("WorkReconciler", func() {
 			Expect(readyCond.Status).To(Equal(v1.ConditionFalse))
 			Expect(readyCond.Reason).To(Equal("WorkplacementsFailing"))
 			Expect(readyCond.Message).To(Equal("Failing"))
+			Expect(readyCond.ObservedGeneration).To(Equal(work.GetGeneration()))
+		})
 
+		It("leaves ScheduleSucceeded alone, as scheduling did succeed", func() {
+			Expect(fakeK8sClient.Get(context.TODO(), client.ObjectKeyFromObject(work), work)).To(Succeed())
 			scheduleSucceededCond := apimeta.FindStatusCondition(work.Status.Conditions, "ScheduleSucceeded")
-			Expect(scheduleSucceededCond).ToNot(BeNil())
-			Expect(scheduleSucceededCond.Status).To(Equal(v1.ConditionFalse))
-			Expect(scheduleSucceededCond.Reason).To(Equal("WorkplacementsFailing"))
-			Expect(scheduleSucceededCond.Message).To(ContainSubstring("Workplacements failed to write: [test]"))
+			Expect(scheduleSucceededCond).NotTo(BeNil())
+			Expect(scheduleSucceededCond.Status).To(Equal(v1.ConditionTrue))
+			Expect(scheduleSucceededCond.Reason).To(Equal("AllWorkplacementsScheduled"))
 		})
 
 		It("sends the right events", func() {
@@ -169,6 +175,107 @@ var _ = Describe("WorkReconciler", func() {
 			Expect(work.Status.Conditions).To(HaveLen(2))
 			Eventually(fakeEventRecorder.Events).Should(
 				Receive(ContainSubstring("Workplacements failed to write: [test]")))
+		})
+
+		It("does not send the event again when nothing has changed", func() {
+			Eventually(fakeEventRecorder.Events).Should(
+				Receive(ContainSubstring("Workplacements failed to write: [test]")))
+
+			_, err := t.reconcileUntilCompletion(reconciler, work)
+			Expect(err).NotTo(HaveOccurred())
+
+			Consistently(fakeEventRecorder.Events).ShouldNot(
+				Receive(ContainSubstring("Workplacements failed to write: [test]")))
+		})
+	})
+
+	When("every workload group has been scheduled", func() {
+		BeforeEach(func() {
+			markWorkAsScheduled(work)
+		})
+
+		It("marks the Work as Ready once every WorkPlacement has written the current generation", func() {
+			createWrittenWorkPlacement(work, "first-group", work.Spec.WorkloadGroups[0].ID, work.GetGeneration())
+			createWrittenWorkPlacement(work, "second-group", work.Spec.WorkloadGroups[1].ID, work.GetGeneration())
+
+			_, err := t.reconcileUntilCompletion(reconciler, work)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			readyCond := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+			Expect(readyCond.Status).To(Equal(v1.ConditionTrue))
+			Expect(readyCond.Reason).To(Equal("AllWorkplacementsWritten"))
+			Expect(readyCond.ObservedGeneration).To(Equal(work.GetGeneration()))
+		})
+
+		It("keeps the Work Pending while a WorkPlacement holds an older generation", func() {
+			createWrittenWorkPlacement(work, "first-group", work.Spec.WorkloadGroups[0].ID, work.GetGeneration())
+			createWrittenWorkPlacement(work, "second-group", work.Spec.WorkloadGroups[1].ID, work.GetGeneration()-1)
+
+			_, err := t.reconcileUntilCompletion(reconciler, work)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			readyCond := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+			Expect(readyCond.Status).To(Equal(v1.ConditionFalse))
+			Expect(readyCond.Reason).To(Equal("WaitingForWorkplacementsToBeWritten"))
+			Expect(readyCond.Message).To(Equal("Pending"))
+		})
+
+		It("keeps the Work Pending while a workload group has no WorkPlacement", func() {
+			createWrittenWorkPlacement(work, "first-group", work.Spec.WorkloadGroups[0].ID, work.GetGeneration())
+
+			_, err := t.reconcileUntilCompletion(reconciler, work)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			Expect(work.IsReadyAtCurrentGeneration()).To(BeFalse())
+		})
+
+		It("marks the Work as Ready when it has no workload groups", func() {
+			work.Spec.WorkloadGroups = nil
+			Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
+
+			_, err := t.reconcileUntilCompletion(reconciler, work)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			Expect(work.IsReadyAtCurrentGeneration()).To(BeTrue())
+		})
+	})
+
+	When("some workload groups could not be scheduled", func() {
+		BeforeEach(func() {
+			work.Spec.ResourceName = ""
+			Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+
+			apimeta.SetStatusCondition(&work.Status.Conditions, v1.Condition{
+				Type:    "ScheduleSucceeded",
+				Status:  v1.ConditionFalse,
+				Reason:  "UnscheduledWorkloads",
+				Message: "No matching destination found",
+			})
+			apimeta.SetStatusCondition(&work.Status.Conditions, v1.Condition{
+				Type:    "Ready",
+				Status:  v1.ConditionFalse,
+				Reason:  "UnscheduledWorkloads",
+				Message: "Pending",
+			})
+			Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			createWrittenWorkPlacement(work, "first-group", work.Spec.WorkloadGroups[0].ID, work.GetGeneration())
+
+			_, err := t.reconcileUntilCompletion(reconciler, work)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("leaves the Ready condition the scheduler set", func() {
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			readyCond := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+			Expect(readyCond).NotTo(BeNil())
+			Expect(readyCond.Status).To(Equal(v1.ConditionFalse))
+			Expect(readyCond.Reason).To(Equal("UnscheduledWorkloads"))
 		})
 	})
 
@@ -269,4 +376,52 @@ var _ = Describe("WorkReconciler", func() {
 				&v1alpha1.WorkPlacement{})).To(MatchError(ContainSubstring("not found")))
 		})
 	})
+
+	When("a WorkPlacement writes a new version of the Work", func() {
+		It("reconciles the Work again", func() {
+			oldWorkPlacement := &v1alpha1.WorkPlacement{ObjectMeta: v1.ObjectMeta{Generation: 1}}
+			oldWorkPlacement.SetWriteSucceededCondition()
+			newWorkPlacement := oldWorkPlacement.DeepCopy()
+			newWorkPlacement.Generation = 2
+			newWorkPlacement.SetWriteSucceededCondition()
+
+			shouldReconcile := controller.WorkPlacementStatusUpdatePredicate().Update(event.UpdateEvent{
+				ObjectOld: oldWorkPlacement,
+				ObjectNew: newWorkPlacement,
+			})
+
+			Expect(shouldReconcile).To(BeTrue())
+		})
+	})
 })
+
+func markWorkAsScheduled(work *v1alpha1.Work) {
+	GinkgoHelper()
+	apimeta.SetStatusCondition(&work.Status.Conditions, v1.Condition{
+		Type:    "ScheduleSucceeded",
+		Status:  v1.ConditionTrue,
+		Reason:  "AllWorkplacementsScheduled",
+		Message: "All workplacements scheduled successfully",
+	})
+	Expect(fakeK8sClient.Status().Update(context.TODO(), work)).To(Succeed())
+	Expect(fakeK8sClient.Get(context.TODO(), client.ObjectKeyFromObject(work), work)).To(Succeed())
+}
+
+func createWrittenWorkPlacement(work *v1alpha1.Work, name, workloadGroupID string, workGeneration int64) {
+	GinkgoHelper()
+	workPlacement := &v1alpha1.WorkPlacement{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      work.Name + "-" + name,
+			Namespace: work.Namespace,
+			Labels:    map[string]string{"kratix.io/work": work.Name},
+		},
+		Spec: v1alpha1.WorkPlacementSpec{
+			ID:             workloadGroupID,
+			WorkGeneration: workGeneration,
+		},
+	}
+	Expect(fakeK8sClient.Create(context.TODO(), workPlacement)).To(Succeed())
+	Expect(fakeK8sClient.Get(context.TODO(), client.ObjectKeyFromObject(workPlacement), workPlacement)).To(Succeed())
+	workPlacement.SetWriteSucceededCondition()
+	Expect(fakeK8sClient.Status().Update(context.TODO(), workPlacement)).To(Succeed())
+}

@@ -37,6 +37,10 @@ func SetNewGitWriter(f func(logger logr.Logger, stateStoreSpec v1alpha1.GitState
 	}
 }
 
+func WorkPlacementStatusUpdatePredicate() predicate.Funcs {
+	return workPlacementStatusUpdatePredicate()
+}
+
 func PromiseForRevision(ctx context.Context, obj client.Object) []reconcile.Request {
 	return promiseForRevision(ctx, obj)
 }

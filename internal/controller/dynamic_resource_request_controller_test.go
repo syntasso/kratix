@@ -1136,6 +1136,25 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					})
 				})
 
+				When("workflows are waiting for a pipeline's output to be written", func() {
+					BeforeEach(func() {
+						setConfigureWorkflowAsWaitingForPipelineOutput(resReq)
+					})
+
+					It("sets Reconciled to unknown with message pending and says the Works are pending", func() {
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+						condition := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("Unknown"))
+						Expect(condition.Reason).To(Equal("WorksPending"))
+						Expect(condition.Message).To(ContainSubstring("Pending"))
+					})
+				})
+
 				When("works are pending", func() {
 					BeforeEach(func() {
 						work.Status = v1alpha1.WorkStatus{
@@ -2975,6 +2994,20 @@ func setConfigureWorkflowAsRunning(resReq *unstructured.Unstructured) {
 		Status:             v1.ConditionFalse,
 		Message:            "Pipelines are still in progress",
 		Reason:             resourceutil.PipelinesInProgressReason,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+}
+
+func setConfigureWorkflowAsWaitingForPipelineOutput(resReq *unstructured.Unstructured) {
+	if resReq.Object["status"] == nil {
+		resReq.Object["status"] = map[string]interface{}{}
+	}
+	resourceutil.SetCondition(resReq, &clusterv1.Condition{
+		Type:               resourceutil.ConfigureWorkflowCompletedCondition,
+		Status:             v1.ConditionFalse,
+		Message:            "Waiting for the output of pipeline \"first\" to be written to its Destinations",
+		Reason:             resourceutil.WaitingForPipelineOutputReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())

@@ -640,7 +640,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(resourceWork.Status.Conditions).To(HaveLen(2))
 					resourceWork.Status.Conditions[0].LastTransitionTime = metav1.Time{}
 					resourceWork.Status.Conditions[1].LastTransitionTime = metav1.Time{}
-					Expect(resourceWork.Status.Conditions).To(ConsistOf(misplacedConditions(resourceWork.Spec.WorkloadGroups[0].ID)))
+					Expect(resourceWork.Status.Conditions).To(ConsistOf(misplacedConditions(resourceWork.Spec.WorkloadGroups[0].ID, resourceWork.GetGeneration())))
 					Eventually(schedulerRecorder.Events).Should(Receive(ContainSubstring(
 						fmt.Sprintf(
 							"Target destination no longer matches destinationSelectors for workloadGroups: [%s]",
@@ -990,14 +990,11 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(work.Status.WorkPlacementsCreated).To(Equal(2))
 
 					readyCond := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
-					Expect(readyCond).ToNot(BeNil())
-					Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
-					Expect(readyCond.Reason).To(Equal("AllWorkplacementsScheduled"))
-					Expect(readyCond.Message).To(Equal("Ready"))
+					Expect(readyCond).To(BeNil())
 
 					scheduleSucceededCond := apimeta.FindStatusCondition(work.Status.Conditions, "ScheduleSucceeded")
 					Expect(scheduleSucceededCond).ToNot(BeNil())
-					Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+					Expect(scheduleSucceededCond.Status).To(Equal(metav1.ConditionTrue))
 					Expect(scheduleSucceededCond.Reason).To(Equal("AllWorkplacementsScheduled"))
 					Expect(scheduleSucceededCond.Message).To(Equal("All workplacements scheduled successfully"))
 				})
@@ -1011,6 +1008,17 @@ var _ = Describe("Controllers/Scheduler", func() {
 							"Normal WorkplacementReconciled workplacement reconciled: %s, operation: created",
 							workplacements.Items[0].GetName()),
 						ContainSubstring("Normal AllWorkplacementsScheduled All workplacements scheduled successfully")))
+				})
+
+				It("does not send the scheduled event again when nothing has changed", func() {
+					Expect(aggregateEvents(schedulerRecorder.Events)).To(
+						ContainSubstring("Normal AllWorkplacementsScheduled All workplacements scheduled successfully"))
+
+					_, err := scheduler.ReconcileWork(context.Background(), &work)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(aggregateEvents(schedulerRecorder.Events)).NotTo(
+						ContainSubstring("AllWorkplacementsScheduled"))
 				})
 
 				When("multiple destination matches the scheduling rules", func() {
@@ -1037,13 +1045,11 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(work.Status.WorkPlacementsCreated).To(Equal(2))
 
 						readyCond := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
-						Expect(readyCond).ToNot(BeNil())
-						Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
-						Expect(readyCond.Message).To(Equal("Ready"))
+						Expect(readyCond).To(BeNil())
 
 						scheduleSucceededCond := apimeta.FindStatusCondition(work.Status.Conditions, "ScheduleSucceeded")
 						Expect(scheduleSucceededCond).ToNot(BeNil())
-						Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+						Expect(scheduleSucceededCond.Status).To(Equal(metav1.ConditionTrue))
 					})
 				})
 			})
@@ -1115,7 +1121,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(work.Status.Conditions).To(HaveLen(2))
 					work.Status.Conditions[0].LastTransitionTime = metav1.Time{}
 					work.Status.Conditions[1].LastTransitionTime = metav1.Time{}
-					Expect(work.Status.Conditions).To(ConsistOf(misplacedConditions(work.Spec.WorkloadGroups[0].ID)))
+					Expect(work.Status.Conditions).To(ConsistOf(misplacedConditions(work.Spec.WorkloadGroups[0].ID, work.GetGeneration())))
 				})
 			})
 		})
@@ -1307,19 +1313,21 @@ func outcomeAttributeValue(set attribute.Set, key string) string {
 	return ""
 }
 
-func misplacedConditions(id string) []metav1.Condition {
+func misplacedConditions(id string, generation int64) []metav1.Condition {
 	return []metav1.Condition{
 		{
-			Type:    "ScheduleSucceeded",
-			Status:  metav1.ConditionFalse,
-			Message: fmt.Sprintf("Target destination no longer matches destinationSelectors for workloadGroups: [%s]", id),
-			Reason:  "DestinationSelectorMismatch",
+			Type:               "ScheduleSucceeded",
+			Status:             metav1.ConditionFalse,
+			Message:            fmt.Sprintf("Target destination no longer matches destinationSelectors for workloadGroups: [%s]", id),
+			Reason:             "DestinationSelectorMismatch",
+			ObservedGeneration: generation,
 		},
 		{
-			Type:    "Ready",
-			Status:  metav1.ConditionFalse,
-			Message: "Misplaced",
-			Reason:  "Misplaced",
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Message:            "Misplaced",
+			Reason:             "Misplaced",
+			ObservedGeneration: generation,
 		},
 	}
 }

@@ -502,6 +502,36 @@ var _ = Describe("Conditions", func() {
 				Expect(found).To(BeFalse())
 			})
 
+			It("sets a message on the named pipeline and reports the change", func() {
+				changed, err := resourceutil.SetPipelineMessage(rr, "first-pipeline", "waiting", "configure")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(changed).To(BeTrue())
+
+				workflows, _, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "configure", "pipelines")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(workflows[0]).To(HaveKeyWithValue("message", "waiting"))
+			})
+
+			It("reports no change when the pipeline already has the message", func() {
+				_, err := resourceutil.SetPipelineMessage(rr, "first-pipeline", "waiting", "configure")
+				Expect(err).NotTo(HaveOccurred())
+
+				changed, err := resourceutil.SetPipelineMessage(rr, "first-pipeline", "waiting", "configure")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(changed).To(BeFalse())
+			})
+
+			It("clears the message of a pending pipeline once it starts running", func() {
+				_, err := resourceutil.SetPipelineMessage(rr, "first-pipeline", "waiting", "configure")
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(resourceutil.MarkCurrentPipelineAsRunning(rr, logger, job, "configure")).To(Succeed())
+
+				workflows, _, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "configure", "pipelines")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(workflows[0]).NotTo(HaveKey("message"))
+			})
+
 			It("finds the index of a pipeline with the requested phase", func() {
 				rr.Object["status"] = map[string]any{
 					"kratix": map[string]any{

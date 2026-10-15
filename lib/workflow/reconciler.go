@@ -19,6 +19,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -108,6 +109,7 @@ type Progress struct {
 	ManualReconcile bool
 	RunFromStart    bool
 	Paused          bool
+	PipelineWorks   map[string]*v1alpha1.Work
 }
 
 type NextAction string
@@ -119,6 +121,8 @@ const (
 	FailCurrentPipeline NextAction = "failCurrentPipeline"
 	RecordJobOutcome    NextAction = "recordJobOutcome"
 	StartPipeline       NextAction = "startPipeline"
+
+	WaitForPreviousPipelineOutput NextAction = "waitForPreviousPipelineOutput"
 )
 
 // Decision is the one thing reconcileWorkflow should do this pass. Only the
@@ -132,6 +136,9 @@ type Decision struct {
 	JobToRecord *batchv1.Job
 	// Restart is set for StartPipeline only, when every pipeline starts again.
 	Restart bool
+	// PreviousPipelineName and PreviousPipelineWork are set for WaitForPreviousPipelineOutput only.
+	PreviousPipelineName string
+	PreviousPipelineWork *v1alpha1.Work
 }
 
 func reconcileWorkflow(opts Opts) (bool, error) {
@@ -161,6 +168,8 @@ func reconcileWorkflow(opts Opts) (bool, error) {
 		return recordPipelineJobOutcome(opts, decision)
 	case StartPipeline:
 		return createPipeline(opts, decision)
+	case WaitForPreviousPipelineOutput:
+		return true, waitForPreviousPipelineOutput(opts, decision)
 	}
 	return false, fmt.Errorf("unhandled workflow decision %q", decision.Action)
 }
@@ -193,7 +202,30 @@ func readWorkflowProgress(opts Opts) (Progress, error) {
 	if progress.Jobs, err = getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace); err != nil {
 		return Progress{}, err
 	}
+
+	if opts.coreConfigure() {
+		if progress.PipelineWorks, err = readPipelineWorks(opts); err != nil {
+			return Progress{}, err
+		}
+	}
 	return progress, nil
+}
+
+func readPipelineWorks(opts Opts) (map[string]*v1alpha1.Work, error) {
+	works, err := resourceutil.GetWorksByType(opts.client, v1alpha1.Type(opts.workflowType), opts.parentObject)
+	if err != nil {
+		return nil, err
+	}
+
+	pipelineWorks := map[string]*v1alpha1.Work{}
+	for i := range works {
+		if works[i].GetLabels()[v1alpha1.DryRunLabel] == "true" {
+			continue
+		}
+		pipelineName := works[i].GetLabels()[v1alpha1.PipelineNameLabel]
+		pipelineWorks[pipelineName] = &works[i]
+	}
+	return pipelineWorks, nil
 }
 
 // pipelineStatusFromUnstructured converts one raw status entry into the type the CRD
@@ -248,7 +280,23 @@ func DecideNextAction(opts Opts, progress Progress) Decision {
 			return Decision{Action: RecordJobOutcome, Pipeline: pipeline, JobToRecord: job}
 		}
 	}
-	return Decision{Action: StartPipeline, Pipeline: pipeline}
+
+	if index == 0 {
+		return Decision{Action: StartPipeline, Pipeline: pipeline}
+	}
+
+	previousPipelineName := opts.Resources[index-1].Name
+	previousPipelineWork := progress.PipelineWorks[previousPipelineName]
+	previousPipelineLeftNoOutput := previousPipelineWork == nil
+	if previousPipelineLeftNoOutput || previousPipelineWork.IsReadyAtCurrentGeneration() {
+		return Decision{Action: StartPipeline, Pipeline: pipeline}
+	}
+	return Decision{
+		Action:               WaitForPreviousPipelineOutput,
+		Pipeline:             pipeline,
+		PreviousPipelineName: previousPipelineName,
+		PreviousPipelineWork: previousPipelineWork,
+	}
 }
 
 // pipelinesHaveChangedSinceStatusWasWritten reports that the pipelines we were given
@@ -338,6 +386,42 @@ func recordPipelineJobOutcome(opts Opts, decision Decision) (bool, error) {
 		return false, cleanupJobs(opts, opts.namespace)
 	}
 	return true, cleanupJobs(opts, opts.namespace)
+}
+
+func waitForPreviousPipelineOutput(opts Opts, decision Decision) error {
+	workName := decision.PreviousPipelineWork.GetName()
+	logging.Info(opts.logger, "waiting for the previous pipeline's output to be written before starting the next pipeline",
+		"previousPipeline", decision.PreviousPipelineName, "nextPipeline", decision.Pipeline.Name, "work", workName)
+
+	message := fmt.Sprintf("Waiting for the output of pipeline %q to be written to its Destinations; check Work %q for details",
+		decision.PreviousPipelineName, workName)
+	patch := client.MergeFromWithOptions(opts.parentObject.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	conditionChanged := resourceutil.MarkConfigureWorkflowAsWaitingForPipelineOutput(opts.parentObject, message)
+	reconciledChanged := setReconciledFromPipelineWork(opts.parentObject, decision.PreviousPipelineWork)
+	messageChanged, err := resourceutil.SetPipelineMessage(opts.parentObject, decision.Pipeline.Name, message, opts.workflowKey())
+	if err != nil {
+		return err
+	}
+	nothingChanged := !conditionChanged && !reconciledChanged && !messageChanged
+	if nothingChanged {
+		return nil
+	}
+
+	if err := opts.client.Status().Patch(opts.ctx, opts.parentObject, patch); err != nil {
+		return err
+	}
+	opts.eventRecorder.Eventf(opts.parentObject, nil, v1.EventTypeNormal, resourceutil.WaitingForPipelineOutputReason, resourceutil.WaitingForPipelineOutputReason, "%s", message)
+	return nil
+}
+
+func setReconciledFromPipelineWork(parentObject *unstructured.Unstructured, previousPipelineWork *v1alpha1.Work) bool {
+	ready := apimeta.FindStatusCondition(previousPipelineWork.Status.Conditions, "Ready")
+	previousPipelineOutputFailing := ready != nil && ready.Reason == "WorkplacementsFailing" &&
+		ready.ObservedGeneration == previousPipelineWork.GetGeneration()
+	if previousPipelineOutputFailing {
+		return resourceutil.MarkReconciledFailing(parentObject, "WorksFailing")
+	}
+	return resourceutil.MarkReconciledPending(parentObject, "WorksPending")
 }
 
 func labelsForJobs(opts Opts) map[string]string {

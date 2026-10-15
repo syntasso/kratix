@@ -21,6 +21,7 @@ import (
 
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -151,6 +152,11 @@ func NewPromiseDependenciesWork(promise *Promise, name string) (*Work, error) {
 	}
 
 	return work, nil
+}
+
+func (w *Work) IsReadyAtCurrentGeneration() bool {
+	ready := meta.FindStatusCondition(w.Status.Conditions, "Ready")
+	return ready != nil && ready.Status == metav1.ConditionTrue && ready.ObservedGeneration == w.GetGeneration()
 }
 
 func (w *Work) IsResourceRequest() bool {
