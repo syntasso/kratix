@@ -217,7 +217,6 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 	return nil
 }
 
-// The WorkPlacements come from a cache, so they may be missing or out of date.
 func allWorkloadGroupsWrittenAtCurrentGeneration(work *v1alpha1.Work, workplacements []v1alpha1.WorkPlacement) bool {
 	for _, workloadGroup := range work.Spec.WorkloadGroups {
 		workloadGroupHasWorkPlacement := false

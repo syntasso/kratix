@@ -156,13 +156,7 @@ func NewPromiseDependenciesWork(promise *Promise, name string) (*Work, error) {
 
 func (w *Work) IsReadyAtCurrentGeneration() bool {
 	ready := meta.FindStatusCondition(w.Status.Conditions, "Ready")
-	if ready == nil {
-		return false
-	}
-	if ready.ObservedGeneration != w.GetGeneration() {
-		return false
-	}
-	return ready.Status == metav1.ConditionTrue
+	return ready != nil && ready.Status == metav1.ConditionTrue && ready.ObservedGeneration == w.GetGeneration()
 }
 
 func (w *Work) IsResourceRequest() bool {

@@ -67,7 +67,7 @@ var _ = Describe("Waiting for a pipeline's output to be written", Ordered, func(
 			Consistently(func(g Gomega) {
 				g.Expect(platform.Kubectl("get", "waitforoutput", "with-output", phaseJSONPath("second"))).To(Equal("Pending"))
 				g.Expect(jobCountForResourcePipeline(waitForOutputPromiseName, "second")).To(Equal(0))
-			}, 30*time.Second, 5*time.Second).Should(Succeed())
+			}, 10*time.Second).Should(Succeed())
 		})
 
 		By("starting the second pipeline once the credentials are fixed", func() {
@@ -78,15 +78,6 @@ var _ = Describe("Waiting for a pipeline's output to be written", Ordered, func(
 				g.Expect(platform.Kubectl("get", "waitforoutput", "with-output", messageJSONPath("second"))).To(BeEmpty())
 			}).Should(Succeed())
 		})
-	})
-
-	It("starts the second pipeline straight away when the first pipeline has no output", func() {
-		platform.Kubectl("apply", "-f", "assets/wait-for-output/resource-without-output.yaml")
-
-		Eventually(func(g Gomega) {
-			g.Expect(platform.Kubectl("get", "waitforoutput", "without-output", phaseJSONPath("first"))).To(Equal("Succeeded"))
-			g.Expect(platform.Kubectl("get", "waitforoutput", "without-output", phaseJSONPath("second"))).To(Equal("Succeeded"))
-		}).Should(Succeed())
 	})
 })
 

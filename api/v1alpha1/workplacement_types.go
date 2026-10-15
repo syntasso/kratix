@@ -113,17 +113,10 @@ func (w *WorkPlacement) SetWriteSucceededCondition() bool {
 }
 
 func (w *WorkPlacement) IsWrittenAtCurrentGeneration(workGeneration int64) bool {
-	if w.Spec.WorkGeneration != workGeneration {
-		return false
-	}
 	writeSucceeded := meta.FindStatusCondition(w.Status.Conditions, WriteSucceededConditionType)
-	if writeSucceeded == nil {
-		return false
-	}
-	if writeSucceeded.ObservedGeneration != w.GetGeneration() {
-		return false
-	}
-	return writeSucceeded.Status == metav1.ConditionTrue
+	return writeSucceeded != nil && writeSucceeded.Status == metav1.ConditionTrue &&
+		writeSucceeded.ObservedGeneration == w.GetGeneration() &&
+		w.Spec.WorkGeneration == workGeneration
 }
 
 func (w *WorkPlacement) SetWorkplacementReadyStatus() bool {

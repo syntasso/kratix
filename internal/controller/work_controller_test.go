@@ -376,22 +376,22 @@ var _ = Describe("WorkReconciler", func() {
 				&v1alpha1.WorkPlacement{})).To(MatchError(ContainSubstring("not found")))
 		})
 	})
-})
 
-var _ = Describe("WorkPlacement status update predicate", func() {
-	It("wakes the Work when a new generation is written, even though the condition reads the same", func() {
-		oldWorkPlacement := &v1alpha1.WorkPlacement{ObjectMeta: v1.ObjectMeta{Generation: 1}}
-		oldWorkPlacement.SetWriteSucceededCondition()
-		newWorkPlacement := oldWorkPlacement.DeepCopy()
-		newWorkPlacement.Generation = 2
-		newWorkPlacement.SetWriteSucceededCondition()
+	When("a WorkPlacement writes a new version of the Work", func() {
+		It("reconciles the Work again", func() {
+			oldWorkPlacement := &v1alpha1.WorkPlacement{ObjectMeta: v1.ObjectMeta{Generation: 1}}
+			oldWorkPlacement.SetWriteSucceededCondition()
+			newWorkPlacement := oldWorkPlacement.DeepCopy()
+			newWorkPlacement.Generation = 2
+			newWorkPlacement.SetWriteSucceededCondition()
 
-		shouldReconcile := controller.WorkPlacementStatusUpdatePredicate().Update(event.UpdateEvent{
-			ObjectOld: oldWorkPlacement,
-			ObjectNew: newWorkPlacement,
+			shouldReconcile := controller.WorkPlacementStatusUpdatePredicate().Update(event.UpdateEvent{
+				ObjectOld: oldWorkPlacement,
+				ObjectNew: newWorkPlacement,
+			})
+
+			Expect(shouldReconcile).To(BeTrue())
 		})
-
-		Expect(shouldReconcile).To(BeTrue())
 	})
 })
 

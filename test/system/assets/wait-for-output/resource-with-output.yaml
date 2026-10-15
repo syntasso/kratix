@@ -3,5 +3,4 @@ kind: WaitForOutput
 metadata:
   name: with-output
   namespace: default
-spec:
-  writeOutput: true
+spec: {}
