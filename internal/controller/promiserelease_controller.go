@@ -85,7 +85,7 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	)
 
 	logging.Info(logger, "reconciliation started")
-	defer logReconcileDuration(logger, time.Now(), result, retErr)()
+	defer logReconcileDuration(logger, time.Now(), &result, &retErr)()
 
 	opts := opts{
 		client: r.Client,

@@ -141,7 +141,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	defer finishReconcileTrace(traceCtx, &retErr)()
 
 	logging.Info(logger, "reconciliation started")
-	defer logReconcileDuration(logger, time.Now(), result, retErr)()
+	defer logReconcileDuration(logger, time.Now(), &result, &retErr)()
 
 	addDynamicResourceRequestSpanAttributes(traceCtx, promise, rr)
 
