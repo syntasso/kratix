@@ -1,6 +1,7 @@
 package system_test
 
 import (
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -145,12 +146,27 @@ var _ = Describe("Reconciliation", func() {
 				"-o=jsonpath={.items[0].metadata.resourceVersion}")
 		}
 
+		// Work status changes also bump resourceVersion, so wait until the Work is written.
+		expectWorkReady := func() {
+			GinkgoHelper()
+			Eventually(func(g Gomega) {
+				fields := strings.Fields(platform.Kubectl("get", "work",
+					"-n", "kratix-platform-system",
+					"-l", "kratix.io/promise-name="+promiseName+",kratix.io/work-type=static-dependency",
+					`-o=jsonpath={.items[0].metadata.generation} {.items[0].status.conditions[?(@.type=="Ready")].observedGeneration} {.items[0].status.conditions[?(@.type=="Ready")].status}`))
+				g.Expect(fields).To(HaveLen(3))
+				g.Expect(fields[1]).To(Equal(fields[0]), "Ready is not at the current generation")
+				g.Expect(fields[2]).To(Equal("True"))
+			}).Should(Succeed())
+		}
+
 		BeforeEach(func() {
 			platform.Kubectl("apply", "-f", "assets/reconciliation/deps-promise.yaml")
 			Eventually(func() string {
 				return platform.Kubectl("get", "promise", promiseName)
 			}).Should(ContainSubstring("Available"))
 			Eventually(workResourceVersion).ShouldNot(BeEmpty())
+			expectWorkReady()
 		})
 
 		AfterEach(func() {
@@ -167,6 +183,7 @@ var _ = Describe("Reconciliation", func() {
 			Eventually(workResourceVersion).ShouldNot(Equal(resourceVersion))
 
 			By("leaving the Work untouched once the Work is updated")
+			expectWorkReady()
 			resourceVersion = workResourceVersion()
 			Consistently(workResourceVersion, 60*time.Second, 5*time.Second).Should(Equal(resourceVersion))
 		})
