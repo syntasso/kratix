@@ -196,6 +196,9 @@ var _ = Describe("Core Tests", Ordered, func() {
 								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s}'`, promiseStatus))...),
 							).To(ContainSubstring("Available"))
 							g.Expect(
+								platform.Kubectl(append(promiseArgs, "-o=jsonpath='{.status.stage}'")...),
+							).To(ContainSubstring("configured"))
+							g.Expect(
 								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s.status}'`, workflowCompletedCondition))...),
 							).To(ContainSubstring("True"))
 							g.Expect(
