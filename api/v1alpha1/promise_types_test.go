@@ -100,6 +100,22 @@ var _ = Describe("Promise", func() {
 			Expect(string(data)).To(ContainSubstring(`"message":"from kratix"`))
 			Expect(string(data)).NotTo(ContainSubstring("from custom"))
 		})
+
+		It("only lets workflows write message and conditions among the typed Promise status fields", func() {
+			Expect(platformv1alpha1.IsKratixOwnedPromiseStatusField("message")).To(BeFalse())
+			Expect(platformv1alpha1.IsKratixOwnedPromiseStatusField("conditions")).To(BeFalse())
+			Expect(platformv1alpha1.IsKratixOwnedPromiseStatusField("my-custom-status")).To(BeFalse())
+
+			Expect(platformv1alpha1.IsKratixOwnedPromiseStatusField("version")).To(BeTrue())
+			Expect(platformv1alpha1.IsKratixOwnedPromiseStatusField("kind")).To(BeTrue())
+			Expect(platformv1alpha1.IsKratixOwnedPromiseStatusField("apiVersion")).To(BeTrue())
+			Expect(platformv1alpha1.IsKratixOwnedPromiseStatusField("status")).To(BeTrue())
+			Expect(platformv1alpha1.IsKratixOwnedPromiseStatusField("requiredPromises")).To(BeTrue())
+			Expect(platformv1alpha1.IsKratixOwnedPromiseStatusField("requiredBy")).To(BeTrue())
+			Expect(platformv1alpha1.IsKratixOwnedPromiseStatusField("lastAvailableTime")).To(BeTrue())
+			Expect(platformv1alpha1.IsKratixOwnedPromiseStatusField("observedGeneration")).To(BeTrue())
+			Expect(platformv1alpha1.IsKratixOwnedPromiseStatusField("kratix")).To(BeTrue())
+		})
 	})
 
 	Describe("Scheduling", func() {

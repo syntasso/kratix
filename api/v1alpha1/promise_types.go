@@ -236,6 +236,15 @@ var promiseStatusFieldNames = func() map[string]bool {
 	return names
 }()
 
+func IsKratixOwnedPromiseStatusField(name string) bool {
+	switch name {
+	// Defined on PromiseStatus, but Kratix allows Promise workflows to write them.
+	case "message", "conditions":
+		return false
+	}
+	return promiseStatusFieldNames[name]
+}
+
 // KratixPromiseStatus defines the status fields owned by kratix
 type KratixPromiseStatus struct {
 	// The Kind of the Resource API defined by this Promise (e.g. "Database")
