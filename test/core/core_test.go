@@ -3,6 +3,7 @@ package core_test
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -195,9 +196,10 @@ var _ = Describe("Core Tests", Ordered, func() {
 							g.Expect(
 								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s}'`, promiseStatus))...),
 							).To(ContainSubstring("Available"))
-							g.Expect(
-								platform.Kubectl(append(promiseArgs, "-o=jsonpath='{.status.stage}'")...),
-							).To(ContainSubstring("configured"))
+							// TODO: remove after releasing: the downgrade test runs against a release that does not set custom status from promise workflows
+							if stage := strings.TrimSpace(platform.Kubectl(append(promiseArgs, "-o=jsonpath={.status.stage}")...)); stage != "" {
+								g.Expect(stage).To(Equal("configured"))
+							}
 							g.Expect(
 								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s.status}'`, workflowCompletedCondition))...),
 							).To(ContainSubstring("True"))
