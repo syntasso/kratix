@@ -154,15 +154,16 @@ func shortID(id string) string {
 	return id[0:5]
 }
 
-func logReconcileDuration(logger logr.Logger, start time.Time, result ctrl.Result, retErr error) func() {
+func logReconcileDuration(logger logr.Logger, start time.Time, result *ctrl.Result, retErr *error) func() {
 	return func() {
 		duration := time.Since(start)
 		fields := []any{"duration", duration}
 		if result.RequeueAfter > 0 {
 			fields = append(fields, "requeueAfter", result.RequeueAfter)
 		}
-		if retErr != nil {
-			logging.Error(logger, retErr, "reconciliation failed", fields...)
+		if *retErr != nil {
+			fields = append(fields, "error", (*retErr).Error())
+			logging.Info(logger, "reconciliation failed", fields...)
 			return
 		}
 		logging.Info(logger, "reconciliation finished", fields...)
@@ -172,7 +173,7 @@ func logReconcileDuration(logger logr.Logger, start time.Time, result ctrl.Resul
 func withTrace(logger logr.Logger, reconcileFunc func() (ctrl.Result, error)) (result ctrl.Result, err error) {
 	logging.Info(logger, "reconciliation started")
 
-	defer logReconcileDuration(logger, time.Now(), result, err)()
+	defer logReconcileDuration(logger, time.Now(), &result, &err)()
 
 	return reconcileFunc()
 }
