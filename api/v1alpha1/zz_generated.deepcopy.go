@@ -23,6 +23,7 @@ package v1alpha1
 import (
 	"k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1172,6 +1173,13 @@ func (in *PromiseStatus) DeepCopyInto(out *PromiseStatus) {
 	if in.LastAvailableTime != nil {
 		in, out := &in.LastAvailableTime, &out.LastAvailableTime
 		*out = (*in).DeepCopy()
+	}
+	if in.Custom != nil {
+		in, out := &in.Custom, &out.Custom
+		*out = make(map[string]apiextensionsv1.JSON, len(*in))
+		for key, val := range *in {
+			(*out)[key] = *val.DeepCopy()
+		}
 	}
 }
 

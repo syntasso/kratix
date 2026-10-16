@@ -2438,6 +2438,37 @@ var _ = Describe("PromiseController", func() {
 			})
 
 		})
+
+		When("a promise workflow has written custom status fields", func() {
+			childResources := []any{map[string]any{"kind": "Database", "name": "db-1"}}
+
+			BeforeEach(func() {
+				promise = createPromise(promiseWithWorkflowPath)
+				promise.Spec.Workflows.Promise.Configure = promise.Spec.Workflows.Promise.Configure[:1]
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				written := &unstructured.Unstructured{}
+				written.SetGroupVersionKind(v1alpha1.GroupVersion.WithKind("Promise"))
+				Expect(fakeK8sClient.Get(ctx, promiseName, written)).To(Succeed())
+				Expect(unstructured.SetNestedSlice(written.Object, childResources, "status", "childResources")).To(Succeed())
+				Expect(fakeK8sClient.Status().Update(ctx, written)).To(Succeed())
+			})
+
+			It("keeps them when Kratix updates the status", func() {
+				_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished}})
+				Expect(err).NotTo(HaveOccurred())
+
+				updated := &unstructured.Unstructured{}
+				updated.SetGroupVersionKind(v1alpha1.GroupVersion.WithKind("Promise"))
+				Expect(fakeK8sClient.Get(ctx, promiseName, updated)).To(Succeed())
+
+				pipelines, _, _ := unstructured.NestedSlice(updated.Object,
+					"status", "kratix", "workflows", "configure", "pipelines")
+				Expect(pipelines).To(HaveLen(1))
+				Expect(updated.Object["status"]).To(HaveKeyWithValue("childResources", childResources))
+			})
+		})
 	})
 
 	Describe("Promise API", func() {

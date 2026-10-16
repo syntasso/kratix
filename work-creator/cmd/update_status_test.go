@@ -178,6 +178,53 @@ var _ = Describe("updateStatus", func() {
 		})
 	})
 
+	When("a promise workflow writes custom fields", func() {
+		BeforeEach(func() {
+			params.WorkflowType = v1alpha1.WorkflowTypePromise
+			writeFile("status.yaml", "message: 1 child created\nchildResources:\n- kind: Database\n  name: db-1\n")
+		})
+
+		It("saves them next to message", func() {
+			Expect(run()).To(Succeed())
+			Expect(currentStatus()).To(SatisfyAll(
+				HaveKeyWithValue("message", "1 child created"),
+				HaveKeyWithValue("childResources", []any{
+					map[string]any{"kind": "Database", "name": "db-1"},
+				}),
+			))
+		})
+	})
+
+	DescribeTable("rejects Kratix-owned Promise status fields in a promise workflow",
+		func(key string) {
+			params.WorkflowType = v1alpha1.WorkflowTypePromise
+			writeFile("status.yaml", key+": anything\n")
+
+			Expect(run()).To(MatchError(ContainSubstring(
+				"'" + key + "' is a kratix managed status field that cannot be updated via workflows")))
+			Expect(currentStatus()).NotTo(HaveKey(key))
+		},
+		Entry("version", "version"),
+		Entry("kind", "kind"),
+		Entry("apiVersion", "apiVersion"),
+		Entry("status", "status"),
+		Entry("requiredPromises", "requiredPromises"),
+		Entry("requiredBy", "requiredBy"),
+		Entry("lastAvailableTime", "lastAvailableTime"),
+		Entry("observedGeneration", "observedGeneration"),
+	)
+
+	When("a resource workflow writes a field a Promise reserves", func() {
+		BeforeEach(func() {
+			writeFile("status.yaml", "version: v3\n")
+		})
+
+		It("saves it", func() {
+			Expect(run()).To(Succeed())
+			Expect(currentStatus()).To(HaveKeyWithValue("version", "v3"))
+		})
+	})
+
 	DescribeTable("leaves healthStatus untouched",
 		func(setup func()) {
 			setup()

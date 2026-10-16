@@ -358,6 +358,7 @@ spec:
                   if installed via one
                 type: string
             type: object
+            x-kubernetes-preserve-unknown-fields: true
         type: object
     served: true
     storage: true
