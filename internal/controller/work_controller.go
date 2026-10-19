@@ -97,7 +97,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 	defer finishReconcileTrace(traceCtx, &retErr)()
 
 	logging.Info(logger, "reconciliation started")
-	defer logReconcileDuration(logger, time.Now(), result, retErr)()
+	defer logReconcileDuration(logger, time.Now(), &result, &retErr)()
 
 	addWorkSpanAttributes(traceCtx, promiseName, work)
 
