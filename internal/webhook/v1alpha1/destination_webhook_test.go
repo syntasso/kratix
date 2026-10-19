@@ -216,9 +216,9 @@ var _ = Describe("Destination Webhook", func() {
 
 		It("accepts a state store kind Kratix does not manage without checking it exists", func() {
 			destination.Spec.StateStoreRef = &v1alpha1.StateStoreReference{
-				APIVersion: "platform.syntasso.io/v1alpha1",
-				Kind:       "EnterpriseStateStore",
-				Name:       "missing-enterprise-state-store",
+				APIVersion: "platform.example.com/v1alpha1",
+				Kind:       "ExampleStateStore",
+				Name:       "missing-example-state-store",
 			}
 
 			warnings, err := validator.ValidateCreate(ctx, destination)

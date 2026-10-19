@@ -302,9 +302,11 @@ func (d *destinationReconcileContext) handleDeletion(repo *Repository) (ctrl.Res
 			return defaultRequeue, nil
 		}
 
-		if err := d.deleteCanaryFiles(repo); err != nil {
-			logging.Error(d.logger, err, "error deleting state store contents")
-			return defaultRequeue, nil
+		if repo != nil {
+			if err := d.deleteCanaryFiles(repo); err != nil {
+				logging.Error(d.logger, err, "error deleting state store contents")
+				return defaultRequeue, nil
+			}
 		}
 
 		controllerutil.RemoveFinalizer(d.destination, destinationCleanupFinalizer)
@@ -442,7 +444,7 @@ func (d *destinationReconcileContext) stateStoreExists() bool {
 // exist when Kratix starts, so the Destination is checked again periodically.
 func (d *destinationReconcileContext) reconcileCustomStateStore() (ctrl.Result, error) {
 	if !d.destination.DeletionTimestamp.IsZero() {
-		return d.handleDeletionForCustomStateStore()
+		return d.handleDeletion(nil)
 	}
 
 	ref := d.destination.Spec.StateStoreRef
@@ -508,21 +510,4 @@ func readyConditionFromCustomStateStore(stateStore *unstructured.Unstructured) (
 		return metav1.ConditionStatus(status), message
 	}
 	return metav1.ConditionUnknown, ""
-}
-
-func (d *destinationReconcileContext) handleDeletionForCustomStateStore() (ctrl.Result, error) {
-	if !controllerutil.ContainsFinalizer(d.destination, destinationCleanupFinalizer) {
-		return ctrl.Result{}, nil
-	}
-
-	if success, err := d.deleteDestinationWorkplacements(); !success || err != nil {
-		logging.Error(d.logger, err, "error deleting destination workplacements")
-		return defaultRequeue, nil
-	}
-
-	controllerutil.RemoveFinalizer(d.destination, destinationCleanupFinalizer)
-	if err := d.client.Update(d.ctx, d.destination); err != nil {
-		return ctrl.Result{}, err
-	}
-	return ctrl.Result{}, nil
 }

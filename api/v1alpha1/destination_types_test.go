@@ -21,14 +21,14 @@ var _ = Describe("StateStoreReference", func() {
 
 		It("uses the api version when it is set", func() {
 			ref := v1alpha1.StateStoreReference{
-				APIVersion: "platform.syntasso.io/v1alpha1",
-				Kind:       "EnterpriseStateStore",
+				APIVersion: "platform.example.com/v1alpha1",
+				Kind:       "ExampleStateStore",
 				Name:       "store",
 			}
 			Expect(ref.GroupVersionKind()).To(Equal(schema.GroupVersionKind{
-				Group:   "platform.syntasso.io",
+				Group:   "platform.example.com",
 				Version: "v1alpha1",
-				Kind:    "EnterpriseStateStore",
+				Kind:    "ExampleStateStore",
 			}))
 		})
 	})
@@ -49,13 +49,13 @@ var _ = Describe("StateStoreReference", func() {
 		})
 
 		It("is true for a kind Kratix does not know", func() {
-			ref := v1alpha1.StateStoreReference{Kind: "EnterpriseStateStore", Name: "store"}
+			ref := v1alpha1.StateStoreReference{Kind: "ExampleStateStore", Name: "store"}
 			Expect(ref.IsManagedByCustomController()).To(BeTrue())
 		})
 
 		It("is true for a known kind in another api group", func() {
 			ref := v1alpha1.StateStoreReference{
-				APIVersion: "platform.syntasso.io/v1alpha1",
+				APIVersion: "platform.example.com/v1alpha1",
 				Kind:       "GitStateStore",
 				Name:       "store",
 			}
