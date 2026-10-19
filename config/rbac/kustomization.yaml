@@ -14,6 +14,8 @@ resources:
 - service_account.yaml
 - role.yaml
 - role_binding.yaml
+- aggregated_role.yaml
+- aggregated_role_binding.yaml
 - leader_election_role.yaml
 - leader_election_role_binding.yaml
 - metrics_auth_role.yaml

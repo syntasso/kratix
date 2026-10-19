@@ -959,6 +959,55 @@ files:
 		})
 
 	})
+
+	When("the destination statestore kind is not managed by Kratix", func() {
+		BeforeEach(func() {
+			destination.Spec.StateStoreRef.APIVersion = "platform.syntasso.io/v1alpha1"
+			destination.Spec.StateStoreRef.Kind = "EnterpriseStateStore"
+			destination.Spec.StateStoreRef.Name = "test-state-store"
+			Expect(fakeK8sClient.Create(ctx, &destination)).To(Succeed())
+		})
+
+		It("leaves the work placement alone", func() {
+			result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			Expect(repositoryCache.GetRepositoryByTypeAndNameCallCount()).To(Equal(0))
+			Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(0))
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			Expect(workPlacement.Status.Conditions).To(BeEmpty())
+			Expect(workPlacement.GetFinalizers()).To(BeEmpty())
+		})
+
+		It("leaves the work placement alone even when the destination is not ready", func() {
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&destination), &destination)).To(Succeed())
+			destination.SetNotReadyStatus("StateStoreNotReady", "EnterpriseStateStore/test-state-store: not ready")
+			Expect(fakeK8sClient.Status().Update(ctx, &destination)).To(Succeed())
+
+			result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			Expect(workPlacement.Status.Conditions).To(BeEmpty())
+		})
+
+		It("leaves the work placement alone when it is being deleted", func() {
+			workPlacement.SetFinalizers([]string{"finalizers.syntasso.io/pull-request-cleanup"})
+			Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+			Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+
+			result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(0))
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			Expect(workPlacement.GetFinalizers()).To(ConsistOf("finalizers.syntasso.io/pull-request-cleanup"))
+		})
+	})
 })
 
 func setupGitDestination(gitStateStore *v1alpha1.GitStateStore, destination *v1alpha1.Destination) {

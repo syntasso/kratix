@@ -29,11 +29,15 @@ import (
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
 	"github.com/syntasso/kratix/lib/writers/writersfakes"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 var _ = Describe("DestinationReconciler", func() {
@@ -373,6 +377,199 @@ var _ = Describe("DestinationReconciler", func() {
 			})
 		}
 	})
+
+	Describe("destinations backed by a custom state store kind", func() {
+		var (
+			customStateStore *unstructured.Unstructured
+			reconcileErr     error
+			result           ctrl.Result
+		)
+
+		BeforeEach(func() {
+			testDestination.Spec.StateStoreRef = &v1alpha1.StateStoreReference{
+				APIVersion: "platform.syntasso.io/v1alpha1",
+				Kind:       "EnterpriseStateStore",
+				Name:       "test-enterprise-state-store",
+			}
+			Expect(fakeK8sClient.Create(ctx, testDestination)).To(Succeed())
+
+			customStateStore = &unstructured.Unstructured{}
+			customStateStore.SetAPIVersion("platform.syntasso.io/v1alpha1")
+			customStateStore.SetKind("EnterpriseStateStore")
+			customStateStore.SetName("test-enterprise-state-store")
+		})
+
+		JustBeforeEach(func() {
+			result, reconcileErr = t.reconcileUntilCompletion(reconciler, testDestination, &opts{requeueExpected: true})
+			fakeK8sClient.Get(ctx, testDestinationName, updatedDestination)
+		})
+
+		It("never touches the repository cache", func() {
+			Expect(repositoryCache.GetRepositoryByTypeAndNameCallCount()).To(Equal(0))
+			Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(0))
+		})
+
+		When("the state store does not exist", func() {
+			It("marks the destination as not ready and tries again later", func() {
+				Expect(reconcileErr).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: time.Second * 15}))
+				Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
+					HaveField("Type", "Ready"),
+					HaveField("Message", "EnterpriseStateStore/test-enterprise-state-store: not found"),
+					HaveField("Reason", "StateStoreNotFound"),
+					HaveField("Status", metav1.ConditionFalse),
+				)))
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring("not found")))
+			})
+		})
+
+		When("Kratix is not allowed to read the state store", func() {
+			BeforeEach(func() {
+				forbidden := k8serrors.NewForbidden(
+					schema.GroupResource{Group: "platform.syntasso.io", Resource: "enterprisestatestores"},
+					"test-enterprise-state-store",
+					errors.New("no rbac"),
+				)
+				reconciler.Client = interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if obj.GetObjectKind().GroupVersionKind().Kind == "EnterpriseStateStore" {
+							return forbidden
+						}
+						return c.Get(ctx, key, obj, opts...)
+					},
+				})
+			})
+
+			It("marks the destination as not ready and says how to grant access", func() {
+				Expect(reconcileErr).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: time.Second * 15}))
+				Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
+					HaveField("Type", "Ready"),
+					HaveField("Message", ContainSubstring("EnterpriseStateStore/test-enterprise-state-store: kratix is not allowed to read it")),
+					HaveField("Message", ContainSubstring("kratix.io/aggregate-to-kratix")),
+					HaveField("Reason", "StateStoreAccessDenied"),
+					HaveField("Status", metav1.ConditionFalse),
+				)))
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring("not allowed to read")))
+			})
+		})
+
+		When("the state store has no Ready condition yet", func() {
+			BeforeEach(func() {
+				Expect(fakeK8sClient.Create(ctx, customStateStore)).To(Succeed())
+			})
+
+			It("marks the destination as not ready and tries again later", func() {
+				Expect(reconcileErr).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: time.Second * 15}))
+				Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
+					HaveField("Type", "Ready"),
+					HaveField("Message", "EnterpriseStateStore/test-enterprise-state-store: not ready"),
+					HaveField("Reason", "StateStoreNotReady"),
+					HaveField("Status", metav1.ConditionFalse),
+				)))
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring("not ready")))
+			})
+		})
+
+		When("the state store is not ready", func() {
+			BeforeEach(func() {
+				setUnstructuredReadyCondition(customStateStore, "False", "permission denied")
+				Expect(fakeK8sClient.Create(ctx, customStateStore)).To(Succeed())
+			})
+
+			It("marks the destination as not ready with the state store's message", func() {
+				Expect(reconcileErr).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: time.Second * 15}))
+				Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
+					HaveField("Type", "Ready"),
+					HaveField("Message", "EnterpriseStateStore/test-enterprise-state-store: permission denied"),
+					HaveField("Reason", "StateStoreNotReady"),
+					HaveField("Status", metav1.ConditionFalse),
+				)))
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring("permission denied")))
+			})
+		})
+
+		When("the state store is ready", func() {
+			BeforeEach(func() {
+				setUnstructuredReadyCondition(customStateStore, "True", "State store is ready")
+				Expect(fakeK8sClient.Create(ctx, customStateStore)).To(Succeed())
+			})
+
+			It("marks the destination as ready and checks again later", func() {
+				Expect(reconcileErr).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: time.Second * 60}))
+				Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
+					HaveField("Type", "Ready"),
+					HaveField("Message", "Destination is ready"),
+					HaveField("Reason", "DestinationReady"),
+					HaveField("Status", metav1.ConditionTrue),
+				)))
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring("Destination is Ready")))
+			})
+
+			Describe("cleanup mode", func() {
+				var workPlacement v1alpha1.WorkPlacement
+
+				BeforeEach(func() {
+					workPlacement = v1alpha1.WorkPlacement{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "test-workplacement",
+							Namespace: "default",
+							Labels:    map[string]string{v1alpha1.KratixPrefix + "targetDestinationName": testDestination.Name},
+						},
+						Spec: v1alpha1.WorkPlacementSpec{TargetDestinationName: testDestination.Name},
+					}
+					Expect(fakeK8sClient.Create(ctx, &workPlacement)).To(Succeed())
+				})
+
+				When("it is set to all", func() {
+					BeforeEach(func() {
+						testDestination.Spec.Cleanup = v1alpha1.DestinationCleanupAll
+						Expect(fakeK8sClient.Update(ctx, testDestination)).To(Succeed())
+						_, err := t.reconcileUntilCompletion(reconciler, testDestination, &opts{requeueExpected: true})
+						Expect(err).NotTo(HaveOccurred())
+					})
+
+					It("sets the cleanup finalizer", func() {
+						Expect(updatedDestination.GetFinalizers()).To(ContainElement("kratix.io/destination-cleanup"))
+					})
+
+					When("the destination is deleted", func() {
+						BeforeEach(func() {
+							Expect(fakeK8sClient.Delete(ctx, testDestination)).To(Succeed())
+						})
+
+						It("deletes the workplacements and removes the destination", func() {
+							Expect(reconcileErr).NotTo(HaveOccurred())
+							Expect(result).To(Equal(ctrl.Result{}))
+							Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &v1alpha1.WorkPlacement{})).To(MatchError(ContainSubstring("not found")))
+							Expect(fakeK8sClient.Get(ctx, testDestinationName, &v1alpha1.Destination{})).To(MatchError(ContainSubstring("not found")))
+							Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(0))
+						})
+					})
+				})
+
+				When("it is set to none", func() {
+					BeforeEach(func() {
+						testDestination.Spec.Cleanup = v1alpha1.DestinationCleanupNone
+						Expect(fakeK8sClient.Update(ctx, testDestination)).To(Succeed())
+						_, err := t.reconcileUntilCompletion(reconciler, testDestination, &opts{requeueExpected: true})
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fakeK8sClient.Delete(ctx, testDestination)).To(Succeed())
+					})
+
+					It("removes the destination and keeps the workplacements", func() {
+						Expect(reconcileErr).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &v1alpha1.WorkPlacement{})).To(Succeed())
+						Expect(fakeK8sClient.Get(ctx, testDestinationName, &v1alpha1.Destination{})).To(MatchError(ContainSubstring("not found")))
+					})
+				})
+			})
+		})
+	})
 })
 
 type StateStoreSetup struct {
@@ -459,4 +656,14 @@ func assertCanaryFilesWereCreated(fakeWriter *writersfakes.FakeStateStoreWriter)
 	))
 
 	ExpectWithOffset(1, workloadsToDelete).To(BeNil())
+}
+
+func setUnstructuredReadyCondition(obj *unstructured.Unstructured, status, message string) {
+	condition := map[string]interface{}{
+		"type":    "Ready",
+		"status":  status,
+		"reason":  "Test",
+		"message": message,
+	}
+	ExpectWithOffset(1, unstructured.SetNestedSlice(obj.Object, []interface{}{condition}, "status", "conditions")).To(Succeed())
 }

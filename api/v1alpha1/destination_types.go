@@ -21,6 +21,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 type StateStoreCoreFields struct {
@@ -50,7 +51,7 @@ type DestinationSpec struct {
 	// +kubebuilder:validation:Required
 	Path string `json:"path,omitempty"`
 
-	// Reference to the StateStore (GitStateStore or BucketStateStore) used to persist resources for this Destination
+	// Reference to the StateStore used to persist resources for this Destination
 	StateStoreRef *StateStoreReference `json:"stateStoreRef,omitempty"`
 
 	// By default, Kratix will schedule works without labels to all destinations
@@ -193,11 +194,40 @@ type DestinationList struct {
 
 // StateStoreReference is a reference to a StateStore used by a Destination
 type StateStoreReference struct {
-	// Kind of the StateStore resource. Must be either BucketStateStore or GitStateStore
-	// +kubebuilder:validation:Enum=BucketStateStore;GitStateStore
+	// APIVersion of the StateStore resource. Defaults to platform.kratix.io/v1alpha1
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:="platform.kratix.io/v1alpha1"
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="stateStoreRef.apiVersion is immutable"
+	APIVersion string `json:"apiVersion,omitempty"`
+	// Kind of the StateStore resource. Kratix manages BucketStateStore and GitStateStore.
+	// Any other Kind must be managed by its own controller.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="stateStoreRef.kind is immutable"
 	Kind string `json:"kind"`
 	// Name of the StateStore resource
 	Name string `json:"name"`
+}
+
+const (
+	GitStateStoreKind    = "GitStateStore"
+	BucketStateStoreKind = "BucketStateStore"
+)
+
+func (ref *StateStoreReference) GroupVersionKind() schema.GroupVersionKind {
+	apiVersion := ref.APIVersion
+	if apiVersion == "" {
+		apiVersion = GroupVersion.String()
+	}
+	return schema.FromAPIVersionAndKind(apiVersion, ref.Kind)
+}
+
+// IsManagedByCustomController reports whether a controller outside Kratix owns
+// this StateStore kind. Kratix only writes to GitStateStore and BucketStateStore.
+func (ref *StateStoreReference) IsManagedByCustomController() bool {
+	gvk := ref.GroupVersionKind()
+	if gvk.GroupVersion() != GroupVersion {
+		return true
+	}
+	return gvk.Kind != GitStateStoreKind && gvk.Kind != BucketStateStoreKind
 }
 
 func init() {

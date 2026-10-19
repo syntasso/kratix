@@ -1,0 +1,12 @@
+# Kratix reads custom StateStore kinds through this ClusterRole. The API server
+# fills in its rules from every ClusterRole carrying the label below, so a
+# custom StateStore grants Kratix access by shipping a labelled ClusterRole.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggregated-role
+aggregationRule:
+  clusterRoleSelectors:
+  - matchLabels:
+      kratix.io/aggregate-to-kratix: "true"
+rules: []
