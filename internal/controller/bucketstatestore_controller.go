@@ -80,7 +80,7 @@ func (r *BucketStateStoreReconciler) newReconcileContext(ctx context.Context, lo
 	// controller-runtime behaviour leaves the GVK unset on objects returned from
 	// some client operations. Downstream logic keys off the Kind for the
 	// repository cache lookup, so set the GVK explicitly.
-	bucketStateStore.GetObjectKind().SetGroupVersionKind(v1alpha1.GroupVersion.WithKind("BucketStateStore"))
+	bucketStateStore.GetObjectKind().SetGroupVersionKind(v1alpha1.GroupVersion.WithKind(v1alpha1.BucketStateStoreKind))
 
 	stateStoreCtx := &stateStoreReconcileContext{
 		ctx:             ctx,

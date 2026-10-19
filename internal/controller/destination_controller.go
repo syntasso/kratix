@@ -286,11 +286,11 @@ func (r *DestinationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&v1alpha1.Destination{}).
 		Watches(
 			&v1alpha1.BucketStateStore{},
-			handler.EnqueueRequestsFromMapFunc(r.findDestinationsForStateStore("BucketStateStore")),
+			handler.EnqueueRequestsFromMapFunc(r.findDestinationsForStateStore(v1alpha1.BucketStateStoreKind)),
 		).
 		Watches(
 			&v1alpha1.GitStateStore{},
-			handler.EnqueueRequestsFromMapFunc(r.findDestinationsForStateStore("GitStateStore")),
+			handler.EnqueueRequestsFromMapFunc(r.findDestinationsForStateStore(v1alpha1.GitStateStoreKind)),
 		).
 		Complete(r)
 }
@@ -418,7 +418,7 @@ func (d *destinationReconcileContext) logAndRecordEvent(err error, message strin
 
 func (d *destinationReconcileContext) stateStoreExists() bool {
 	switch d.destination.Spec.StateStoreRef.Kind {
-	case "GitStateStore":
+	case v1alpha1.GitStateStoreKind:
 		return !k8serrors.IsNotFound(
 			d.client.Get(
 				d.ctx,
@@ -426,7 +426,7 @@ func (d *destinationReconcileContext) stateStoreExists() bool {
 				&v1alpha1.GitStateStore{},
 			),
 		)
-	case "BucketStateStore":
+	case v1alpha1.BucketStateStoreKind:
 		return !k8serrors.IsNotFound(
 			d.client.Get(
 				d.ctx,
