@@ -17,8 +17,12 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"encoding/json"
 	"fmt"
+	"reflect"
+	"strings"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -43,6 +47,9 @@ type WorkPlacementSpec struct {
 }
 
 // WorkPlacementStatus defines the observed state of WorkPlacement
+// +kubebuilder:pruning:PreserveUnknownFields
+//
+//nolint:recvcheck // MarshalJSON takes a value so WorkPlacement values keep their custom fields too
 type WorkPlacementStatus struct {
 	// Current conditions of the WorkPlacement. Includes a Ready condition indicating all workloads are written to the StateStore
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -52,7 +59,77 @@ type WorkPlacementStatus struct {
 	// For Git StateStores, this is the SHA of the last applied commit
 	// For Bucket StateStores, this is always empty
 	VersionID string `json:"versionID,omitempty"`
+
+	// Fields written by controllers that deliver WorkPlacements Kratix does not
+	// write itself, for example a custom StateStore kind. Kept here so Kratix's
+	// typed status updates write them back instead of dropping them.
+	Custom map[string]apiextensionsv1.JSON `json:"-"`
 }
+
+// workPlacementStatusFields has no JSON methods, so it encodes the typed fields only.
+type workPlacementStatusFields WorkPlacementStatus
+
+// MarshalJSON writes the typed fields followed by the custom fields.
+func (s WorkPlacementStatus) MarshalJSON() ([]byte, error) {
+	typed, err := json.Marshal(workPlacementStatusFields(s))
+	if err != nil {
+		return nil, err
+	}
+	if len(s.Custom) == 0 {
+		return typed, nil
+	}
+
+	fields := map[string]json.RawMessage{}
+	if err = json.Unmarshal(typed, &fields); err != nil {
+		return nil, err
+	}
+	for key, value := range s.Custom {
+		if workPlacementStatusFieldNames[key] {
+			continue
+		}
+		fields[key] = value.Raw
+	}
+	return json.Marshal(fields)
+}
+
+// UnmarshalJSON reads the typed fields and keeps every other key in Custom.
+//
+//nolint:dupl // mirrors PromiseStatus on purpose; the two statuses stay independent
+func (s *WorkPlacementStatus) UnmarshalJSON(data []byte) error {
+	var typed workPlacementStatusFields
+	if err := json.Unmarshal(data, &typed); err != nil {
+		return err
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for key, value := range fields {
+		if workPlacementStatusFieldNames[key] {
+			continue
+		}
+		if typed.Custom == nil {
+			typed.Custom = map[string]apiextensionsv1.JSON{}
+		}
+		typed.Custom[key] = apiextensionsv1.JSON{Raw: value}
+	}
+
+	*s = WorkPlacementStatus(typed)
+	return nil
+}
+
+var workPlacementStatusFieldNames = func() map[string]bool {
+	names := map[string]bool{}
+	t := reflect.TypeOf(WorkPlacementStatus{})
+	for i := range t.NumField() {
+		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
+		if name != "" && name != "-" {
+			names[name] = true
+		}
+	}
+	return names
+}()
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

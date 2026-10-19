@@ -158,6 +158,7 @@ spec:
                   For Bucket StateStores, this is always empty
                 type: string
             type: object
+            x-kubernetes-preserve-unknown-fields: true
         type: object
     served: true
     storage: true

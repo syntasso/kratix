@@ -200,6 +200,8 @@ func (s PromiseStatus) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON reads the typed fields and keeps every other key in Custom.
+//
+//nolint:dupl // mirrored by WorkPlacementStatus on purpose; the two statuses stay independent
 func (s *PromiseStatus) UnmarshalJSON(data []byte) error {
 	var typed promiseStatusFields
 	if err := json.Unmarshal(data, &typed); err != nil {
