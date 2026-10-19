@@ -58,7 +58,7 @@ func (r *PromiseRevisionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	)
 
 	logging.Info(logger, "reconciliation started")
-	defer logReconcileDuration(logger, time.Now(), result, retErr)()
+	defer logReconcileDuration(logger, time.Now(), &result, &retErr)()
 
 	// get current revision
 	revision := &v1alpha1.PromiseRevision{}

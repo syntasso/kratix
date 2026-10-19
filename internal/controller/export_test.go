@@ -7,6 +7,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/workflow"
 	"github.com/syntasso/kratix/lib/writers"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -47,4 +48,8 @@ func PromiseForRevision(ctx context.Context, obj client.Object) []reconcile.Requ
 
 func PromiseRevisionAnnotationChangedPredicate() predicate.Predicate {
 	return promiseRevisionAnnotationChangedPredicate()
+}
+
+func WithTrace(logger logr.Logger, reconcileFunc func() (ctrl.Result, error)) (ctrl.Result, error) {
+	return withTrace(logger, reconcileFunc)
 }

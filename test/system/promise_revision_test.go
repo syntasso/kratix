@@ -247,6 +247,12 @@ var _ = Describe("Promise Revisions", func() {
 				fmt.Sprintf(`-o=jsonpath={.items[?(@.spec.version=="%s")].metadata.name}`, initialPromiseVersion)))
 		}
 
+		initialVersionRBAC := fmt.Sprintf("%s=%s,%s=%s",
+			platformv1alpha1.PromiseNameLabel, promiseName, platformv1alpha1.PromiseVersionLabel, initialPromiseVersion)
+		getInitialVersionRBAC := func() string {
+			return strings.TrimSpace(platform.Kubectl("get", "serviceaccounts,roles,rolebindings", "--namespace=default", "-l", initialVersionRBAC, "-o=name"))
+		}
+
 		By("keeping a resource pinned to a version when that version's revision is deleted", func() {
 			revisionName := initialRevisionName()
 			Expect(revisionName).NotTo(BeEmpty())
@@ -259,6 +265,7 @@ var _ = Describe("Promise Revisions", func() {
 			}, 10*time.Second).Should(BeEmpty())
 			Expect(platform.Kubectl("get", "--namespace=default", getBindingName(promiseName, rrTwoName))).NotTo(BeEmpty())
 			Expect(platform.Kubectl("get", "promiserevision", revisionName, "-o=jsonpath={.metadata.deletionTimestamp}")).NotTo(BeEmpty())
+			Expect(getInitialVersionRBAC()).NotTo(BeEmpty())
 		})
 
 		By("updating the resource binding to the new promise version", func() {
@@ -294,13 +301,6 @@ var _ = Describe("Promise Revisions", func() {
 		})
 
 		By("removing the deleted revision and its version's RBAC once no resource uses the version", func() {
-			initialVersionRBAC := fmt.Sprintf("%s=%s,%s=%s",
-				platformv1alpha1.PromiseNameLabel, promiseName, platformv1alpha1.PromiseVersionLabel, initialPromiseVersion)
-			getInitialVersionRBAC := func() string {
-				return strings.TrimSpace(platform.Kubectl("get", "serviceaccounts,roles,rolebindings", "--namespace=default", "-l", initialVersionRBAC, "-o=name"))
-			}
-			Expect(getInitialVersionRBAC()).NotTo(BeEmpty())
-
 			Eventually(initialRevisionName).Should(BeEmpty())
 			Eventually(getInitialVersionRBAC).Should(BeEmpty())
 			_, rrTwoSA := latestConfigurePipelineJob(promiseName, rrTwoName)

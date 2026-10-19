@@ -70,7 +70,7 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	)
 	start := time.Now()
 	logging.Info(logger, "reconciliation started")
-	defer logReconcileDuration(logger, start, result, retErr)()
+	defer logReconcileDuration(logger, start, &result, &retErr)()
 
 	healthRecordIsBeingDeleted := !healthRecord.DeletionTimestamp.IsZero()
 	if healthRecord.GetNamespace() != healthRecord.Data.ResourceRef.Namespace {

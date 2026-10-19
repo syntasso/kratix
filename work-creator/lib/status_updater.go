@@ -21,18 +21,6 @@ func MergeStatuses(existing map[string]any, incoming map[string]any) map[string]
 	return mergeRecursive(existing, incoming)
 }
 
-// NonMessageStatusKeys finds keys from status.yaml that's not message
-// It's used in Promise workflow because Promise does not preserve unknown fields
-func NonMessageStatusKeys(status map[string]any) []string {
-	var keys []string
-	for key := range status {
-		if key != "message" {
-			keys = append(keys, key)
-		}
-	}
-	return keys
-}
-
 // SetExpectedHealth sets expectedPromiseVersion and healthDefinitions on
 // healthStatus and leaves every other key, such as state and healthRecords, alone.
 func SetExpectedHealth(status map[string]any, promiseVersion string, healthDefinitions int) map[string]any {

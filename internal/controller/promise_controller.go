@@ -167,7 +167,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	addPromiseSpanAttributes(traceCtx, promise)
 
 	logging.Info(logger, "reconciliation started")
-	defer logReconcileDuration(logger, time.Now(), result, retErr)()
+	defer logReconcileDuration(logger, time.Now(), &result, &retErr)()
 
 	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
 		logging.Error(logger, err, "failed to persist trace annotations")
