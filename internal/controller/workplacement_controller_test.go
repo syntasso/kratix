@@ -959,6 +959,33 @@ files:
 		})
 
 	})
+
+	When("the destination statestore kind is not managed by Kratix", func() {
+		BeforeEach(func() {
+			destination.Spec.StateStoreRef.APIVersion = "platform.example.com/v1alpha1"
+			destination.Spec.StateStoreRef.Kind = "ExampleStateStore"
+			destination.Spec.StateStoreRef.Name = "test-state-store"
+			Expect(fakeK8sClient.Create(ctx, &destination)).To(Succeed())
+
+			workPlacement.SetFinalizers([]string{"finalizers.example.com/cleanup"})
+			Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+			Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+		})
+
+		It("leaves the work placement alone", func() {
+			result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			Expect(repositoryCache.GetRepositoryByTypeAndNameCallCount()).To(Equal(0))
+			Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(0))
+			Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(0))
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			Expect(workPlacement.Status.Conditions).To(BeEmpty())
+			Expect(workPlacement.GetFinalizers()).To(ConsistOf("finalizers.example.com/cleanup"))
+		})
+	})
 })
 
 func setupGitDestination(gitStateStore *v1alpha1.GitStateStore, destination *v1alpha1.Destination) {

@@ -179,6 +179,12 @@ func (w *workPlacementReconcileContext) reconcileWithSpanAttributes() (result ct
 }
 
 func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr error) {
+	if w.destination.Spec.StateStoreRef.IsManagedByCustomController() {
+		logging.Debug(w.logger, "state store kind is not managed by Kratix, skipping",
+			"kind", w.destination.Spec.StateStoreRef.Kind)
+		return ctrl.Result{}, nil
+	}
+
 	destinationReady := apiMeta.FindStatusCondition(w.destination.Status.Conditions, "Ready")
 	destinationNotReady := destinationReady != nil && destinationReady.Status == metav1.ConditionFalse
 	if destinationNotReady && w.workPlacement.DeletionTimestamp.IsZero() {

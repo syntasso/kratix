@@ -213,6 +213,19 @@ var _ = Describe("Destination Webhook", func() {
 				`Warning: referenced GitStateStore "missing-git-state-store" does not exist`,
 			))
 		})
+
+		It("accepts a state store kind Kratix does not manage without checking it exists", func() {
+			destination.Spec.StateStoreRef = &v1alpha1.StateStoreReference{
+				APIVersion: "platform.example.com/v1alpha1",
+				Kind:       "ExampleStateStore",
+				Name:       "missing-example-state-store",
+			}
+
+			warnings, err := validator.ValidateCreate(ctx, destination)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeEmpty())
+		})
 	})
 
 	Describe("defaulting filename", func() {

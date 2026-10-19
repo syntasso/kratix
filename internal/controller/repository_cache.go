@@ -67,7 +67,7 @@ func (c *repositoryCache) InitRepository(logger logr.Logger, stateStore StateSto
 	var err *StateStoreError
 	switch kind {
 
-	case "GitStateStore":
+	case v1alpha1.GitStateStoreKind:
 		if repository, ok := c.gitRepositoryCache[name]; ok {
 			if repository.SecretVersion == secretVersion {
 				return repository, nil
@@ -82,7 +82,7 @@ func (c *repositoryCache) InitRepository(logger logr.Logger, stateStore StateSto
 		}
 		c.gitRepositoryCache[name] = repo
 
-	case "BucketStateStore":
+	case v1alpha1.BucketStateStoreKind:
 		if repository, ok := c.s3RepositoryCache[name]; ok {
 			if repository.SecretVersion == secretVersion {
 				return repository, nil
@@ -108,13 +108,13 @@ func (c *repositoryCache) GetRepositoryByTypeAndName(stateStoreType string, name
 	c.Lock()
 	defer c.Unlock()
 	switch stateStoreType {
-	case "GitStateStore":
+	case v1alpha1.GitStateStoreKind:
 		if repository, ok := c.gitRepositoryCache[name]; ok {
 			return repository, nil
 		}
 
 		return nil, ErrCacheMiss
-	case "BucketStateStore":
+	case v1alpha1.BucketStateStoreKind:
 		if repository, ok := c.s3RepositoryCache[name]; ok {
 			return repository, nil
 		}
@@ -184,13 +184,13 @@ func (c *repositoryCache) Cleanup(stateStore StateStore) error {
 	var found bool
 
 	switch kind {
-	case "GitStateStore":
+	case v1alpha1.GitStateStoreKind:
 		if repo, found = c.gitRepositoryCache[name]; !found {
 			return nil
 		}
 		delete(c.gitRepositoryCache, name)
 		return os.RemoveAll(repo.Path)
-	case "BucketStateStore":
+	case v1alpha1.BucketStateStoreKind:
 		if _, found = c.s3RepositoryCache[name]; !found {
 			return nil
 		}

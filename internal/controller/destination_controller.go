@@ -24,6 +24,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
@@ -131,6 +132,10 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 
 	if apiMeta.FindStatusCondition(d.destination.Status.Conditions, "Ready") == nil {
 		return ctrl.Result{}, d.setNotReadyStatus(v1alpha1.DestinationNotReadyReason, "Destination is not ready")
+	}
+
+	if d.destination.Spec.StateStoreRef.IsManagedByCustomController() {
+		return d.reconcileCustomStateStore()
 	}
 
 	repo, err := d.repositoryCache.GetRepositoryByTypeAndName(
@@ -281,11 +286,11 @@ func (r *DestinationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&v1alpha1.Destination{}).
 		Watches(
 			&v1alpha1.BucketStateStore{},
-			handler.EnqueueRequestsFromMapFunc(r.findDestinationsForStateStore("BucketStateStore")),
+			handler.EnqueueRequestsFromMapFunc(r.findDestinationsForStateStore(v1alpha1.BucketStateStoreKind)),
 		).
 		Watches(
 			&v1alpha1.GitStateStore{},
-			handler.EnqueueRequestsFromMapFunc(r.findDestinationsForStateStore("GitStateStore")),
+			handler.EnqueueRequestsFromMapFunc(r.findDestinationsForStateStore(v1alpha1.GitStateStoreKind)),
 		).
 		Complete(r)
 }
@@ -297,9 +302,11 @@ func (d *destinationReconcileContext) handleDeletion(repo *Repository) (ctrl.Res
 			return defaultRequeue, nil
 		}
 
-		if err := d.deleteCanaryFiles(repo); err != nil {
-			logging.Error(d.logger, err, "error deleting state store contents")
-			return defaultRequeue, nil
+		if repo != nil {
+			if err := d.deleteCanaryFiles(repo); err != nil {
+				logging.Error(d.logger, err, "error deleting state store contents")
+				return defaultRequeue, nil
+			}
 		}
 
 		controllerutil.RemoveFinalizer(d.destination, destinationCleanupFinalizer)
@@ -411,7 +418,7 @@ func (d *destinationReconcileContext) logAndRecordEvent(err error, message strin
 
 func (d *destinationReconcileContext) stateStoreExists() bool {
 	switch d.destination.Spec.StateStoreRef.Kind {
-	case "GitStateStore":
+	case v1alpha1.GitStateStoreKind:
 		return !k8serrors.IsNotFound(
 			d.client.Get(
 				d.ctx,
@@ -419,7 +426,7 @@ func (d *destinationReconcileContext) stateStoreExists() bool {
 				&v1alpha1.GitStateStore{},
 			),
 		)
-	case "BucketStateStore":
+	case v1alpha1.BucketStateStoreKind:
 		return !k8serrors.IsNotFound(
 			d.client.Get(
 				d.ctx,
@@ -429,4 +436,78 @@ func (d *destinationReconcileContext) stateStoreExists() bool {
 		)
 	}
 	return false
+}
+
+// A custom state store kind is written to by its own controller, so Kratix
+// only mirrors the state store's Ready condition onto the Destination and
+// keeps handling cleanup. The kind cannot be watched because its CRD may not
+// exist when Kratix starts, so the Destination is checked again periodically.
+func (d *destinationReconcileContext) reconcileCustomStateStore() (ctrl.Result, error) {
+	if !d.destination.DeletionTimestamp.IsZero() {
+		return d.handleDeletion(nil)
+	}
+
+	ref := d.destination.Spec.StateStoreRef
+	stateStoreName := fmt.Sprintf("%s/%s", ref.Kind, ref.Name)
+
+	stateStore := &unstructured.Unstructured{}
+	stateStore.SetGroupVersionKind(ref.GroupVersionKind())
+	if err := d.client.Get(d.ctx, client.ObjectKey{Name: ref.Name}, stateStore); err != nil {
+		if k8serrors.IsNotFound(err) || apiMeta.IsNoMatchError(err) {
+			return d.setCustomStateStoreNotReady("StateStoreNotFound", stateStoreName, errors.New("not found"))
+		}
+		if k8serrors.IsForbidden(err) {
+			return d.setCustomStateStoreNotReady("StateStoreAccessDenied", stateStoreName,
+				errors.New("kratix is not allowed to read it; grant access with a ClusterRole labelled kratix.io/aggregate-to-kratix=true"))
+		}
+		return ctrl.Result{}, err
+	}
+
+	readyStatus, readyMessage := readyConditionFromCustomStateStore(stateStore)
+	if readyStatus != metav1.ConditionTrue {
+		if readyMessage == "" {
+			readyMessage = "not ready"
+		}
+		return d.setCustomStateStoreNotReady("StateStoreNotReady", stateStoreName, errors.New(readyMessage))
+	}
+
+	if changed := d.destination.SetReadyStatus(v1alpha1.DestinationReadyReason, "Destination is ready"); changed {
+		d.logAndRecordEvent(nil, "Destination is Ready")
+		if err := d.client.Status().Update(d.ctx, d.destination); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	return slowRequeue, nil
+}
+
+func (d *destinationReconcileContext) setCustomStateStoreNotReady(reason, stateStoreName string, cause error) (ctrl.Result, error) {
+	message := fmt.Sprintf("%s: %s", stateStoreName, cause.Error())
+	if changed := d.destination.SetNotReadyStatus(reason, message); changed {
+		d.logAndRecordEvent(cause, stateStoreName)
+		if err := d.client.Status().Update(d.ctx, d.destination); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	return defaultRequeue, nil
+}
+
+func readyConditionFromCustomStateStore(stateStore *unstructured.Unstructured) (metav1.ConditionStatus, string) {
+	conditions, found, err := unstructured.NestedSlice(stateStore.Object, "status", "conditions")
+	if err != nil || !found {
+		return metav1.ConditionUnknown, ""
+	}
+
+	for _, rawCondition := range conditions {
+		condition, ok := rawCondition.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if condition["type"] != "Ready" {
+			continue
+		}
+		status, _ := condition["status"].(string)
+		message, _ := condition["message"].(string)
+		return metav1.ConditionStatus(status), message
+	}
+	return metav1.ConditionUnknown, ""
 }

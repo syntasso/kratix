@@ -116,16 +116,25 @@ spec:
                   Defaults to the Destination name
                 type: string
               stateStoreRef:
-                description: Reference to the StateStore (GitStateStore or BucketStateStore)
-                  used to persist resources for this Destination
+                description: Reference to the StateStore used to persist resources
+                  for this Destination
                 properties:
-                  kind:
-                    description: Kind of the StateStore resource. Must be either BucketStateStore
-                      or GitStateStore
-                    enum:
-                    - BucketStateStore
-                    - GitStateStore
+                  apiVersion:
+                    default: platform.kratix.io/v1alpha1
+                    description: APIVersion of the StateStore resource. Defaults to
+                      platform.kratix.io/v1alpha1
                     type: string
+                    x-kubernetes-validations:
+                    - message: stateStoreRef.apiVersion is immutable
+                      rule: self == oldSelf
+                  kind:
+                    description: |-
+                      Kind of the StateStore resource. Kratix manages BucketStateStore and GitStateStore.
+                      Any other Kind must be managed by its own controller.
+                    type: string
+                    x-kubernetes-validations:
+                    - message: stateStoreRef.kind is immutable
+                      rule: self == oldSelf
                   name:
                     description: Name of the StateStore resource
                     type: string
