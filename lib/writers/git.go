@@ -21,6 +21,11 @@ type GitWriter struct {
 	Log       logr.Logger
 	BasicAuth bool
 
+	// PushBranch, when set, is the branch commits are force-pushed to instead
+	// of GitServer.Branch. The clone and reset still use GitServer.Branch, so
+	// the writer reads from one branch and proposes changes on another.
+	PushBranch string
+
 	Runner GitExecutor
 }
 
@@ -55,11 +60,31 @@ type GitWriterOption func(*gitWriterConfig)
 
 type gitWriterConfig struct {
 	minimumFetchInterval time.Duration
+	pushBranch           string
+	githubAPIURL         string
 }
 
 func WithMinimumFetchInterval(interval time.Duration) GitWriterOption {
 	return func(c *gitWriterConfig) {
 		c.minimumFetchInterval = interval
+	}
+}
+
+// WithPushBranch makes the writer force-push its commits to the given branch
+// instead of the StateStore's branch. Reads, clones and resets still use the
+// StateStore's branch. Use this to propose changes through a pull request.
+func WithPushBranch(branch string) GitWriterOption {
+	return func(c *gitWriterConfig) {
+		c.pushBranch = branch
+	}
+}
+
+// WithGitHubAPIURL sets the GitHub API URL used by the githubApp auth method.
+// Leave it unset for github.com. Set it for GitHub Enterprise Server, for
+// example https://github.example.com/api/v3.
+func WithGitHubAPIURL(apiURL string) GitWriterOption {
+	return func(c *gitWriterConfig) {
+		c.githubAPIURL = apiURL
 	}
 }
 
@@ -76,7 +101,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		destinationPath,
 	), "/")
 
-	auth, err := git.SetAuth(stateStoreSpec, creds)
+	auth, err := git.SetAuth(stateStoreSpec, creds, git.WithGitHubAPIURL(config.githubAPIURL))
 	if err != nil {
 		return nil, fmt.Errorf("could not create auth method: %w", err)
 	}
@@ -111,8 +136,9 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			"repo", stateStoreSpec.URL,
 			"branch", stateStoreSpec.Branch,
 		),
-		Path:   repoPath,
-		Runner: nativeGitClient,
+		Path:       repoPath,
+		PushBranch: config.pushBranch,
+		Runner:     nativeGitClient,
 	}
 
 	return gw, nil
@@ -287,12 +313,23 @@ func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.
 
 	// Run a commit with author and message
 	commitMsg := fmt.Sprintf("%s from: %s", action, workPlacementName)
-	commitSha, err := g.Runner.CommitAndPush(g.GitServer.Branch, commitMsg, g.Author.Name, g.Author.Email)
+	commitSha, err := g.Runner.CommitAndPush(g.pushRef(), commitMsg, g.Author.Name, g.Author.Email)
 	if err != nil {
 		logging.Error(logger, err, "could not push changes")
 		return "", err
 	}
 	return commitSha, nil
+}
+
+// pushRef is what the commit is pushed to. Without a push branch that is the
+// StateStore's branch. With one, HEAD is force-pushed to that branch, so the
+// StateStore's branch is never written to and a rebuilt push branch replaces
+// whatever was there before.
+func (g *GitWriter) pushRef() string {
+	if g.PushBranch == "" {
+		return g.GitServer.Branch
+	}
+	return "+HEAD:refs/heads/" + g.PushBranch
 }
 
 func (g *GitWriter) Init(branch string) (string, error) {

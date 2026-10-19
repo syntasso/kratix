@@ -12,6 +12,9 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -148,12 +151,15 @@ var _ = Describe("NewGitWriter", func() {
 	Context("authenticate with GitHub App", func() {
 		var (
 			jwtCalled, tokenCalled         bool
+			tokenAPIURL                    string
+			creds                          map[string][]byte
 			origGenerateGitHubAppJWT       func(string, string) (string, error)
 			origGetGitHubInstallationToken func(string, string, string, bool) (string, error)
 		)
 		BeforeEach(func() {
 			jwtCalled = false
 			tokenCalled = false
+			tokenAPIURL = ""
 			origGenerateGitHubAppJWT = git.GenerateGitHubAppJWT
 			origGetGitHubInstallationToken = git.GetGitHubInstallationToken
 			git.GenerateGitHubAppJWT = func(appID, pk string) (string, error) {
@@ -162,7 +168,14 @@ var _ = Describe("NewGitWriter", func() {
 			}
 			git.GetGitHubInstallationToken = func(apiURL, installationID, jwt string, insecure bool) (string, error) {
 				tokenCalled = true
+				tokenAPIURL = apiURL
 				return "token", nil
+			}
+			stateStoreSpec.AuthMethod = "githubApp"
+			creds = map[string][]byte{
+				"appID":          []byte("123"),
+				"installationID": []byte("456"),
+				"privateKey":     []byte("dummy"),
 			}
 		})
 		AfterEach(func() {
@@ -170,17 +183,77 @@ var _ = Describe("NewGitWriter", func() {
 			git.GetGitHubInstallationToken = origGetGitHubInstallationToken
 		})
 		It("returns a valid GitWriter", func() {
-			stateStoreSpec.AuthMethod = "githubApp"
-			creds := map[string][]byte{
-				"appID":          []byte("123"),
-				"installationID": []byte("456"),
-				"privateKey":     []byte("dummy"),
-			}
 			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
 			Expect(jwtCalled).To(BeTrue())
 			Expect(tokenCalled).To(BeTrue())
+		})
+
+		It("talks to github.com by default", func() {
+			_, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokenAPIURL).To(Equal("https://api.github.com"))
+		})
+
+		It("talks to the GitHub API URL given by the option", func() {
+			_, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds,
+				writers.WithGitHubAPIURL("https://github.example.com/api/v3/"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokenAPIURL).To(Equal("https://github.example.com/api/v3"))
+		})
+	})
+
+	Describe("UpdateFiles", func() {
+		var (
+			runner    *fakeGitExecutor
+			creds     map[string][]byte
+			workloads []v1alpha1.Workload
+		)
+
+		BeforeEach(func() {
+			runner = &fakeGitExecutor{root: GinkgoT().TempDir()}
+			creds = map[string][]byte{
+				"username": []byte("user1"),
+				"password": []byte("pw1"),
+			}
+			workloads = []v1alpha1.Workload{{Filepath: "deployment.yaml", Content: "kind: Deployment"}}
+		})
+
+		It("pushes to the state store branch", func() {
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+			Expect(err).NotTo(HaveOccurred())
+			gitWriter := writer.(*writers.GitWriter)
+			gitWriter.Runner = runner
+
+			_, err = gitWriter.UpdateFiles("", "my-workplacement", workloads, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(runner.pushedTo).To(Equal("test"))
+		})
+
+		When("a push branch is set", func() {
+			It("force-pushes HEAD to the push branch instead", func() {
+				writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds,
+					writers.WithPushBranch("kratix/default/my-workplacement/3"))
+				Expect(err).NotTo(HaveOccurred())
+				gitWriter := writer.(*writers.GitWriter)
+				gitWriter.Runner = runner
+
+				_, err = gitWriter.UpdateFiles("", "my-workplacement", workloads, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(runner.pushedTo).To(Equal("+HEAD:refs/heads/kratix/default/my-workplacement/3"))
+			})
+
+			It("still deletes files through the push branch", func() {
+				writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds,
+					writers.WithPushBranch("kratix/default/my-workplacement/3"))
+				Expect(err).NotTo(HaveOccurred())
+				gitWriter := writer.(*writers.GitWriter)
+				gitWriter.Runner = runner
+
+				Expect(gitWriter.DeleteFiles("my-workplacement", []string{"deployment.yaml"})).To(Succeed())
+				Expect(runner.pushedTo).To(Equal("+HEAD:refs/heads/kratix/default/my-workplacement/3"))
+			})
 		})
 	})
 
@@ -309,8 +382,56 @@ var _ = Describe("NewGitWriter", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(tok).To(BeEmpty())
 		})
+
+		When("the API is served with a certificate from a private CA", func() {
+			var tlsDataPath string
+
+			BeforeEach(func() {
+				server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusCreated)
+					_ = json.NewEncoder(w).Encode(map[string]string{"token": "abc123"})
+				}))
+				tlsDataPath = GinkgoT().TempDir()
+				GinkgoT().Setenv("KRATIX_TLS_DATA_PATH", tlsDataPath)
+			})
+
+			It("rejects the certificate when the CA is not stored", func() {
+				_, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt", false)
+				Expect(err).To(MatchError(ContainSubstring("certificate")))
+			})
+
+			It("trusts the certificate when the CA is stored for the API host", func() {
+				serverURL, err := url.Parse(server.URL)
+				Expect(err).NotTo(HaveOccurred())
+				caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+				Expect(os.WriteFile(filepath.Join(tlsDataPath, serverURL.Hostname()), caPEM, 0600)).To(Succeed())
+
+				tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt", false)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(tok).To(Equal("abc123"))
+			})
+		})
 	})
 })
+
+// fakeGitExecutor records what the writer asks the git runner to do.
+type fakeGitExecutor struct {
+	root     string
+	pushedTo string
+}
+
+func (f *fakeGitExecutor) Add(files ...string) (string, error) { return "", nil }
+func (f *fakeGitExecutor) Clone(branch string) (string, error) { return f.root, nil }
+func (f *fakeGitExecutor) CommitAndPush(branch, message, author, email string) (string, error) {
+	f.pushedTo = branch
+	return "sha", nil
+}
+func (f *fakeGitExecutor) Push(branch string, force bool) (string, error) { return "", nil }
+func (f *fakeGitExecutor) Root() string                                   { return f.root }
+func (f *fakeGitExecutor) HasChanges() (bool, error)                      { return true, nil }
+func (f *fakeGitExecutor) ResetToRemote(branch string) error              { return nil }
+func (f *fakeGitExecutor) RemoveDirectory(dir string) error               { return nil }
+func (f *fakeGitExecutor) RemoveFile(file string) error                   { return nil }
 
 func generateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
 	privateKeyPEM := pem.Block{
