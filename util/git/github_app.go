@@ -486,9 +486,6 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string, insecur
 	return result.Token, nil
 }
 
-// rootCAsForAPIURL returns the CA pool for a self-hosted GitHub API, read from
-// the same per-host certificate store the git commands use. It returns nil,
-// meaning the system roots, when there is no stored certificate for the host.
 func rootCAsForAPIURL(apiURL string, insecure bool) *x509.CertPool {
 	if insecure {
 		return nil
