@@ -14,8 +14,8 @@ import (
 
 var ErrPathOutsideRepository = fmt.Errorf("workload path is outside the git repository")
 
-// WriteWorkloads writes each workload under dir in the clone and stages it.
-func WriteWorkloads(runner GitExecutor, dir string, workloads []v1alpha1.Workload, logger logr.Logger) error {
+// WriteFiles writes each workload under dir in the clone and stages it.
+func WriteFiles(runner GitExecutor, dir string, workloads []v1alpha1.Workload, logger logr.Logger) error {
 	localDir := runner.Root()
 
 	filesToAdd := make([]string, 0, len(workloads))

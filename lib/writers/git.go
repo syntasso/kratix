@@ -154,7 +154,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		return "", err
 	}
 
-	if err := WriteWorkloads(g.Runner, dirInGitRepo, workloadsToCreate, logger); err != nil {
+	if err := WriteFiles(g.Runner, dirInGitRepo, workloadsToCreate, logger); err != nil {
 		if errors.Is(err, ErrPathOutsideRepository) {
 			return "", nil
 		}

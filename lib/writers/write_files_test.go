@@ -13,7 +13,7 @@ import (
 	"github.com/syntasso/kratix/lib/writers"
 )
 
-var _ = Describe("WriteWorkloads", func() {
+var _ = Describe("WriteFiles", func() {
 	var (
 		logger logr.Logger
 		runner *fakeGitExecutor
@@ -32,7 +32,7 @@ var _ = Describe("WriteWorkloads", func() {
 			{Filepath: "nested/service.yaml", Content: "kind: Service"},
 		}
 
-		Expect(writers.WriteWorkloads(runner, dir, workloads, logger)).To(Succeed())
+		Expect(writers.WriteFiles(runner, dir, workloads, logger)).To(Succeed())
 
 		Expect(os.ReadFile(filepath.Join(dir, "deployment.yaml"))).To(Equal([]byte("kind: Deployment")))
 		Expect(os.ReadFile(filepath.Join(dir, "nested", "service.yaml"))).To(Equal([]byte("kind: Service")))
@@ -43,7 +43,7 @@ var _ = Describe("WriteWorkloads", func() {
 	})
 
 	It("stages nothing when there are no workloads", func() {
-		Expect(writers.WriteWorkloads(runner, dir, nil, logger)).To(Succeed())
+		Expect(writers.WriteFiles(runner, dir, nil, logger)).To(Succeed())
 		Expect(runner.added).To(BeEmpty())
 	})
 
@@ -52,7 +52,7 @@ var _ = Describe("WriteWorkloads", func() {
 			{Filepath: "../../../../escaped.yaml", Content: "kind: Secret"},
 		}
 
-		err := writers.WriteWorkloads(runner, dir, workloads, logger)
+		err := writers.WriteFiles(runner, dir, workloads, logger)
 		Expect(err).To(MatchError(writers.ErrPathOutsideRepository))
 		Expect(runner.added).To(BeEmpty())
 	})
