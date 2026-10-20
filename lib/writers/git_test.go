@@ -402,6 +402,51 @@ var _ = Describe("NewGitWriter", func() {
 	})
 })
 
+var _ = Describe("WriteFiles", func() {
+	var (
+		logger logr.Logger
+		runner *fakeGitExecutor
+		dir    string
+	)
+
+	BeforeEach(func() {
+		logger = ctrl.Log.WithName("stage")
+		runner = &fakeGitExecutor{root: GinkgoT().TempDir()}
+		dir = filepath.Join(runner.root, "dest", "resources")
+	})
+
+	It("writes each workload under the directory and stages it", func() {
+		workloads := []v1alpha1.Workload{
+			{Filepath: "deployment.yaml", Content: "kind: Deployment"},
+			{Filepath: "nested/service.yaml", Content: "kind: Service"},
+		}
+
+		Expect(writers.WriteFiles(runner, dir, workloads, logger)).To(Succeed())
+
+		Expect(os.ReadFile(filepath.Join(dir, "deployment.yaml"))).To(Equal([]byte("kind: Deployment")))
+		Expect(os.ReadFile(filepath.Join(dir, "nested", "service.yaml"))).To(Equal([]byte("kind: Service")))
+		Expect(runner.added).To(ConsistOf(
+			filepath.Join(dir, "deployment.yaml"),
+			filepath.Join(dir, "nested", "service.yaml"),
+		))
+	})
+
+	It("stages nothing when there are no workloads", func() {
+		Expect(writers.WriteFiles(runner, dir, nil, logger)).To(Succeed())
+		Expect(runner.added).To(BeEmpty())
+	})
+
+	It("refuses a workload whose path escapes the clone", func() {
+		workloads := []v1alpha1.Workload{
+			{Filepath: "../../../../escaped.yaml", Content: "kind: Secret"},
+		}
+
+		err := writers.WriteFiles(runner, dir, workloads, logger)
+		Expect(err).To(MatchError(writers.ErrPathOutsideRepository))
+		Expect(runner.added).To(BeEmpty())
+	})
+})
+
 // fakeGitExecutor records what the writer asks the git runner to do.
 type fakeGitExecutor struct {
 	root      string
