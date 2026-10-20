@@ -9,7 +9,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -18,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -439,9 +437,9 @@ func generateGitHubAppJWT(appID string, privateKey string) (string, error) {
 
 // getGitHubInstallationToken exchanges a JWT for a GitHub installation access token
 func getGitHubInstallationToken(apiURL, installationID, jwtToken string, insecure bool) (string, error) {
-	tokenURL := fmt.Sprintf("%s/app/installations/%s/access_tokens", apiURL, installationID)
+	url := fmt.Sprintf("%s/app/installations/%s/access_tokens", apiURL, installationID)
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, tokenURL, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -456,7 +454,6 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string, insecur
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: insecure,
 				MinVersion:         tls.VersionTLS12,
-				RootCAs:            rootCAsForAPIURL(apiURL, insecure),
 			},
 		},
 	}
@@ -484,21 +481,6 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string, insecur
 		return "", errors.New("empty installation token received")
 	}
 	return result.Token, nil
-}
-
-func rootCAsForAPIURL(apiURL string, insecure bool) *x509.CertPool {
-	if insecure {
-		return nil
-	}
-	parsedURL, err := url.Parse(apiURL)
-	if err != nil {
-		return nil
-	}
-	certificates, err := getCertificateForConnect(parsedURL.Host)
-	if err != nil || len(certificates) == 0 {
-		return nil
-	}
-	return getCertPoolFromPEMData(certificates)
 }
 
 type Closer interface {

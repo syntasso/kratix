@@ -12,7 +12,6 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 
@@ -369,35 +368,6 @@ var _ = Describe("NewGitWriter", func() {
 			tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt", false)
 			Expect(err).To(HaveOccurred())
 			Expect(tok).To(BeEmpty())
-		})
-
-		When("the API is served with a certificate from a private CA", func() {
-			var tlsDataPath string
-
-			BeforeEach(func() {
-				server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusCreated)
-					_ = json.NewEncoder(w).Encode(map[string]string{"token": "abc123"})
-				}))
-				tlsDataPath = GinkgoT().TempDir()
-				GinkgoT().Setenv("KRATIX_TLS_DATA_PATH", tlsDataPath)
-			})
-
-			It("rejects the certificate when the CA is not stored", func() {
-				_, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt", false)
-				Expect(err).To(MatchError(ContainSubstring("certificate")))
-			})
-
-			It("trusts the certificate when the CA is stored for the API host", func() {
-				serverURL, err := url.Parse(server.URL)
-				Expect(err).NotTo(HaveOccurred())
-				caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
-				Expect(os.WriteFile(filepath.Join(tlsDataPath, serverURL.Hostname()), caPEM, 0600)).To(Succeed())
-
-				tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt", false)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(tok).To(Equal("abc123"))
-			})
 		})
 	})
 })
