@@ -419,8 +419,8 @@ func (m *nativeGitClient) Push(branch string, force bool) (string, error) {
 	return "", nil
 }
 
-// CommitAndPush commits and pushes changes to the target branch.
-func (m *nativeGitClient) CommitAndPush(branch, message, author string, email string) (string, error) {
+// Commit records the staged changes and returns the new commit SHA.
+func (m *nativeGitClient) Commit(message, author string, email string) (string, error) {
 	ctx := context.Background()
 
 	authorId := fmt.Sprintf("%s <%s>", author, email)
@@ -436,22 +436,6 @@ func (m *nativeGitClient) CommitAndPush(branch, message, author string, email st
 			return out, ErrNothingToCommit
 		}
 		return out, fmt.Errorf("failed to commit: %w", err)
-	}
-
-	pushArgs := []string{"push", "origin"}
-	if branch == "" {
-		pushArgs = append(pushArgs, "HEAD")
-	} else {
-		pushArgs = append(pushArgs, branch)
-	}
-
-	// A single fast-forward push. ResetToRemote has already synced the clone to
-	// the remote tip before this write, so the push normally succeeds. If another
-	// writer pushed in the meantime the push is rejected; rather than rebasing
-	// (which is conflict-prone), we return an error and let the reconcile requeue.
-	// The next attempt re-syncs to the remote and retries from a clean base.
-	if err := m.runCredentialedCmd(ctx, pushArgs...); err != nil {
-		return "", fmt.Errorf("failed to push: %w", err)
 	}
 
 	commitSha, err := m.runCmd(ctx, "rev-parse", "HEAD")

@@ -226,36 +226,22 @@ var _ = Describe("NewGitWriter", func() {
 			gitWriter := writer.(*writers.GitWriter)
 			gitWriter.Runner = runner
 
-			_, err = gitWriter.UpdateFiles("", "my-workplacement", workloads, nil)
+			sha, err := gitWriter.UpdateFiles("", "my-workplacement", workloads, nil)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(sha).To(Equal("sha"))
+			Expect(runner.committed).To(Equal("Update from: my-workplacement"))
 			Expect(runner.pushedTo).To(Equal("test"))
 		})
 
-		// These specs run against fakeGitExecutor, so no repository is touched
-		// and the branch names are only compared, never created.
-		When("a push branch is set", func() {
-			It("pushes the commit to the push branch, not the state store branch", func() {
-				writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds,
-					writers.WithPushBranch("kratix/default/my-workplacement/3"))
-				Expect(err).NotTo(HaveOccurred())
-				gitWriter := writer.(*writers.GitWriter)
-				gitWriter.Runner = runner
+		It("never force-pushes", func() {
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+			Expect(err).NotTo(HaveOccurred())
+			gitWriter := writer.(*writers.GitWriter)
+			gitWriter.Runner = runner
 
-				_, err = gitWriter.UpdateFiles("", "my-workplacement", workloads, nil)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(runner.pushedTo).To(Equal("+HEAD:refs/heads/kratix/default/my-workplacement/3"))
-			})
-
-			It("sends deletions to the push branch too", func() {
-				writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds,
-					writers.WithPushBranch("kratix/default/my-workplacement/3"))
-				Expect(err).NotTo(HaveOccurred())
-				gitWriter := writer.(*writers.GitWriter)
-				gitWriter.Runner = runner
-
-				Expect(gitWriter.DeleteFiles("my-workplacement", []string{"deployment.yaml"})).To(Succeed())
-				Expect(runner.pushedTo).To(Equal("+HEAD:refs/heads/kratix/default/my-workplacement/3"))
-			})
+			_, err = gitWriter.UpdateFiles("", "my-workplacement", workloads, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(runner.forced).To(BeFalse())
 		})
 	})
 
@@ -418,22 +404,32 @@ var _ = Describe("NewGitWriter", func() {
 
 // fakeGitExecutor records what the writer asks the git runner to do.
 type fakeGitExecutor struct {
-	root     string
-	pushedTo string
+	root      string
+	added     []string
+	committed string
+	pushedTo  string
+	forced    bool
 }
 
-func (f *fakeGitExecutor) Add(files ...string) (string, error) { return "", nil }
+func (f *fakeGitExecutor) Add(files ...string) (string, error) {
+	f.added = append(f.added, files...)
+	return "", nil
+}
 func (f *fakeGitExecutor) Clone(branch string) (string, error) { return f.root, nil }
-func (f *fakeGitExecutor) CommitAndPush(branch, message, author, email string) (string, error) {
-	f.pushedTo = branch
+func (f *fakeGitExecutor) Commit(message, author, email string) (string, error) {
+	f.committed = message
 	return "sha", nil
 }
-func (f *fakeGitExecutor) Push(branch string, force bool) (string, error) { return "", nil }
-func (f *fakeGitExecutor) Root() string                                   { return f.root }
-func (f *fakeGitExecutor) HasChanges() (bool, error)                      { return true, nil }
-func (f *fakeGitExecutor) ResetToRemote(branch string) error              { return nil }
-func (f *fakeGitExecutor) RemoveDirectory(dir string) error               { return nil }
-func (f *fakeGitExecutor) RemoveFile(file string) error                   { return nil }
+func (f *fakeGitExecutor) Push(branch string, force bool) (string, error) {
+	f.pushedTo = branch
+	f.forced = force
+	return "", nil
+}
+func (f *fakeGitExecutor) Root() string                      { return f.root }
+func (f *fakeGitExecutor) HasChanges() (bool, error)         { return true, nil }
+func (f *fakeGitExecutor) ResetToRemote(branch string) error { return nil }
+func (f *fakeGitExecutor) RemoveDirectory(dir string) error  { return nil }
+func (f *fakeGitExecutor) RemoveFile(file string) error      { return nil }
 
 func generateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
 	privateKeyPEM := pem.Block{
