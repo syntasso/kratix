@@ -39,7 +39,6 @@ type GitExecutor interface {
 	Add(files ...string) (string, error)
 	Clone(branch string) (repoDir string, err error)
 	Commit(message, author, email string) (sha string, err error)
-	// Push sends HEAD to the branch. force replaces whatever the branch holds.
 	Push(branch string, force bool) (string, error)
 	Root() string
 	HasChanges() (bool, error)
@@ -72,8 +71,6 @@ func WithGitHubAPIURL(apiURL string) GitWriterOption {
 	}
 }
 
-// NewGitExecutor builds an authenticated git client for the state store's
-// repository, rooted at repoPath within the clone. Nothing is cloned yet.
 func NewGitExecutor(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, repoPath string, creds map[string][]byte, opts ...GitWriterOption) (GitExecutor, error) {
 	config := gitWriterConfig{
 		minimumFetchInterval: git.DefaultMinimumFetchInterval,
@@ -157,8 +154,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		return "", err
 	}
 
-	if err := StageWorkloads(g.Runner, dirInGitRepo, workloadsToCreate, logger); err != nil {
-		// Not recoverable, so do not retry: the warning has been logged already.
+	if err := WriteWorkloads(g.Runner, dirInGitRepo, workloadsToCreate, logger); err != nil {
 		if errors.Is(err, ErrPathOutsideRepository) {
 			return "", nil
 		}
@@ -275,8 +271,6 @@ func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.
 		return "", err
 	}
 
-	// Fast-forward only. Reset has synced the clone to the remote tip, so a
-	// rejected push means another writer got in first and the reconcile retries.
 	if _, err := g.Runner.Push(g.GitServer.Branch, false); err != nil {
 		logging.Error(logger, err, "could not push changes")
 		return "", err

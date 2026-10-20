@@ -24,11 +24,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
-// Shared by the statuses that keep fields Kratix does not define, so that a
-// typed status update writes those fields back instead of dropping them.
-
-// marshalStatusWithCustomFields encodes the typed fields, then adds the custom
-// fields. A custom field with the same name as a typed one is ignored.
+// marshalStatusWithCustomFields adds the custom fields after the typed ones, which win on a clash.
 func marshalStatusWithCustomFields(typed any, custom map[string]apiextensionsv1.JSON, typedFieldNames map[string]bool) ([]byte, error) {
 	data, err := json.Marshal(typed)
 	if err != nil {
@@ -51,8 +47,7 @@ func marshalStatusWithCustomFields(typed any, custom map[string]apiextensionsv1.
 	return json.Marshal(fields)
 }
 
-// unmarshalStatusKeepingCustomFields decodes the typed fields into typed and
-// returns every other key as custom fields.
+// unmarshalStatusKeepingCustomFields decodes the typed fields and returns every other key as custom.
 func unmarshalStatusKeepingCustomFields(data []byte, typed any, typedFieldNames map[string]bool) (map[string]apiextensionsv1.JSON, error) {
 	if err := json.Unmarshal(data, typed); err != nil {
 		return nil, err

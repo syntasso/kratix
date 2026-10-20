@@ -14,8 +14,8 @@ import (
 
 var ErrPathOutsideRepository = fmt.Errorf("workload path is outside the git repository")
 
-// StageWorkloads writes each workload under dir in the clone and stages it.
-func StageWorkloads(runner GitExecutor, dir string, workloads []v1alpha1.Workload, logger logr.Logger) error {
+// WriteWorkloads writes each workload under dir in the clone and stages it.
+func WriteWorkloads(runner GitExecutor, dir string, workloads []v1alpha1.Workload, logger logr.Logger) error {
 	localDir := runner.Root()
 
 	filesToAdd := make([]string, 0, len(workloads))
@@ -24,8 +24,7 @@ func StageWorkloads(runner GitExecutor, dir string, workloads []v1alpha1.Workloa
 
 		absoluteFilePath := filepath.Join(dir, file.Filepath)
 
-		// filepath.Join resolves any `..`, so a path is only accepted when the
-		// result still sits inside the clone.
+		// filepath.Join resolves `..`, so the result must still sit inside the clone.
 		if !strings.HasPrefix(absoluteFilePath, localDir) {
 			logging.Warn(log,
 				"path of file to write is not located within the git repository",
