@@ -99,7 +99,7 @@ var _ = Describe("WorkPlacement", func() {
 			}
 			workPlacement.Status.VersionID = "from kratix"
 
-			data, err := json.Marshal(workPlacement.Status)
+			data, err := json.Marshal(&workPlacement.Status)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(data)).To(ContainSubstring(`"versionID":"from kratix"`))
 			Expect(string(data)).NotTo(ContainSubstring("from custom"))

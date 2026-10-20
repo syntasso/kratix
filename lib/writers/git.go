@@ -21,9 +21,7 @@ type GitWriter struct {
 	Log       logr.Logger
 	BasicAuth bool
 
-	// PushBranch, when set, is the branch commits are force-pushed to instead
-	// of GitServer.Branch. The clone and reset still use GitServer.Branch, so
-	// the writer reads from one branch and proposes changes on another.
+	// PushBranch, when set, is pushed to instead of GitServer.Branch.
 	PushBranch string
 
 	Runner GitExecutor
@@ -70,18 +68,12 @@ func WithMinimumFetchInterval(interval time.Duration) GitWriterOption {
 	}
 }
 
-// WithPushBranch makes the writer force-push its commits to the given branch
-// instead of the StateStore's branch. Reads, clones and resets still use the
-// StateStore's branch. Use this to propose changes through a pull request.
 func WithPushBranch(branch string) GitWriterOption {
 	return func(c *gitWriterConfig) {
 		c.pushBranch = branch
 	}
 }
 
-// WithGitHubAPIURL sets the GitHub API URL used by the githubApp auth method.
-// Leave it unset for github.com. Set it for GitHub Enterprise Server, for
-// example https://github.example.com/api/v3.
 func WithGitHubAPIURL(apiURL string) GitWriterOption {
 	return func(c *gitWriterConfig) {
 		c.githubAPIURL = apiURL
@@ -321,10 +313,8 @@ func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.
 	return commitSha, nil
 }
 
-// pushRef is what the commit is pushed to. Without a push branch that is the
-// StateStore's branch. With one, HEAD is force-pushed to that branch, so the
-// StateStore's branch is never written to and a rebuilt push branch replaces
-// whatever was there before.
+// The push branch is rebuilt from the StateStore branch on every write, so the
+// new commit never descends from the old tip and the push has to be forced.
 func (g *GitWriter) pushRef() string {
 	if g.PushBranch == "" {
 		return g.GitServer.Branch

@@ -213,8 +213,7 @@ func (g GitHubAppCreds) getAccessToken(logger logr.Logger) (string, error) {
 
 // getAppTransport creates a new GitHub transport for the app
 func (g GitHubAppCreds) getAppTransport(logger logr.Logger) (*ghinstallation.AppsTransport, error) {
-	// GitHub API url
-	baseURL := "https://api.github.com"
+	baseURL := defaultGitHubAPIURL
 	if g.baseURL != "" {
 		baseURL = strings.TrimSuffix(g.baseURL, "/")
 	}
@@ -252,8 +251,7 @@ func (g GitHubAppCreds) getInstallationTransport(logger logr.Logger) (*ghinstall
 		return itr, nil
 	}
 
-	// GitHub API url
-	baseURL := "https://api.github.com"
+	baseURL := defaultGitHubAPIURL
 	if g.baseURL != "" {
 		baseURL = strings.TrimSuffix(g.baseURL, "/")
 	}

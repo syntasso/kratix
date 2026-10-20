@@ -152,9 +152,6 @@ type authConfig struct {
 	githubAPIURL string
 }
 
-// WithGitHubAPIURL sets the GitHub API URL used by the githubApp auth method.
-// Leave it empty for github.com. Set it for GitHub Enterprise Server, for
-// example https://github.example.com/api/v3.
 func WithGitHubAPIURL(apiURL string) AuthOption {
 	return func(c *authConfig) {
 		c.githubAPIURL = apiURL

@@ -231,8 +231,10 @@ var _ = Describe("NewGitWriter", func() {
 			Expect(runner.pushedTo).To(Equal("test"))
 		})
 
+		// These specs run against fakeGitExecutor, so no repository is touched
+		// and the branch names are only compared, never created.
 		When("a push branch is set", func() {
-			It("force-pushes HEAD to the push branch instead", func() {
+			It("pushes the commit to the push branch, not the state store branch", func() {
 				writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds,
 					writers.WithPushBranch("kratix/default/my-workplacement/3"))
 				Expect(err).NotTo(HaveOccurred())
@@ -244,7 +246,7 @@ var _ = Describe("NewGitWriter", func() {
 				Expect(runner.pushedTo).To(Equal("+HEAD:refs/heads/kratix/default/my-workplacement/3"))
 			})
 
-			It("still deletes files through the push branch", func() {
+			It("sends deletions to the push branch too", func() {
 				writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds,
 					writers.WithPushBranch("kratix/default/my-workplacement/3"))
 				Expect(err).NotTo(HaveOccurred())

@@ -95,7 +95,7 @@ var _ = Describe("Promise", func() {
 			}
 			promise.Status.Message = "from kratix"
 
-			data, err := json.Marshal(promise.Status)
+			data, err := json.Marshal(&promise.Status)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(data)).To(ContainSubstring(`"message":"from kratix"`))
 			Expect(string(data)).NotTo(ContainSubstring("from custom"))
