@@ -25,6 +25,7 @@ type StateStore interface {
 	GetStatus() *v1alpha1.StateStoreStatus
 	SetStatus(status v1alpha1.StateStoreStatus)
 	GetSecretRef() *v1.SecretReference
+	GetDelivery() *v1alpha1.Delivery
 	GetGeneration() int64
 	GetObservedGeneration() int64
 	SetObservedGeneration(generation int64) bool

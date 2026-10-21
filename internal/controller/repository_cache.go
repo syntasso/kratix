@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/delivery"
 	"github.com/syntasso/kratix/lib/writers"
 	gitutil "github.com/syntasso/kratix/util/git"
 	corev1 "k8s.io/api/core/v1"
@@ -144,13 +145,41 @@ func (c *repositoryCache) initGitRepository(logger logr.Logger, store StateStore
 		return nil, NewInitialiseWriterError(fmt.Errorf("unable to clone repository: %w", err))
 	}
 
+	writer, deliveryErr := writerForDelivery(store, gitWriter)
+	if deliveryErr != nil {
+		return nil, deliveryErr
+	}
+
 	repo := &Repository{
 		Path:          repoDir,
 		Branch:        stateStore.Spec.Branch,
 		SecretVersion: secret.ResourceVersion,
-		Writer:        gitWriter,
+		Writer:        writer,
 	}
 	return repo, nil
+}
+
+// writerForDelivery wraps the writer the state store built for itself. Every path that writes to
+// a state store goes through Repository.Writer, so wrapping here covers all of them.
+func writerForDelivery(store StateStore, base writers.StateStoreWriter) (writers.StateStoreWriter, *StateStoreError) {
+	deliverySpec := store.GetDelivery()
+	if deliverySpec == nil {
+		return base, nil
+	}
+
+	factory, err := delivery.For(deliverySpec.Mode)
+	if err != nil {
+		return nil, NewInitialiseWriterError(err)
+	}
+	if factory == nil {
+		return base, nil
+	}
+
+	writer, err := factory(base, deliverySpec.Config)
+	if err != nil {
+		return nil, NewInitialiseWriterError(fmt.Errorf("delivery mode %q: %w", deliverySpec.Mode, err))
+	}
+	return writer, nil
 }
 
 func (c *repositoryCache) initBucketRepository(logger logr.Logger, store StateStore, secret corev1.Secret) (*Repository, *StateStoreError) {
@@ -166,8 +195,13 @@ func (c *repositoryCache) initBucketRepository(logger logr.Logger, store StateSt
 		return nil, NewInitialiseWriterError(fmt.Errorf("unable to create bucket writer: %w", err))
 	}
 
+	writer, deliveryErr := writerForDelivery(store, s3Writer)
+	if deliveryErr != nil {
+		return nil, deliveryErr
+	}
+
 	repo := &Repository{
-		Writer:        s3Writer,
+		Writer:        writer,
 		SecretVersion: secret.ResourceVersion,
 	}
 	return repo, nil

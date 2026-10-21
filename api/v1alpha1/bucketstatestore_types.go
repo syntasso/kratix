@@ -72,6 +72,10 @@ type BucketStateStore struct {
 	Status StateStoreStatus     `json:"status,omitempty"`
 }
 
+func (b *BucketStateStore) GetDelivery() *Delivery {
+	return b.Spec.Delivery
+}
+
 func (b *BucketStateStore) GetSecretRef() *corev1.SecretReference {
 	return b.Spec.SecretRef
 }
