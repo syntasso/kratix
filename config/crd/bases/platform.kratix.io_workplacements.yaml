@@ -151,6 +151,12 @@ spec:
                   - type
                   type: object
                 type: array
+              deliveryGeneration:
+                description: |-
+                  DeliveryGeneration is the generation the outstanding delivery carries. A delivery made for
+                  an older generation cannot satisfy the current one, however it resolves.
+                format: int64
+                type: integer
               deliveryReceipt:
                 description: |-
                   DeliveryReceipt identifies a write the StateStore's writer accepted but has not finished

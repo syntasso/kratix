@@ -62,6 +62,11 @@ type WorkPlacementStatus struct {
 	// Unknown and cleared once the delivery resolves.
 	DeliveryReceipt string `json:"deliveryReceipt,omitempty"`
 
+	// +optional
+	// DeliveryGeneration is the generation the outstanding delivery carries. A delivery made for
+	// an older generation cannot satisfy the current one, however it resolves.
+	DeliveryGeneration int64 `json:"deliveryGeneration,omitempty"`
+
 	// Status fields set by other controllers, kept so typed status updates do not drop them.
 	Custom map[string]apiextensionsv1.JSON `json:"-"`
 }

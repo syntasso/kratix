@@ -1068,6 +1068,25 @@ files:
 			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
 		})
 
+		It("discards a delivery the workloads have moved past, rather than crediting it", func() {
+			reconcileTimes(2)
+			deferredWriter.checkResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "stale-merge"}
+
+			By("changing the workloads and bumping the generation the API server would bump")
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			workPlacement.Spec.Workloads = []v1alpha1.Workload{{Filepath: "new.yaml", Content: "new: true"}}
+			// The test client does not maintain metadata.generation, so the spec change has to
+			// carry it; without this the guard compares two zeroes and never fires.
+			workPlacement.SetGeneration(workPlacement.GetGeneration() + 1)
+			Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+
+			reconcileTimes(1)
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			Expect(workPlacement.Status.VersionID).NotTo(Equal("stale-merge"))
+			Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
+		})
+
 		It("fails the work placement when the delivery is rejected", func() {
 			reconcileTimes(2)
 			deferredWriter.checkResult = delivery.Result{Outcome: delivery.Rejected, Reason: "closed without merging"}

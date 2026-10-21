@@ -311,10 +311,14 @@ func (d *destinationReconcileContext) handleDeletion(repo *Repository) (ctrl.Res
 			return defaultRequeue, nil
 		}
 
+		// A deferred writer was never given canary files to write, so there are none to remove.
+		// Asking it to would requeue forever and strand the finalizer.
 		if repo != nil {
-			if err := d.deleteCanaryFiles(repo); err != nil {
-				logging.Error(d.logger, err, "error deleting state store contents")
-				return defaultRequeue, nil
+			if _, deferred := delivery.Deferred(repo.Writer); !deferred {
+				if err := d.deleteCanaryFiles(repo); err != nil {
+					logging.Error(d.logger, err, "error deleting state store contents")
+					return defaultRequeue, nil
+				}
 			}
 		}
 

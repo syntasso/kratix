@@ -557,8 +557,13 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 	deferred, isDeferred := delivery.Deferred(repo.Writer)
 	if !isDeferred {
 		// The delivery mode was taken off the state store while this one was in flight.
-		w.workPlacement.Status.DeliveryReceipt = ""
-		return fastRequeue, w.client.Status().Update(w.ctx, w.workPlacement)
+		return fastRequeue, w.clearOutstandingDelivery()
+	}
+
+	// The workloads moved on while this delivery was in flight, so whatever it carries is not
+	// what this generation asks for. Resolving it would mark stale content as written.
+	if w.workPlacement.Status.DeliveryGeneration != w.workPlacement.GetGeneration() {
+		return fastRequeue, w.clearOutstandingDelivery()
 	}
 
 	result, err := deferred.Check(w.ctx, receipt)
@@ -572,6 +577,7 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 	switch result.Outcome {
 	case delivery.Pending:
 		w.workPlacement.Status.DeliveryReceipt = result.Receipt
+		w.workPlacement.Status.DeliveryGeneration = w.workPlacement.GetGeneration()
 		w.workPlacement.SetWriteDeferredCondition(result.Reason)
 		if err := w.client.Status().Update(w.ctx, w.workPlacement); err != nil {
 			return ctrl.Result{}, err
@@ -580,6 +586,7 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 
 	case delivery.Rejected:
 		w.workPlacement.Status.DeliveryReceipt = ""
+		w.workPlacement.Status.DeliveryGeneration = 0
 		if err := w.updateResourceStatus("", errors.New(result.Reason)); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -587,6 +594,7 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 
 	case delivery.Delivered:
 		w.workPlacement.Status.DeliveryReceipt = ""
+		w.workPlacement.Status.DeliveryGeneration = 0
 		w.setVersionID(result.VersionID)
 		w.publishWriteEvent("WorkloadsWrittenToStateStore", result.VersionID, nil)
 		if err := w.updateResourceStatus(result.VersionID, nil); err != nil {
@@ -785,4 +793,10 @@ func getDir(destinationPath string, workPlacement v1alpha1.WorkPlacement) string
 		// destinationPath/resources/<rr-namespace>/<promise-name>/<rr-name>/<pipeline-name>/<dir-sha>/
 		return filepath.Join(destinationPath, resourcesDir, workPlacement.GetNamespace(), workPlacement.Spec.PromiseName, workPlacement.Spec.ResourceName, workPlacement.PipelineName(), shortID(workPlacement.Spec.ID))
 	}
+}
+
+func (w *workPlacementReconcileContext) clearOutstandingDelivery() error {
+	w.workPlacement.Status.DeliveryReceipt = ""
+	w.workPlacement.Status.DeliveryGeneration = 0
+	return w.client.Status().Update(w.ctx, w.workPlacement)
 }
