@@ -1,6 +1,7 @@
 package writers
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -37,7 +38,7 @@ type gitAuthor struct {
 type GitExecutor interface {
 	Add(files ...string) (string, error)
 	Clone(branch string) (repoDir string, err error)
-	CommitAndPush(branch, message, author, email string) (string, error)
+	Commit(message, author, email string) (sha string, err error)
 	Push(branch string, force bool) (string, error)
 	Root() string
 	HasChanges() (bool, error)
@@ -55,6 +56,7 @@ type GitWriterOption func(*gitWriterConfig)
 
 type gitWriterConfig struct {
 	minimumFetchInterval time.Duration
+	githubAPIURL         string
 }
 
 func WithMinimumFetchInterval(interval time.Duration) GitWriterOption {
@@ -63,7 +65,13 @@ func WithMinimumFetchInterval(interval time.Duration) GitWriterOption {
 	}
 }
 
-func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte, opts ...GitWriterOption) (StateStoreWriter, error) {
+func WithGitHubAPIURL(apiURL string) GitWriterOption {
+	return func(c *gitWriterConfig) {
+		c.githubAPIURL = apiURL
+	}
+}
+
+func NewGitExecutor(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, repoPath string, creds map[string][]byte, opts ...GitWriterOption) (GitExecutor, error) {
 	config := gitWriterConfig{
 		minimumFetchInterval: git.DefaultMinimumFetchInterval,
 	}
@@ -71,12 +79,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		opt(&config)
 	}
 
-	repoPath := strings.TrimPrefix(path.Join(
-		stateStoreSpec.Path,
-		destinationPath,
-	), "/")
-
-	auth, err := git.SetAuth(stateStoreSpec, creds)
+	auth, err := git.SetAuth(stateStoreSpec, creds, git.WithGitHubAPIURL(config.githubAPIURL))
 	if err != nil {
 		return nil, fmt.Errorf("could not create auth method: %w", err)
 	}
@@ -95,6 +98,19 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 	if err != nil {
 		return nil, fmt.Errorf("could not create git native client: %w", err)
 	}
+	return nativeGitClient, nil
+}
+
+func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte, opts ...GitWriterOption) (StateStoreWriter, error) {
+	repoPath := strings.TrimPrefix(path.Join(
+		stateStoreSpec.Path,
+		destinationPath,
+	), "/")
+
+	executor, err := NewGitExecutor(logger, stateStoreSpec, repoPath, creds, opts...)
+	if err != nil {
+		return nil, err
+	}
 
 	gw := &GitWriter{
 		// TODO: use this value for forceBasicAuth in git native client
@@ -112,7 +128,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			"branch", stateStoreSpec.Branch,
 		),
 		Path:   repoPath,
-		Runner: nativeGitClient,
+		Runner: executor,
 	}
 
 	return gw, nil
@@ -127,8 +143,6 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		return "", nil
 	}
 
-	localDir := g.Runner.Root()
-
 	dirInGitRepo := filepath.Join(g.Runner.Root(), g.Path, subDir)
 	logger := g.Log.WithValues(
 		"dir", dirInGitRepo,
@@ -140,46 +154,11 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		return "", err
 	}
 
-	filesToAdd := make([]string, 0, len(workloadsToCreate))
-	for _, file := range workloadsToCreate {
-		//worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
-		log := logger.WithValues(
-			"filepath", file.Filepath,
-		)
-
-		///tmp/git-dir/worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
-		absoluteFilePath := filepath.Join(dirInGitRepo, file.Filepath)
-
-		//We need to protect against paths containing `..`
-		//filepath.Join expands any '../' in the Path to the actual, e.g. /tmp/foo/../ resolves to /tmp/
-		//To ensure they can't write to files on disk outside the tmp git repository we check the absolute Path
-		//returned by `filepath.Join` is still contained with the git repository:
-		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
-		if !strings.HasPrefix(absoluteFilePath, localDir) {
-			logging.Warn(log,
-				"path of file to write is not located within the git repository",
-				"absolutePath",
-				absoluteFilePath, "tmpDir", localDir)
-			return "", nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
+	if err := WriteFiles(g.Runner, dirInGitRepo, workloadsToCreate, logger); err != nil {
+		if errors.Is(err, ErrPathOutsideRepository) {
+			return "", nil
 		}
-
-		if err := os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
-			logging.Error(log, err, "could not generate local directories")
-			return "", err
-		}
-
-		if err := os.WriteFile(absoluteFilePath, []byte(file.Content), 0644); err != nil {
-			logging.Error(log, err, "could not write to file")
-			return "", err
-		}
-		filesToAdd = append(filesToAdd, absoluteFilePath)
-	}
-
-	if len(filesToAdd) > 0 {
-		if _, err := g.Runner.Add(filesToAdd...); err != nil {
-			logging.Error(logger, err, "could not add files to worktree")
-			return "", err
-		}
+		return "", err
 	}
 
 	// TODO: make it a type
@@ -240,6 +219,49 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 	return nil
 }
 
+var ErrPathOutsideRepository = fmt.Errorf("workload path is outside the git repository")
+
+// WriteFiles writes each workload under dir in the clone and stages it.
+func WriteFiles(runner GitExecutor, dir string, workloads []v1alpha1.Workload, logger logr.Logger) error {
+	localDir := runner.Root()
+
+	filesToAdd := make([]string, 0, len(workloads))
+	for _, file := range workloads {
+		log := logger.WithValues("filepath", file.Filepath)
+
+		absoluteFilePath := filepath.Join(dir, file.Filepath)
+
+		// filepath.Join resolves `..`, so the result must still sit inside the clone.
+		if !strings.HasPrefix(absoluteFilePath, localDir) {
+			logging.Warn(log,
+				"path of file to write is not located within the git repository",
+				"absolutePath", absoluteFilePath, "tmpDir", localDir)
+			return ErrPathOutsideRepository
+		}
+
+		if err := os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
+			logging.Error(log, err, "could not generate local directories")
+			return err
+		}
+
+		if err := os.WriteFile(absoluteFilePath, []byte(file.Content), 0644); err != nil {
+			logging.Error(log, err, "could not write to file")
+			return err
+		}
+		filesToAdd = append(filesToAdd, absoluteFilePath)
+	}
+
+	if len(filesToAdd) == 0 {
+		return nil
+	}
+
+	if _, err := runner.Add(filesToAdd...); err != nil {
+		logging.Error(logger, err, "could not add files to worktree")
+		return err
+	}
+	return nil
+}
+
 func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	fullPath := filepath.Join(g.Runner.Root(), g.Path, filePath)
 	logger := g.Log.WithValues(
@@ -285,10 +307,14 @@ func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.
 
 	logging.Info(logger, "pushing changes")
 
-	// Run a commit with author and message
 	commitMsg := fmt.Sprintf("%s from: %s", action, workPlacementName)
-	commitSha, err := g.Runner.CommitAndPush(g.GitServer.Branch, commitMsg, g.Author.Name, g.Author.Email)
+	commitSha, err := g.Runner.Commit(commitMsg, g.Author.Name, g.Author.Email)
 	if err != nil {
+		logging.Error(logger, err, "could not commit changes")
+		return "", err
+	}
+
+	if _, err := g.Runner.Push(g.GitServer.Branch, false); err != nil {
 		logging.Error(logger, err, "could not push changes")
 		return "", err
 	}

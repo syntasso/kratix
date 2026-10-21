@@ -12,6 +12,8 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -148,12 +150,15 @@ var _ = Describe("NewGitWriter", func() {
 	Context("authenticate with GitHub App", func() {
 		var (
 			jwtCalled, tokenCalled         bool
+			tokenAPIURL                    string
+			creds                          map[string][]byte
 			origGenerateGitHubAppJWT       func(string, string) (string, error)
 			origGetGitHubInstallationToken func(string, string, string, bool) (string, error)
 		)
 		BeforeEach(func() {
 			jwtCalled = false
 			tokenCalled = false
+			tokenAPIURL = ""
 			origGenerateGitHubAppJWT = git.GenerateGitHubAppJWT
 			origGetGitHubInstallationToken = git.GetGitHubInstallationToken
 			git.GenerateGitHubAppJWT = func(appID, pk string) (string, error) {
@@ -162,7 +167,14 @@ var _ = Describe("NewGitWriter", func() {
 			}
 			git.GetGitHubInstallationToken = func(apiURL, installationID, jwt string, insecure bool) (string, error) {
 				tokenCalled = true
+				tokenAPIURL = apiURL
 				return "token", nil
+			}
+			stateStoreSpec.AuthMethod = "githubApp"
+			creds = map[string][]byte{
+				"appID":          []byte("123"),
+				"installationID": []byte("456"),
+				"privateKey":     []byte("dummy"),
 			}
 		})
 		AfterEach(func() {
@@ -170,17 +182,65 @@ var _ = Describe("NewGitWriter", func() {
 			git.GetGitHubInstallationToken = origGetGitHubInstallationToken
 		})
 		It("returns a valid GitWriter", func() {
-			stateStoreSpec.AuthMethod = "githubApp"
-			creds := map[string][]byte{
-				"appID":          []byte("123"),
-				"installationID": []byte("456"),
-				"privateKey":     []byte("dummy"),
-			}
 			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
 			Expect(jwtCalled).To(BeTrue())
 			Expect(tokenCalled).To(BeTrue())
+		})
+
+		It("talks to github.com by default", func() {
+			_, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokenAPIURL).To(Equal("https://api.github.com"))
+		})
+
+		It("talks to the GitHub API URL given by the option", func() {
+			_, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds,
+				writers.WithGitHubAPIURL("https://github.example.com/api/v3/"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokenAPIURL).To(Equal("https://github.example.com/api/v3"))
+		})
+	})
+
+	Describe("UpdateFiles", func() {
+		var (
+			runner    *fakeGitExecutor
+			creds     map[string][]byte
+			workloads []v1alpha1.Workload
+		)
+
+		BeforeEach(func() {
+			runner = &fakeGitExecutor{root: GinkgoT().TempDir()}
+			creds = map[string][]byte{
+				"username": []byte("user1"),
+				"password": []byte("pw1"),
+			}
+			workloads = []v1alpha1.Workload{{Filepath: "deployment.yaml", Content: "kind: Deployment"}}
+		})
+
+		It("pushes to the state store branch", func() {
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+			Expect(err).NotTo(HaveOccurred())
+			gitWriter := writer.(*writers.GitWriter)
+			gitWriter.Runner = runner
+
+			sha, err := gitWriter.UpdateFiles("", "my-workplacement", workloads, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(sha).To(Equal("sha"))
+			Expect(runner.committed).To(Equal("Update from: my-workplacement"))
+			Expect(runner.pushedTo).To(Equal("test"))
+		})
+
+		It("never force-pushes", func() {
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+			Expect(err).NotTo(HaveOccurred())
+			gitWriter := writer.(*writers.GitWriter)
+			gitWriter.Runner = runner
+
+			_, err = gitWriter.UpdateFiles("", "my-workplacement", workloads, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(runner.forced).To(BeFalse())
 		})
 	})
 
@@ -311,6 +371,80 @@ var _ = Describe("NewGitWriter", func() {
 		})
 	})
 })
+
+var _ = Describe("WriteFiles", func() {
+	var (
+		logger logr.Logger
+		runner *fakeGitExecutor
+		dir    string
+	)
+
+	BeforeEach(func() {
+		logger = ctrl.Log.WithName("stage")
+		runner = &fakeGitExecutor{root: GinkgoT().TempDir()}
+		dir = filepath.Join(runner.root, "dest", "resources")
+	})
+
+	It("writes each workload under the directory and stages it", func() {
+		workloads := []v1alpha1.Workload{
+			{Filepath: "deployment.yaml", Content: "kind: Deployment"},
+			{Filepath: "nested/service.yaml", Content: "kind: Service"},
+		}
+
+		Expect(writers.WriteFiles(runner, dir, workloads, logger)).To(Succeed())
+
+		Expect(os.ReadFile(filepath.Join(dir, "deployment.yaml"))).To(Equal([]byte("kind: Deployment")))
+		Expect(os.ReadFile(filepath.Join(dir, "nested", "service.yaml"))).To(Equal([]byte("kind: Service")))
+		Expect(runner.added).To(ConsistOf(
+			filepath.Join(dir, "deployment.yaml"),
+			filepath.Join(dir, "nested", "service.yaml"),
+		))
+	})
+
+	It("stages nothing when there are no workloads", func() {
+		Expect(writers.WriteFiles(runner, dir, nil, logger)).To(Succeed())
+		Expect(runner.added).To(BeEmpty())
+	})
+
+	It("refuses a workload whose path escapes the clone", func() {
+		workloads := []v1alpha1.Workload{
+			{Filepath: "../../../../escaped.yaml", Content: "kind: Secret"},
+		}
+
+		err := writers.WriteFiles(runner, dir, workloads, logger)
+		Expect(err).To(MatchError(writers.ErrPathOutsideRepository))
+		Expect(runner.added).To(BeEmpty())
+	})
+})
+
+// fakeGitExecutor records what the writer asks the git runner to do.
+type fakeGitExecutor struct {
+	root      string
+	added     []string
+	committed string
+	pushedTo  string
+	forced    bool
+}
+
+func (f *fakeGitExecutor) Add(files ...string) (string, error) {
+	f.added = append(f.added, files...)
+	return "", nil
+}
+func (f *fakeGitExecutor) Clone(branch string) (string, error) { return f.root, nil }
+func (f *fakeGitExecutor) Commit(message, author, email string) (string, error) {
+	f.committed = message
+	return "sha", nil
+}
+func (f *fakeGitExecutor) Push(branch string, force bool) (string, error) {
+	f.pushedTo = branch
+	f.forced = force
+	return "", nil
+}
+func (f *fakeGitExecutor) Root() string                      { return f.root }
+func (f *fakeGitExecutor) HasChanges() (bool, error)         { return true, nil }
+func (f *fakeGitExecutor) ResetToRemote(branch string) error { return nil }
+func (f *fakeGitExecutor) RemoveDirectory(dir string) error  { return nil }
+func (f *fakeGitExecutor) RemoveFile(file string) error      { return nil }
 
 func generateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
 	privateKeyPEM := pem.Block{

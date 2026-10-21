@@ -145,7 +145,24 @@ func domainFromBaseURL(baseURL string) (string, error) {
 }
 
 // TODO: migrate the test from the writers/git to a package level test
-func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte) (*Auth, error) {
+// AuthOption tweaks how SetAuth builds credentials.
+type AuthOption func(*authConfig)
+
+type authConfig struct {
+	githubAPIURL string
+}
+
+func WithGitHubAPIURL(apiURL string) AuthOption {
+	return func(c *authConfig) {
+		c.githubAPIURL = apiURL
+	}
+}
+
+func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte, opts ...AuthOption) (*Auth, error) {
+	config := authConfig{}
+	for _, opt := range opts {
+		opt(&config)
+	}
 
 	var (
 		authCreds Creds
@@ -182,7 +199,7 @@ func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte)
 		)
 
 	case v1alpha1.GitHubAppAuthMethod:
-		appCreds, err := newGithubAppCreds(stateStoreSpec, creds)
+		appCreds, err := newGithubAppCreds(stateStoreSpec, creds, config.githubAPIURL)
 		if err != nil {
 			return nil, err
 		}
@@ -214,7 +231,7 @@ func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte)
 			int64(appID),
 			int64(installationID),
 			appCreds.PrivateKey,
-			"https://api.github.com",
+			appCreds.ApiUrl,
 			"",
 			"",
 			stateStoreSpec.TLSVerificationDisabled(),

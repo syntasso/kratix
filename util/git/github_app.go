@@ -211,8 +211,7 @@ func (g GitHubAppCreds) getAccessToken(logger logr.Logger) (string, error) {
 
 // getAppTransport creates a new GitHub transport for the app
 func (g GitHubAppCreds) getAppTransport(logger logr.Logger) (*ghinstallation.AppsTransport, error) {
-	// GitHub API url
-	baseURL := "https://api.github.com"
+	baseURL := DefaultGitHubAPIURL
 	if g.baseURL != "" {
 		baseURL = strings.TrimSuffix(g.baseURL, "/")
 	}
@@ -250,8 +249,7 @@ func (g GitHubAppCreds) getInstallationTransport(logger logr.Logger) (*ghinstall
 		return itr, nil
 	}
 
-	// GitHub API url
-	baseURL := "https://api.github.com"
+	baseURL := DefaultGitHubAPIURL
 	if g.baseURL != "" {
 		baseURL = strings.TrimSuffix(g.baseURL, "/")
 	}
@@ -376,7 +374,12 @@ func DiscoverGitHubAppInstallationID(ctx context.Context, appId int64, privateKe
 	return 0, fmt.Errorf("installation not found for org: %s", org)
 }
 
-func newGithubAppCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte) (*githubAppCreds, error) {
+const DefaultGitHubAPIURL = "https://api.github.com"
+
+func newGithubAppCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte, apiURL string) (*githubAppCreds, error) {
+	if apiURL == "" {
+		apiURL = DefaultGitHubAPIURL
+	}
 	namespace := stateStoreSpec.SecretRef.Namespace
 	name := stateStoreSpec.SecretRef.Name
 	appID, ok := creds["appID"]
@@ -395,8 +398,7 @@ func newGithubAppCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[stri
 		AppID:          string(appID),
 		InstallationID: string(installationID),
 		PrivateKey:     string(privateKey),
-		// Currently only the standard API URL is supported
-		ApiUrl: "https://api.github.com",
+		ApiUrl:         strings.TrimSuffix(apiURL, "/"),
 	}, nil
 }
 

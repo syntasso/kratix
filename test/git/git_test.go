@@ -82,8 +82,8 @@ var _ = Describe("Git tests", func() {
 
 					Expect(client.HasChanges()).To(BeTrue())
 
-					_, err = client.CommitAndPush(
-						branch, "TEST: test", "test-user", "test-user@syntasso.io")
+					err = commitAndPush(client,
+						branch, "TEST: test")
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -96,7 +96,7 @@ var _ = Describe("Git tests", func() {
 				err = client.RemoveDirectory(filepath.Join(client.Root(), testDirectory))
 				Expect(err).ToNot(HaveOccurred())
 
-				_, err = client.CommitAndPush(branch, "TEST: remove files", "test-user", "test-user@syntasso.io")
+				err = commitAndPush(client, branch, "TEST: remove files")
 				Expect(err).ToNot(HaveOccurred())
 
 				By("validating the files were removed successfully", func() {
@@ -165,7 +165,7 @@ var _ = Describe("Git tests", func() {
 				_, err = client.Add(filepath.Join(client.Root(), testDir))
 				Expect(err).ToNot(HaveOccurred())
 
-				_, err = client.CommitAndPush("invalid-fake-branch", "TEST: test", "test-user", "test-user@syntasso.io")
+				err = commitAndPush(client, "invalid-fake-branch", "TEST: test")
 				Expect(err).To(HaveOccurred())
 				Expect(err).To(MatchError(ContainSubstring("failed to push")))
 			})
@@ -229,8 +229,8 @@ var _ = Describe("Git tests", func() {
 					_, err := clientOne.Add(filepath.Join(clientOne.Root(), testDirOne))
 					Expect(err).ToNot(HaveOccurred())
 
-					_, err = clientOne.CommitAndPush(
-						branch, "TEST: test", "test-user", "test-user@syntasso.io")
+					err = commitAndPush(clientOne,
+						branch, "TEST: test")
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -240,8 +240,8 @@ var _ = Describe("Git tests", func() {
 
 					// Option A no longer rebases on rejection; the writer requeues,
 					// re-syncs to the remote, and retries at the reconcile level.
-					_, err = clientTwo.CommitAndPush(
-						branch, "TEST: test", "test-user", "test-user@syntasso.io")
+					err = commitAndPush(clientTwo,
+						branch, "TEST: test")
 					Expect(err).To(MatchError(ContainSubstring("failed to push")))
 				})
 
@@ -257,8 +257,8 @@ var _ = Describe("Git tests", func() {
 					_, err := clientTwo.Add(filepath.Join(clientTwo.Root(), testDirTwo))
 					Expect(err).ToNot(HaveOccurred())
 
-					_, err = clientTwo.CommitAndPush(
-						branch, "TEST: test after reset", "test-user", "test-user@syntasso.io")
+					err = commitAndPush(clientTwo,
+						branch, "TEST: test after reset")
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -270,7 +270,7 @@ var _ = Describe("Git tests", func() {
 				By("cleaning up", func() {
 					Expect(clientTwo.RemoveDirectory(filepath.Join(clientTwo.Root(), testDirOne))).To(Succeed())
 					Expect(clientTwo.RemoveDirectory(filepath.Join(clientTwo.Root(), testDirTwo))).To(Succeed())
-					_, err := clientTwo.CommitAndPush(branch, "TEST: remove files", "test-user", "test-user@syntasso.io")
+					err := commitAndPush(clientTwo, branch, "TEST: remove files")
 					Expect(err).ToNot(HaveOccurred())
 
 					os.RemoveAll(clientOne.Root())
@@ -425,4 +425,18 @@ func genGithubAppCreds() *git.Auth {
 	)
 	Expect(err).ToNot(HaveOccurred())
 	return githubAppAuthCreds
+}
+
+type committer interface {
+	Commit(message, author, email string) (string, error)
+	Push(branch string, force bool) (string, error)
+}
+
+// commitAndPush commits the staged changes and fast-forward pushes them.
+func commitAndPush(client committer, branch, message string) error {
+	if _, err := client.Commit(message, "test-user", "test-user@syntasso.io"); err != nil {
+		return err
+	}
+	_, err := client.Push(branch, false)
+	return err
 }

@@ -23,7 +23,6 @@ import (
 	"io"
 	"reflect"
 	"strconv"
-	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/internal/ptr"
@@ -142,8 +141,6 @@ type WorkflowDestinationSelectors struct {
 
 // PromiseStatus defines the observed state of Promise
 // +kubebuilder:pruning:PreserveUnknownFields
-//
-//nolint:recvcheck // MarshalJSON takes a value so Promise values keep their custom fields too
 type PromiseStatus struct {
 	// Current conditions of the Promise. Includes Available, WorksSucceeded, and Reconciled conditions
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -173,68 +170,24 @@ type PromiseStatus struct {
 	Custom map[string]apiextensionsv1.JSON `json:"-"`
 }
 
-// promiseStatusFields has no JSON methods, so it encodes the typed fields only.
 type promiseStatusFields PromiseStatus
 
-// MarshalJSON writes the typed fields followed by the custom fields.
-func (s PromiseStatus) MarshalJSON() ([]byte, error) {
-	typed, err := json.Marshal(promiseStatusFields(s))
-	if err != nil {
-		return nil, err
-	}
-	if len(s.Custom) == 0 {
-		return typed, nil
-	}
-
-	fields := map[string]json.RawMessage{}
-	if err = json.Unmarshal(typed, &fields); err != nil {
-		return nil, err
-	}
-	for key, value := range s.Custom {
-		if promiseStatusFieldNames[key] {
-			continue
-		}
-		fields[key] = value.Raw
-	}
-	return json.Marshal(fields)
+func (s *PromiseStatus) MarshalJSON() ([]byte, error) {
+	return marshalStatusWithCustomFields(promiseStatusFields(*s), s.Custom, promiseStatusFieldNames)
 }
 
-// UnmarshalJSON reads the typed fields and keeps every other key in Custom.
 func (s *PromiseStatus) UnmarshalJSON(data []byte) error {
 	var typed promiseStatusFields
-	if err := json.Unmarshal(data, &typed); err != nil {
+	custom, err := unmarshalStatusKeepingCustomFields(data, &typed, promiseStatusFieldNames)
+	if err != nil {
 		return err
 	}
-
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return err
-	}
-	for key, value := range fields {
-		if promiseStatusFieldNames[key] {
-			continue
-		}
-		if typed.Custom == nil {
-			typed.Custom = map[string]apiextensionsv1.JSON{}
-		}
-		typed.Custom[key] = apiextensionsv1.JSON{Raw: value}
-	}
-
+	typed.Custom = custom
 	*s = PromiseStatus(typed)
 	return nil
 }
 
-var promiseStatusFieldNames = func() map[string]bool {
-	names := map[string]bool{}
-	t := reflect.TypeOf(PromiseStatus{})
-	for i := range t.NumField() {
-		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
-		if name != "" && name != "-" {
-			names[name] = true
-		}
-	}
-	return names
-}()
+var promiseStatusFieldNames = jsonFieldNames(reflect.TypeOf(PromiseStatus{}))
 
 func IsKratixOwnedPromiseStatusField(name string) bool {
 	switch name {

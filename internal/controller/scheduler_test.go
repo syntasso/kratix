@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -191,6 +192,56 @@ var _ = Describe("Controllers/Scheduler", func() {
 					misplacedPoint := counts[telemetry.WorkPlacementOutcomeMisplaced]
 					Expect(misplacedPoint.Value).To(Equal(int64(1)))
 					Expect(outcomeAttributeValue(misplacedPoint.Attributes, "destination")).To(Equal(devDestination.Name))
+				})
+			})
+
+			When("another controller has written custom status fields on an existing WorkPlacement", func() {
+				var workPlacement v1alpha1.WorkPlacement
+
+				BeforeEach(func() {
+					misplacedWork := newWork("rr-work-custom-status", true, schedulingFor(prodDestination))
+					workloadGroup := misplacedWork.Spec.WorkloadGroups[0]
+					workPlacementName := fmt.Sprintf("%s.%s-%s", misplacedWork.Name, devDestination.Name, workloadGroup.ID[:5])
+					workPlacement = v1alpha1.WorkPlacement{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      workPlacementName,
+							Namespace: misplacedWork.Namespace,
+							Labels: map[string]string{
+								v1alpha1.KratixPrefix + "work":              misplacedWork.Name,
+								v1alpha1.KratixPrefix + "workload-group-id": workloadGroup.ID,
+							},
+						},
+						Spec: v1alpha1.WorkPlacementSpec{
+							ID:                    workloadGroup.ID,
+							PromiseName:           misplacedWork.Spec.PromiseName,
+							ResourceName:          misplacedWork.Spec.ResourceName,
+							TargetDestinationName: devDestination.Name,
+							Workloads:             workloadGroup.Workloads,
+						},
+					}
+					workPlacement.SetPipelineName(&misplacedWork)
+					Expect(fakeK8sClient.Create(context.Background(), &workPlacement)).To(Succeed())
+
+					workPlacement.Status.Custom = map[string]apiextensionsv1.JSON{
+						"pullRequest": {Raw: []byte(`{"url":"https://github.com/acme/platform/pull/42"}`)},
+					}
+					Expect(fakeK8sClient.Status().Update(context.Background(), &workPlacement)).To(Succeed())
+
+					// The Work targets prod but the WorkPlacement sits on dev, so the
+					// scheduler is guaranteed to write the WorkPlacement status.
+					_, err := scheduler.ReconcileWork(context.Background(), &misplacedWork)
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				It("writes its own conditions without dropping the custom fields", func() {
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+
+					scheduleCond := apimeta.FindStatusCondition(workPlacement.Status.Conditions, v1alpha1.ScheduleSucceededConditionType)
+					Expect(scheduleCond).NotTo(BeNil())
+					Expect(scheduleCond.Status).To(Equal(metav1.ConditionFalse))
+
+					Expect(workPlacement.Status.Custom).To(HaveKey("pullRequest"))
+					Expect(string(workPlacement.Status.Custom["pullRequest"].Raw)).To(ContainSubstring("pull/42"))
 				})
 			})
 

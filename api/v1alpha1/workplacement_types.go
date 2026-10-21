@@ -18,7 +18,9 @@ package v1alpha1
 
 import (
 	"fmt"
+	"reflect"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -43,6 +45,7 @@ type WorkPlacementSpec struct {
 }
 
 // WorkPlacementStatus defines the observed state of WorkPlacement
+// +kubebuilder:pruning:PreserveUnknownFields
 type WorkPlacementStatus struct {
 	// Current conditions of the WorkPlacement. Includes a Ready condition indicating all workloads are written to the StateStore
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -52,7 +55,29 @@ type WorkPlacementStatus struct {
 	// For Git StateStores, this is the SHA of the last applied commit
 	// For Bucket StateStores, this is always empty
 	VersionID string `json:"versionID,omitempty"`
+
+	// Status fields set by other controllers, kept so typed status updates do not drop them.
+	Custom map[string]apiextensionsv1.JSON `json:"-"`
 }
+
+type workPlacementStatusFields WorkPlacementStatus
+
+func (s *WorkPlacementStatus) MarshalJSON() ([]byte, error) {
+	return marshalStatusWithCustomFields(workPlacementStatusFields(*s), s.Custom, workPlacementStatusFieldNames)
+}
+
+func (s *WorkPlacementStatus) UnmarshalJSON(data []byte) error {
+	var typed workPlacementStatusFields
+	custom, err := unmarshalStatusKeepingCustomFields(data, &typed, workPlacementStatusFieldNames)
+	if err != nil {
+		return err
+	}
+	typed.Custom = custom
+	*s = WorkPlacementStatus(typed)
+	return nil
+}
+
+var workPlacementStatusFieldNames = jsonFieldNames(reflect.TypeOf(WorkPlacementStatus{}))
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

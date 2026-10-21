@@ -49,4 +49,50 @@ var _ = Describe("SetAuth", func() {
 		Entry("when verification is disabled", true),
 		Entry("when verification is enabled", false),
 	)
+
+	Describe("githubApp", func() {
+		var (
+			spec                           v1alpha1.GitStateStoreSpec
+			creds                          map[string][]byte
+			origGenerateGitHubAppJWT       func(string, string) (string, error)
+			origGetGitHubInstallationToken func(string, string, string, bool) (string, error)
+		)
+
+		BeforeEach(func() {
+			origGenerateGitHubAppJWT = GenerateGitHubAppJWT
+			origGetGitHubInstallationToken = GetGitHubInstallationToken
+			GenerateGitHubAppJWT = func(string, string) (string, error) { return "jwt", nil }
+			GetGitHubInstallationToken = func(string, string, string, bool) (string, error) { return "token", nil }
+
+			spec = v1alpha1.GitStateStoreSpec{
+				URL:        "https://github.example.com/syntasso/kratix",
+				AuthMethod: v1alpha1.GitHubAppAuthMethod,
+				StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
+					SecretRef: &corev1.SecretReference{Name: "creds", Namespace: "default"},
+				},
+			}
+			creds = map[string][]byte{
+				"appID":          []byte("123"),
+				"installationID": []byte("456"),
+				"privateKey":     []byte("dummy"),
+			}
+		})
+
+		AfterEach(func() {
+			GenerateGitHubAppJWT = origGenerateGitHubAppJWT
+			GetGitHubInstallationToken = origGetGitHubInstallationToken
+		})
+
+		It("uses github.com by default", func() {
+			auth, err := SetAuth(spec, creds)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(auth.Creds.(GitHubAppCreds).baseURL).To(Equal("https://api.github.com"))
+		})
+
+		It("uses the GitHub API URL from the option", func() {
+			auth, err := SetAuth(spec, creds, WithGitHubAPIURL("https://github.example.com/api/v3"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(auth.Creds.(GitHubAppCreds).baseURL).To(Equal("https://github.example.com/api/v3"))
+		})
+	})
 })
