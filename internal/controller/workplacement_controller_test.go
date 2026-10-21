@@ -985,6 +985,23 @@ files:
 			Expect(workPlacement.Status.Conditions).To(BeEmpty())
 			Expect(workPlacement.GetFinalizers()).To(ConsistOf("finalizers.example.com/cleanup"))
 		})
+
+		It("drops the Kratix finalizers once the work placement is deleted", func() {
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			workPlacement.SetFinalizers([]string{
+				"finalizers.example.com/cleanup",
+				"finalizers.workplacement.kratix.io/repo-cleanup",
+				"finalizers.workplacement.kratix.io/kratix-dot-files-cleanup",
+			})
+			Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+
+			_, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			Expect(workPlacement.GetFinalizers()).To(ConsistOf("finalizers.example.com/cleanup"))
+			Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(0))
+		})
 	})
 })
 

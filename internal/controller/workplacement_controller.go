@@ -182,7 +182,7 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 	if w.destination.Spec.StateStoreRef.IsManagedByCustomController() {
 		logging.Debug(w.logger, "state store kind is not managed by Kratix, skipping",
 			"kind", w.destination.Spec.StateStoreRef.Kind)
-		return ctrl.Result{}, nil
+		return w.releaseKratixFinalizers()
 	}
 
 	destinationReady := apiMeta.FindStatusCondition(w.destination.Status.Conditions, "Ready")
@@ -322,6 +322,19 @@ func workPlacementReconcilePredicate() predicate.Funcs {
 			return e.ObjectNew.GetGeneration() != e.ObjectOld.GetGeneration() || deletionStarted
 		},
 	}
+}
+
+// The scheduler adds the Kratix finalizers to every WorkPlacement, but a custom kind cleans up with its own.
+func (w *workPlacementReconcileContext) releaseKratixFinalizers() (ctrl.Result, error) {
+	if w.workPlacement.DeletionTimestamp.IsZero() {
+		return ctrl.Result{}, nil
+	}
+	if !controllerutil.ContainsFinalizer(w.workPlacement, repoCleanupWorkPlacementFinalizer) &&
+		!controllerutil.ContainsFinalizer(w.workPlacement, kratixFileCleanupWorkPlacementFinalizer) {
+		return ctrl.Result{}, nil
+	}
+	cleanupDeletionFinalizers(w.workPlacement)
+	return ctrl.Result{}, w.client.Update(w.ctx, w.workPlacement)
 }
 
 func (w *workPlacementReconcileContext) checkWorkPlacementFinalizers() []string {
