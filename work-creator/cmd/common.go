@@ -6,7 +6,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func getClient() (client.Client, error) {
+var getClient = func() (client.Client, error) {
 	config := ctrl.GetConfigOrDie()
 	return client.New(config, client.Options{Scheme: scheme.Scheme})
 }
