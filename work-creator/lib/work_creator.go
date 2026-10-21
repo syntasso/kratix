@@ -37,6 +37,19 @@ type WorkCreator struct {
 	K8sClient client.Client
 }
 
+type ExecuteOptions struct {
+	WorkloadsDirectory         string
+	MetadataDirectory          string
+	PromiseSchedulingDirectory string
+	PromiseName                string
+	Namespace                  string
+	ResourceName               string
+	ResourceNamespace          string
+	WorkflowType               string
+	PipelineName               string
+	PromiseVersion             string
+}
+
 func buildWorkIdentifier(promiseName, resourceName, resourceNamespace, pipelineName, workflowType string) string {
 	if !strings.HasPrefix(workflowType, string(v1alpha1.WorkflowTypeResource)) {
 		return fmt.Sprintf("%s-%s", promiseName, pipelineName)
@@ -47,7 +60,7 @@ func buildWorkIdentifier(promiseName, resourceName, resourceNamespace, pipelineN
 	return fmt.Sprintf("%s-%s-%s", promiseName, resourceName, pipelineName)
 }
 
-func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, resourceNamespace, workflowType, pipelineName, promiseVersion string) (retErr error) {
+func (w *WorkCreator) Execute(options ExecuteOptions) (retErr error) {
 	ctx := context.Background()
 	traceParent, traceState := telemetry.TraceParentFromEnv()
 	extractedCtx, ok := telemetry.ContextWithTraceparent(ctx, traceParent, traceState)
@@ -65,7 +78,8 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}()
 	ctx = extractedCtx
 
-	identifier := buildWorkIdentifier(promiseName, resourceName, resourceNamespace, pipelineName, workflowType)
+	identifier := buildWorkIdentifier(options.PromiseName, options.ResourceName, options.ResourceNamespace, options.PipelineName, options.WorkflowType)
+	namespace := options.Namespace
 	if namespace == "" {
 		namespace = "kratix-platform-system"
 	}
@@ -81,29 +95,29 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		WithValues("identifier", identifier).
 		WithValues("workName", identifier).
 		WithValues("namespace", namespace).
-		WithValues("resourceName", resourceName).
-		WithValues("promiseName", promiseName).
-		WithValues("pipelineName", pipelineName)
+		WithValues("resourceName", options.ResourceName).
+		WithValues("promiseName", options.PromiseName).
+		WithValues("pipelineName", options.PipelineName)
 
 	logger = telemetry.LoggerWithTrace(logger, span)
 	telemetry.SetCommonAttributes(span,
 		attribute.String("kratix.work.identifier", identifier),
-		attribute.String("kratix.promise.name", promiseName),
-		attribute.String("kratix.pipeline.name", pipelineName),
-		attribute.String("kratix.workflow.type", workflowType),
+		attribute.String("kratix.promise.name", options.PromiseName),
+		attribute.String("kratix.pipeline.name", options.PipelineName),
+		attribute.String("kratix.workflow.type", options.WorkflowType),
 		attribute.String("kratix.namespace", namespace),
 	)
 
-	workflowScheduling, err := w.getWorkflowScheduling(rootDirectory)
+	workflowScheduling, err := w.getWorkflowScheduling(options.MetadataDirectory)
 	if err != nil {
 		return err
 	}
 
-	if err := removeHealthDefinitionCountFile(rootDirectory); err != nil {
+	if err := removeHealthDefinitionCountFile(options.MetadataDirectory); err != nil {
 		return err
 	}
 
-	workflowControl, err := ReadWorkflowControlFile(filepath.Join(rootDirectory, "metadata", "workflow-control.yaml"))
+	workflowControl, err := w.getWorkflowControl(options.MetadataDirectory)
 	if err != nil {
 		return err
 	}
@@ -115,12 +129,12 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		return nil
 	}
 
-	versioner := newHealthDefinitionVersioner(promiseVersion)
+	versioner := newHealthDefinitionVersioner(options.PromiseVersion)
 
 	var workloadGroups []v1alpha1.WorkloadGroup
 	var directoriesToIgnoreForTheBaseScheduling []string
 	var defaultDestinationSelectors map[string]string
-	pipelineOutputDir := filepath.Join(rootDirectory, "input")
+	pipelineOutputDir := options.WorkloadsDirectory
 
 	for _, workflowDestinationSelector := range workflowScheduling {
 		directory := workflowDestinationSelector.Directory
@@ -140,7 +154,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 				DestinationSelectors: []v1alpha1.WorkloadGroupScheduling{
 					{
 						MatchLabels: workflowDestinationSelector.MatchLabels,
-						Source:      workflowType + "-" + "workflow",
+						Source:      options.WorkflowType + "-" + "workflow",
 					},
 				},
 			})
@@ -165,12 +179,12 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 			defaultWorkloadGroup.DestinationSelectors = []v1alpha1.WorkloadGroupScheduling{
 				{
 					MatchLabels: defaultDestinationSelectors,
-					Source:      workflowType + "-" + "workflow",
+					Source:      options.WorkflowType + "-" + "workflow",
 				},
 			}
 		}
 
-		destinationSelectors, err := w.getPromiseScheduling(rootDirectory)
+		destinationSelectors, err := w.getPromiseScheduling(options.PromiseSchedulingDirectory)
 		if err != nil {
 			return err
 		}
@@ -218,18 +232,18 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work.Spec.LastExecutionTimestamp = metav1.Now()
 	work.Namespace = namespace
 	work.Spec.WorkloadGroups = workloadGroups
-	work.Spec.PromiseName = promiseName
-	work.Spec.ResourceName = resourceName
+	work.Spec.PromiseName = options.PromiseName
+	work.Spec.ResourceName = options.ResourceName
 	work.SetAnnotations(telemetry.ApplyTraceAnnotations(work.GetAnnotations(), traceParent, traceState))
 	versioner.annotate(work)
 	work.Labels = map[string]string{}
 	logger.Info("setting work labels...")
 
-	if !strings.HasPrefix(workflowType, string(v1alpha1.WorkflowTypeResource)) {
-		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
+	if !strings.HasPrefix(options.WorkflowType, string(v1alpha1.WorkflowTypeResource)) {
+		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(options.PromiseName)
 	}
 
-	workLabels := resourceutil.GetWorkLabels(promiseName, resourceName, resourceNamespace, pipelineName, workflowType)
+	workLabels := resourceutil.GetWorkLabels(options.PromiseName, options.ResourceName, options.ResourceNamespace, options.PipelineName, options.WorkflowType)
 	if os.Getenv(v1alpha1.KratixDryRunEnvVar) == "true" {
 		workLabels[v1alpha1.DryRunLabel] = "true"
 	}
@@ -251,7 +265,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 			return err
 		}
 		logger.Info("Work created", "workName", work.Name)
-		return w.writeHealthDefinitionCount(ctx, versioner, rootDirectory, namespace, promiseName, resourceName, resourceNamespace, workflowType)
+		return w.writeHealthDefinitionCount(ctx, versioner, options.MetadataDirectory, namespace, options.PromiseName, options.ResourceName, options.ResourceNamespace, options.WorkflowType)
 	}
 
 	logger.Info("Work already exists, will update")
@@ -266,13 +280,13 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}
 
 	logger.Info("Work updated", "workName", currentWork.Name)
-	return w.writeHealthDefinitionCount(ctx, versioner, rootDirectory, namespace, promiseName, resourceName, resourceNamespace, workflowType)
+	return w.writeHealthDefinitionCount(ctx, versioner, options.MetadataDirectory, namespace, options.PromiseName, options.ResourceName, options.ResourceNamespace, options.WorkflowType)
 }
 
 // writeHealthDefinitionCount lists the resource's configure Works once this run's
 // Work is saved, so the count file covers every pipeline of the resource.
-func (w *WorkCreator) writeHealthDefinitionCount(ctx context.Context, versioner *healthDefinitionVersioner, rootDirectory, namespace, promiseName, resourceName, resourceNamespace, workflowType string) error {
-	if versioner == nil || workflowType != string(v1alpha1.WorkflowTypeResource) {
+func (w *WorkCreator) writeHealthDefinitionCount(ctx context.Context, versioner *healthDefinitionVersioner, metadataDirectory, namespace, promiseName, resourceName, resourceNamespace, workflowType string) error {
+	if versioner == nil || workflowType != string(v1alpha1.WorkflowTypeResource) || metadataDirectory == "" {
 		return nil
 	}
 	works := &v1alpha1.WorkList{}
@@ -280,7 +294,7 @@ func (w *WorkCreator) writeHealthDefinitionCount(ctx context.Context, versioner 
 	if err := w.K8sClient.List(ctx, works, client.InNamespace(namespace), client.MatchingLabels(selector)); err != nil {
 		return err
 	}
-	return versioner.writeCountFile(rootDirectory, works.Items)
+	return versioner.writeCountFile(metadataDirectory, works.Items)
 }
 
 // /kratix/output/     /kratix/output/   "bar"
@@ -343,8 +357,18 @@ func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, root
 	return workloads, nil
 }
 
-func (w *WorkCreator) getWorkflowScheduling(rootDirectory string) ([]v1alpha1.WorkflowDestinationSelectors, error) {
-	destinationFile := filepath.Join(rootDirectory, "metadata", "destination-selectors.yaml")
+func (w *WorkCreator) getWorkflowControl(metadataDirectory string) (*WorkflowControl, error) {
+	if metadataDirectory == "" {
+		return nil, nil
+	}
+	return ReadWorkflowControlFile(filepath.Join(metadataDirectory, "workflow-control.yaml"))
+}
+
+func (w *WorkCreator) getWorkflowScheduling(metadataDirectory string) ([]v1alpha1.WorkflowDestinationSelectors, error) {
+	if metadataDirectory == "" {
+		return nil, nil
+	}
+	destinationFile := filepath.Join(metadataDirectory, "destination-selectors.yaml")
 	fileContents, err := os.ReadFile(destinationFile)
 	if err != nil {
 		if goerr.Is(err, os.ErrNotExist) {
@@ -355,9 +379,11 @@ func (w *WorkCreator) getWorkflowScheduling(rootDirectory string) ([]v1alpha1.Wo
 	return ParseDestinationSelectors(fileContents)
 }
 
-func (w *WorkCreator) getPromiseScheduling(rootDirectory string) ([]v1alpha1.WorkloadGroupScheduling, error) {
-	kratixSystemDirectory := filepath.Join(rootDirectory, "kratix-system")
-	file := filepath.Join(kratixSystemDirectory, "promise-scheduling")
+func (w *WorkCreator) getPromiseScheduling(promiseSchedulingDirectory string) ([]v1alpha1.WorkloadGroupScheduling, error) {
+	if promiseSchedulingDirectory == "" {
+		return nil, nil
+	}
+	file := filepath.Join(promiseSchedulingDirectory, "promise-scheduling")
 	fileContents, err := os.ReadFile(file)
 	if err != nil {
 		if goerr.Is(err, os.ErrNotExist) {

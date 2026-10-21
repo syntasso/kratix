@@ -76,7 +76,7 @@ var _ = Describe("work-creator command", func() {
 
 	It("fails without creating a Work when a required flag is not set", func() {
 		err := runWorkCreator("--promise-name", "redis", "--pipeline-name", "configure")
-		Expect(err).To(MatchError(`required flag(s) "input-directory" not set`))
+		Expect(err).To(MatchError(`at least one of the flags in the group [input-directory workloads-directory] is required`))
 
 		err = runWorkCreator("--input-directory", inputDirectory, "--pipeline-name", "configure")
 		Expect(err).To(MatchError(`required flag(s) "promise-name" not set`))
@@ -327,6 +327,121 @@ var _ = Describe("work-creator command", func() {
 			Expect(workloadContents(getOnlyWork("team-a").Spec.WorkloadGroups[0])).To(Equal(map[string]string{
 				"configmap.yaml": configMapManifest,
 			}))
+		})
+	})
+
+	Describe("the directory flags", func() {
+		var (
+			workloadsDirectory         string
+			metadataDirectory          string
+			promiseSchedulingDirectory string
+		)
+
+		BeforeEach(func() {
+			workloadsDirectory = GinkgoT().TempDir()
+			metadataDirectory = GinkgoT().TempDir()
+			promiseSchedulingDirectory = GinkgoT().TempDir()
+			writeFile(workloadsDirectory, "configmap.yaml", configMapManifest)
+		})
+
+		runWithDirectoryFlags := func(extraArgs ...string) error {
+			args := []string{
+				"--workloads-directory", workloadsDirectory,
+				"--promise-name", "redis",
+				"--pipeline-name", "configure",
+				"--resource-name", "my-redis",
+				"--namespace", "team-a",
+			}
+			return runWorkCreator(append(args, extraArgs...)...)
+		}
+
+		It("creates a Work from the files in --workloads-directory, scheduled from the other two directories", func() {
+			writeFile(workloadsDirectory, "nested/namespace.yaml", namespaceManifest)
+			writeFile(metadataDirectory, "destination-selectors.yaml", "- matchLabels:\n    environment: production\n")
+			writeFile(promiseSchedulingDirectory, "promise-scheduling", "- matchLabels:\n    environment: dev\n  source: promise\n")
+
+			err := runWithDirectoryFlags(
+				"--metadata-directory", metadataDirectory,
+				"--promise-scheduling-directory", promiseSchedulingDirectory,
+				"--workflow-type", "resource",
+			)
+			Expect(err).NotTo(HaveOccurred())
+
+			work := getOnlyWork("team-a")
+			Expect(work.Name).To(MatchRegexp(`^redis-my-redis-configure-[0-9a-f]{5}$`))
+			Expect(work.Labels).To(Equal(map[string]string{
+				v1alpha1.PromiseNameLabel:  "redis",
+				v1alpha1.ResourceNameLabel: "my-redis",
+				v1alpha1.PipelineNameLabel: "configure",
+				v1alpha1.WorkTypeLabel:     "resource",
+			}))
+			Expect(work.Spec.WorkloadGroups).To(HaveLen(1))
+			Expect(workloadContents(work.Spec.WorkloadGroups[0])).To(Equal(map[string]string{
+				"configmap.yaml":        configMapManifest,
+				"nested/namespace.yaml": namespaceManifest,
+			}))
+			Expect(work.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
+				v1alpha1.WorkloadGroupScheduling{
+					MatchLabels: map[string]string{"environment": "production"},
+					Source:      "resource-workflow",
+				},
+				v1alpha1.WorkloadGroupScheduling{
+					MatchLabels: map[string]string{"environment": "dev"},
+					Source:      "promise",
+				},
+			))
+		})
+
+		It("creates a Work without --metadata-directory or --promise-scheduling-directory", func() {
+			Expect(runWithDirectoryFlags("--workflow-type", "resource-custom-works")).To(Succeed())
+
+			work := getOnlyWork("team-a")
+			Expect(workloadContents(work.Spec.WorkloadGroups[0])).To(Equal(map[string]string{
+				"configmap.yaml": configMapManifest,
+			}))
+			Expect(work.Spec.WorkloadGroups[0].DestinationSelectors).To(BeEmpty())
+		})
+
+		It("reads workflow control from --metadata-directory", func() {
+			writeFile(metadataDirectory, "workflow-control.yaml", "suspend: true\n")
+
+			Expect(runWithDirectoryFlags("--metadata-directory", metadataDirectory, "--workflow-type", "resource")).To(Succeed())
+
+			Expect(listWorks("team-a")).To(BeEmpty())
+		})
+
+		It("writes the health definitions count file to --metadata-directory", func() {
+			err := runWithDirectoryFlags("--metadata-directory", metadataDirectory, "--workflow-type", "resource", "--promise-version", "v1.0.0")
+			Expect(err).NotTo(HaveOccurred())
+
+			count, err := os.ReadFile(filepath.Join(metadataDirectory, "health-definitions.yaml"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(count)).To(Equal("healthDefinitions: 0\npromiseVersion: v1.0.0\n"))
+		})
+
+		It("fails without creating a Work when --workflow-type is not set", func() {
+			Expect(runWithDirectoryFlags()).To(MatchError("must provide --workflow-type when using --workloads-directory"))
+			Expect(listWorks("team-a")).To(BeEmpty())
+		})
+
+		It("fails without creating a Work when --metadata-directory is not set for a versioned resource workflow", func() {
+			err := runWithDirectoryFlags("--workflow-type", "resource", "--promise-version", "v1.0.0")
+
+			Expect(err).To(MatchError("must provide --metadata-directory when --workflow-type is resource and --promise-version is set"))
+			Expect(listWorks("team-a")).To(BeEmpty())
+		})
+
+		It("fails without creating a Work when any of them are used with --input-directory", func() {
+			err := runWithDirectoryFlags("--input-directory", inputDirectory, "--workflow-type", "resource")
+			Expect(err).To(MatchError("if any flags in the group [input-directory workloads-directory] are set none of the others can be; [input-directory workloads-directory] were all set"))
+
+			err = runResourceWorkflow("--metadata-directory", metadataDirectory)
+			Expect(err).To(MatchError("if any flags in the group [input-directory metadata-directory] are set none of the others can be; [input-directory metadata-directory] were all set"))
+
+			err = runResourceWorkflow("--promise-scheduling-directory", promiseSchedulingDirectory)
+			Expect(err).To(MatchError("if any flags in the group [input-directory promise-scheduling-directory] are set none of the others can be; [input-directory promise-scheduling-directory] were all set"))
+
+			Expect(listWorks("team-a")).To(BeEmpty())
 		})
 	})
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,6 +18,9 @@ import (
 
 func workCreatorCmd() *cobra.Command {
 	var inputDirectory string
+	var workloadsDirectory string
+	var metadataDirectory string
+	var promiseSchedulingDirectory string
 	var promiseName string
 	var pipelineName string
 	var namespace string
@@ -31,6 +35,9 @@ func workCreatorCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println("executing work creator with flags:",
 				"input-directory", inputDirectory,
+				"workloads-directory", workloadsDirectory,
+				"metadata-directory", metadataDirectory,
+				"promise-scheduling-directory", promiseSchedulingDirectory,
 				"promise-name", promiseName,
 				"pipeline-name", pipelineName,
 				"namespace", namespace,
@@ -39,8 +46,20 @@ func workCreatorCmd() *cobra.Command {
 				"workflow-type", workflowType,
 				"promise-version", promiseVersion)
 
-			if inputDirectory == "" {
-				return fmt.Errorf("must provide --input-directory")
+			if inputDirectory != "" {
+				workloadsDirectory = filepath.Join(inputDirectory, "input")
+				metadataDirectory = filepath.Join(inputDirectory, "metadata")
+				promiseSchedulingDirectory = filepath.Join(inputDirectory, "kratix-system")
+			}
+
+			usingDirectoryFlags := inputDirectory == ""
+			if usingDirectoryFlags && !cmd.Flags().Changed("workflow-type") {
+				return fmt.Errorf("must provide --workflow-type when using --workloads-directory")
+			}
+
+			versioned := promiseVersion != "" && promiseVersion != v1alpha1.PlaceholderPromiseVersion
+			if metadataDirectory == "" && workflowType == string(v1alpha1.WorkflowTypeResource) && versioned {
+				return fmt.Errorf("must provide --metadata-directory when --workflow-type is resource and --promise-version is set")
 			}
 
 			if promiseName == "" {
@@ -84,7 +103,18 @@ func workCreatorCmd() *cobra.Command {
 				K8sClient: k8sClient,
 			}
 
-			err = workCreator.Execute(inputDirectory, promiseName, namespace, resourceName, resourceNamespace, workflowType, pipelineName, promiseVersion)
+			err = workCreator.Execute(lib.ExecuteOptions{
+				WorkloadsDirectory:         workloadsDirectory,
+				MetadataDirectory:          metadataDirectory,
+				PromiseSchedulingDirectory: promiseSchedulingDirectory,
+				PromiseName:                promiseName,
+				Namespace:                  namespace,
+				ResourceName:               resourceName,
+				ResourceNamespace:          resourceNamespace,
+				WorkflowType:               workflowType,
+				PipelineName:               pipelineName,
+				PromiseVersion:             promiseVersion,
+			})
 			if err != nil {
 				return fmt.Errorf("work creator execution failed: %w", err)
 			}
@@ -93,7 +123,10 @@ func workCreatorCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&inputDirectory, "input-directory", "", "Absolute path to directory containing yaml documents required to build Work")
+	cmd.Flags().StringVar(&inputDirectory, "input-directory", "", "Absolute path to a directory with input/, metadata/ and kratix-system/ folders")
+	cmd.Flags().StringVar(&workloadsDirectory, "workloads-directory", "", "Absolute path to the directory with the documents to schedule")
+	cmd.Flags().StringVar(&metadataDirectory, "metadata-directory", "", "Absolute path to the pipeline metadata directory (optional)")
+	cmd.Flags().StringVar(&promiseSchedulingDirectory, "promise-scheduling-directory", "", "Absolute path to the directory with the promise-scheduling file (optional)")
 	cmd.Flags().StringVar(&promiseName, "promise-name", "", "Name of the promise")
 	cmd.Flags().StringVar(&pipelineName, "pipeline-name", "", "Name of the Pipeline in the Workflow")
 	cmd.Flags().StringVar(&namespace, "namespace", v1alpha1.SystemNamespace, "Namespace of the workflow")
@@ -102,9 +135,13 @@ func workCreatorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&workflowType, "workflow-type", "resource", "Create a Work for Promise or Resource type scheduling")
 	cmd.Flags().StringVar(&promiseVersion, "promise-version", "", "Version of the promise; HealthDefinitions in the output are stamped with it")
 
-	if err := cmd.MarkFlagRequired("input-directory"); err != nil {
-		log.Fatalf("error marking input-directory as required: %s", err)
+	if err := cmd.Flags().MarkDeprecated("input-directory", "use --workloads-directory, --metadata-directory and --promise-scheduling-directory instead"); err != nil {
+		log.Fatalf("error marking input-directory as deprecated: %s", err)
 	}
+	cmd.MarkFlagsOneRequired("input-directory", "workloads-directory")
+	cmd.MarkFlagsMutuallyExclusive("input-directory", "workloads-directory")
+	cmd.MarkFlagsMutuallyExclusive("input-directory", "metadata-directory")
+	cmd.MarkFlagsMutuallyExclusive("input-directory", "promise-scheduling-directory")
 	if err := cmd.MarkFlagRequired("promise-name"); err != nil {
 		log.Fatalf("error marking promise-name as required: %s", err)
 	}
