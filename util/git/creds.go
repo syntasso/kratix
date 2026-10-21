@@ -144,7 +144,6 @@ func domainFromBaseURL(baseURL string) (string, error) {
 	return host, nil
 }
 
-// TODO: migrate the test from the writers/git to a package level test
 // AuthOption tweaks how SetAuth builds credentials.
 type AuthOption func(*authConfig)
 
@@ -158,6 +157,7 @@ func WithGitHubAPIURL(apiURL string) AuthOption {
 	}
 }
 
+// TODO: migrate the test from the writers/git to a package level test
 func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte, opts ...AuthOption) (*Auth, error) {
 	config := authConfig{}
 	for _, opt := range opts {

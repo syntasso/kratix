@@ -158,27 +158,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				BeforeEach(func() {
 					misplacedWork = newWork("rr-work-misplaced", true, schedulingFor(prodDestination))
-					workloadGroup := misplacedWork.Spec.WorkloadGroups[0]
-					workPlacementName := fmt.Sprintf("%s.%s-%s", misplacedWork.Name, devDestination.Name, workloadGroup.ID[:5])
-					workPlacement := &v1alpha1.WorkPlacement{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      workPlacementName,
-							Namespace: misplacedWork.Namespace,
-							Labels: map[string]string{
-								v1alpha1.KratixPrefix + "work":              misplacedWork.Name,
-								v1alpha1.KratixPrefix + "workload-group-id": workloadGroup.ID,
-							},
-						},
-						Spec: v1alpha1.WorkPlacementSpec{
-							ID:                    workloadGroup.ID,
-							PromiseName:           misplacedWork.Spec.PromiseName,
-							ResourceName:          misplacedWork.Spec.ResourceName,
-							TargetDestinationName: devDestination.Name,
-							Workloads:             workloadGroup.Workloads,
-						},
-					}
-					workPlacement.SetPipelineName(&misplacedWork)
-					Expect(fakeK8sClient.Create(context.Background(), workPlacement)).To(Succeed())
+					createWorkPlacementOn(devDestination.Name, &misplacedWork)
 
 					_, err := scheduler.ReconcileWork(context.Background(), &misplacedWork)
 					Expect(err).ToNot(HaveOccurred())
@@ -200,27 +180,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				BeforeEach(func() {
 					misplacedWork := newWork("rr-work-custom-status", true, schedulingFor(prodDestination))
-					workloadGroup := misplacedWork.Spec.WorkloadGroups[0]
-					workPlacementName := fmt.Sprintf("%s.%s-%s", misplacedWork.Name, devDestination.Name, workloadGroup.ID[:5])
-					workPlacement = v1alpha1.WorkPlacement{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      workPlacementName,
-							Namespace: misplacedWork.Namespace,
-							Labels: map[string]string{
-								v1alpha1.KratixPrefix + "work":              misplacedWork.Name,
-								v1alpha1.KratixPrefix + "workload-group-id": workloadGroup.ID,
-							},
-						},
-						Spec: v1alpha1.WorkPlacementSpec{
-							ID:                    workloadGroup.ID,
-							PromiseName:           misplacedWork.Spec.PromiseName,
-							ResourceName:          misplacedWork.Spec.ResourceName,
-							TargetDestinationName: devDestination.Name,
-							Workloads:             workloadGroup.Workloads,
-						},
-					}
-					workPlacement.SetPipelineName(&misplacedWork)
-					Expect(fakeK8sClient.Create(context.Background(), &workPlacement)).To(Succeed())
+					workPlacement = createWorkPlacementOn(devDestination.Name, &misplacedWork)
 
 					workPlacement.Status.Custom = map[string]apiextensionsv1.JSON{
 						"pullRequest": {Raw: []byte(`{"url":"https://github.com/acme/platform/pull/42"}`)},
@@ -1218,6 +1178,31 @@ func newDestination(name string, labels map[string]string) v1alpha1.Destination 
 			Labels: labels,
 		},
 	}
+}
+
+// createWorkPlacementOn creates the WorkPlacement the scheduler would make for the work's first workload group.
+func createWorkPlacementOn(destinationName string, work *v1alpha1.Work) v1alpha1.WorkPlacement {
+	workloadGroup := work.Spec.WorkloadGroups[0]
+	workPlacement := v1alpha1.WorkPlacement{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s.%s-%s", work.Name, destinationName, workloadGroup.ID[:5]),
+			Namespace: work.Namespace,
+			Labels: map[string]string{
+				v1alpha1.KratixPrefix + "work":              work.Name,
+				v1alpha1.KratixPrefix + "workload-group-id": workloadGroup.ID,
+			},
+		},
+		Spec: v1alpha1.WorkPlacementSpec{
+			ID:                    workloadGroup.ID,
+			PromiseName:           work.Spec.PromiseName,
+			ResourceName:          work.Spec.ResourceName,
+			TargetDestinationName: destinationName,
+			Workloads:             workloadGroup.Workloads,
+		},
+	}
+	workPlacement.SetPipelineName(work)
+	Expect(fakeK8sClient.Create(context.Background(), &workPlacement)).To(Succeed())
+	return workPlacement
 }
 
 func newWork(name string, isResource bool, scheduling ...v1alpha1.WorkloadGroupScheduling) v1alpha1.Work {

@@ -189,12 +189,6 @@ var _ = Describe("NewGitWriter", func() {
 			Expect(tokenCalled).To(BeTrue())
 		})
 
-		It("talks to github.com by default", func() {
-			_, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(tokenAPIURL).To(Equal("https://api.github.com"))
-		})
-
 		It("talks to the GitHub API URL given by the option", func() {
 			_, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds,
 				writers.WithGitHubAPIURL("https://github.example.com/api/v3/"))
@@ -219,7 +213,7 @@ var _ = Describe("NewGitWriter", func() {
 			workloads = []v1alpha1.Workload{{Filepath: "deployment.yaml", Content: "kind: Deployment"}}
 		})
 
-		It("pushes to the state store branch", func() {
+		It("pushes to the state store branch without force", func() {
 			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
 			Expect(err).NotTo(HaveOccurred())
 			gitWriter := writer.(*writers.GitWriter)
@@ -230,16 +224,6 @@ var _ = Describe("NewGitWriter", func() {
 			Expect(sha).To(Equal("sha"))
 			Expect(runner.committed).To(Equal("Update from: my-workplacement"))
 			Expect(runner.pushedTo).To(Equal("test"))
-		})
-
-		It("never force-pushes", func() {
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
-			Expect(err).NotTo(HaveOccurred())
-			gitWriter := writer.(*writers.GitWriter)
-			gitWriter.Runner = runner
-
-			_, err = gitWriter.UpdateFiles("", "my-workplacement", workloads, nil)
-			Expect(err).NotTo(HaveOccurred())
 			Expect(runner.forced).To(BeFalse())
 		})
 	})

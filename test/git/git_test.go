@@ -82,8 +82,7 @@ var _ = Describe("Git tests", func() {
 
 					Expect(client.HasChanges()).To(BeTrue())
 
-					err = commitAndPush(client,
-						branch, "TEST: test")
+					err = commitAndPush(client, branch, "TEST: test")
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -229,8 +228,7 @@ var _ = Describe("Git tests", func() {
 					_, err := clientOne.Add(filepath.Join(clientOne.Root(), testDirOne))
 					Expect(err).ToNot(HaveOccurred())
 
-					err = commitAndPush(clientOne,
-						branch, "TEST: test")
+					err = commitAndPush(clientOne, branch, "TEST: test")
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -240,8 +238,7 @@ var _ = Describe("Git tests", func() {
 
 					// Option A no longer rebases on rejection; the writer requeues,
 					// re-syncs to the remote, and retries at the reconcile level.
-					err = commitAndPush(clientTwo,
-						branch, "TEST: test")
+					err = commitAndPush(clientTwo, branch, "TEST: test")
 					Expect(err).To(MatchError(ContainSubstring("failed to push")))
 				})
 
@@ -257,8 +254,7 @@ var _ = Describe("Git tests", func() {
 					_, err := clientTwo.Add(filepath.Join(clientTwo.Root(), testDirTwo))
 					Expect(err).ToNot(HaveOccurred())
 
-					err = commitAndPush(clientTwo,
-						branch, "TEST: test after reset")
+					err = commitAndPush(clientTwo, branch, "TEST: test after reset")
 					Expect(err).ToNot(HaveOccurred())
 				})
 

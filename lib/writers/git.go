@@ -219,7 +219,7 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 	return nil
 }
 
-var ErrPathOutsideRepository = fmt.Errorf("workload path is outside the git repository")
+var ErrPathOutsideRepository = errors.New("workload path is outside the git repository")
 
 // WriteFiles writes each workload under dir in the clone and stages it.
 func WriteFiles(runner GitExecutor, dir string, workloads []v1alpha1.Workload, logger logr.Logger) error {

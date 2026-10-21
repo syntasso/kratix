@@ -329,11 +329,9 @@ func (w *workPlacementReconcileContext) releaseKratixFinalizers() (ctrl.Result, 
 	if w.workPlacement.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}
-	if !controllerutil.ContainsFinalizer(w.workPlacement, repoCleanupWorkPlacementFinalizer) &&
-		!controllerutil.ContainsFinalizer(w.workPlacement, kratixFileCleanupWorkPlacementFinalizer) {
+	if !cleanupDeletionFinalizers(w.workPlacement) {
 		return ctrl.Result{}, nil
 	}
-	cleanupDeletionFinalizers(w.workPlacement)
 	return ctrl.Result{}, w.client.Update(w.ctx, w.workPlacement)
 }
 
@@ -349,13 +347,10 @@ func (w *workPlacementReconcileContext) checkWorkPlacementFinalizers() []string 
 	return missingFinalizers
 }
 
-func cleanupDeletionFinalizers(workPlacement *v1alpha1.WorkPlacement) {
-	if controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer) {
-		controllerutil.RemoveFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
-	}
-	if controllerutil.ContainsFinalizer(workPlacement, kratixFileCleanupWorkPlacementFinalizer) {
-		controllerutil.RemoveFinalizer(workPlacement, kratixFileCleanupWorkPlacementFinalizer)
-	}
+func cleanupDeletionFinalizers(workPlacement *v1alpha1.WorkPlacement) (removed bool) {
+	removedRepoCleanup := controllerutil.RemoveFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
+	removedFileCleanup := controllerutil.RemoveFinalizer(workPlacement, kratixFileCleanupWorkPlacementFinalizer)
+	return removedRepoCleanup || removedFileCleanup
 }
 
 func (w *workPlacementReconcileContext) setVersionID(versionID string) {
