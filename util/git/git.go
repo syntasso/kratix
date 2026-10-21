@@ -405,7 +405,8 @@ func (m *nativeGitClient) Push(branch string, force bool) (string, error) {
 	if branch == "" {
 		args = append(args, "HEAD")
 	} else {
-		args = append(args, branch)
+		// HEAD may be on another branch, as when a pull request branch is built from the target branch.
+		args = append(args, "HEAD:refs/heads/"+branch)
 	}
 	if force {
 		args = append(args, "--force")
