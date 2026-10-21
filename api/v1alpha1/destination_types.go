@@ -33,6 +33,23 @@ type StateStoreCoreFields struct {
 	Path string `json:"path,omitempty"`
 	// SecretRef specifies the Secret containing authentication credentials
 	SecretRef *corev1.SecretReference `json:"secretRef,omitempty"`
+	// Delivery selects how documents reach this StateStore. When unset, Kratix writes to the
+	// StateStore directly, which is how every StateStore behaves without this field.
+	//+kubebuilder:validation:Optional
+	Delivery *Delivery `json:"delivery,omitempty"`
+}
+
+// Delivery selects a writer registered in this Kratix build.
+type Delivery struct {
+	// Mode names a registered writer. Leaving it unset writes to the StateStore directly.
+	// A mode that no writer in this build registers is reported on the Destination, which is
+	// then not ready, and no documents are written to the StateStore.
+	//+kubebuilder:validation:Optional
+	Mode string `json:"mode,omitempty"`
+	// Config is handed to the registered writer and is not read by Kratix. Which keys it needs,
+	// and whether it needs any, depends on the mode.
+	//+kubebuilder:validation:Optional
+	Config map[string]string `json:"config,omitempty"`
 }
 
 // TODO: revisit if we want all destination secrets on a single known namespaces

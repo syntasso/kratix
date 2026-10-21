@@ -66,6 +66,25 @@ spec:
               bucketName:
                 description: Name of the bucket; required field.
                 type: string
+              delivery:
+                description: |-
+                  Delivery selects how documents reach this StateStore. When unset, Kratix writes to the
+                  StateStore directly, which is how every StateStore behaves without this field.
+                properties:
+                  config:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Config is handed to the registered writer and is not read by Kratix. Which keys it needs,
+                      and whether it needs any, depends on the mode.
+                    type: object
+                  mode:
+                    description: |-
+                      Mode names a registered writer. Leaving it unset writes to the StateStore directly.
+                      A mode that no writer in this build registers is reported on the Destination, which is
+                      then not ready, and no documents are written to the StateStore.
+                    type: string
+                type: object
               endpoint:
                 description: |-
                   Endpoint to access the bucket.
