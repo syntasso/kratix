@@ -74,61 +74,36 @@ var _ = Describe("work-creator command", func() {
 		return works[0]
 	}
 
-	Describe("required flags", func() {
-		It("fails when --input-directory is not set", func() {
-			err := runWorkCreator("--promise-name", "redis", "--pipeline-name", "configure")
-			Expect(err).To(MatchError(ContainSubstring(`"input-directory"`)))
-		})
+	It("fails without creating a Work when a required flag is not set", func() {
+		err := runWorkCreator("--promise-name", "redis", "--pipeline-name", "configure")
+		Expect(err).To(MatchError(`required flag(s) "input-directory" not set`))
 
-		It("fails when --promise-name is not set", func() {
-			err := runWorkCreator("--input-directory", inputDirectory, "--pipeline-name", "configure")
-			Expect(err).To(MatchError(ContainSubstring(`"promise-name"`)))
-		})
+		err = runWorkCreator("--input-directory", inputDirectory, "--pipeline-name", "configure")
+		Expect(err).To(MatchError(`required flag(s) "promise-name" not set`))
 
-		It("fails when --pipeline-name is not set", func() {
-			err := runWorkCreator("--input-directory", inputDirectory, "--promise-name", "redis")
-			Expect(err).To(MatchError(ContainSubstring(`"pipeline-name"`)))
-		})
+		err = runWorkCreator("--input-directory", inputDirectory, "--promise-name", "redis")
+		Expect(err).To(MatchError(`required flag(s) "pipeline-name" not set`))
+
+		Expect(listWorks(v1alpha1.SystemNamespace)).To(BeEmpty())
 	})
 
 	Describe("a resource workflow", func() {
-		It("creates one Work in the given namespace", func() {
+		It("creates a Work for the resource from the files in the input folder", func() {
+			writeFile(inputDirectory, "input/nested/namespace.yaml", namespaceManifest)
+			writeFile(inputDirectory, "stray.yaml", namespaceManifest)
+
 			Expect(runResourceWorkflow()).To(Succeed())
 
-			Expect(listWorks("team-a")).To(HaveLen(1))
-		})
-
-		It("names the Work after the promise, resource and pipeline", func() {
-			Expect(runResourceWorkflow()).To(Succeed())
-
-			Expect(getOnlyWork("team-a").Name).To(MatchRegexp(`^redis-my-redis-configure-\w{5}$`))
-		})
-
-		It("labels the Work with the promise, resource, pipeline and workflow type", func() {
-			Expect(runResourceWorkflow()).To(Succeed())
-
-			Expect(getOnlyWork("team-a").Labels).To(Equal(map[string]string{
+			work := getOnlyWork("team-a")
+			Expect(work.Name).To(MatchRegexp(`^redis-my-redis-configure-[0-9a-f]{5}$`))
+			Expect(work.Labels).To(Equal(map[string]string{
 				v1alpha1.PromiseNameLabel:  "redis",
 				v1alpha1.ResourceNameLabel: "my-redis",
 				v1alpha1.PipelineNameLabel: "configure",
 				v1alpha1.WorkTypeLabel:     "resource",
 			}))
-		})
-
-		It("sets the promise and resource name on the Work", func() {
-			Expect(runResourceWorkflow()).To(Succeed())
-
-			work := getOnlyWork("team-a")
 			Expect(work.Spec.PromiseName).To(Equal("redis"))
 			Expect(work.Spec.ResourceName).To(Equal("my-redis"))
-		})
-
-		It("ships every file under the input folder, with paths relative to it", func() {
-			writeFile(inputDirectory, "input/nested/namespace.yaml", namespaceManifest)
-
-			Expect(runResourceWorkflow()).To(Succeed())
-
-			work := getOnlyWork("team-a")
 			Expect(work.Spec.WorkloadGroups).To(HaveLen(1))
 			Expect(workloadContents(work.Spec.WorkloadGroups[0])).To(Equal(map[string]string{
 				"configmap.yaml":        configMapManifest,
@@ -136,17 +111,7 @@ var _ = Describe("work-creator command", func() {
 			}))
 		})
 
-		It("ignores files outside the input folder", func() {
-			writeFile(inputDirectory, "stray.yaml", namespaceManifest)
-
-			Expect(runResourceWorkflow()).To(Succeed())
-
-			work := getOnlyWork("team-a")
-			Expect(workloadContents(work.Spec.WorkloadGroups[0])).To(HaveLen(1))
-			Expect(workloadContents(work.Spec.WorkloadGroups[0])).To(HaveKey("configmap.yaml"))
-		})
-
-		It("creates the Work in kratix-platform-system when --namespace is not set", func() {
+		It("creates the Work in kratix-platform-system with the resource workflow type by default", func() {
 			err := runWorkCreator(
 				"--input-directory", inputDirectory,
 				"--promise-name", "redis",
@@ -155,87 +120,65 @@ var _ = Describe("work-creator command", func() {
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(listWorks(v1alpha1.SystemNamespace)).To(HaveLen(1))
+			work := getOnlyWork(v1alpha1.SystemNamespace)
+			Expect(work.Labels).To(HaveKeyWithValue(v1alpha1.WorkTypeLabel, "resource"))
 		})
 
-		It("uses the resource workflow type when --workflow-type is not set", func() {
+		It("updates the same Work when it runs again with the same flags", func() {
+			Expect(runResourceWorkflow()).To(Succeed())
+			firstWork := getOnlyWork("team-a")
+
+			writeFile(inputDirectory, "input/configmap.yaml", namespaceManifest)
 			Expect(runResourceWorkflow()).To(Succeed())
 
-			Expect(getOnlyWork("team-a").Labels).To(HaveKeyWithValue(v1alpha1.WorkTypeLabel, "resource"))
+			secondWork := getOnlyWork("team-a")
+			Expect(secondWork.Name).To(Equal(firstWork.Name))
+			Expect(workloadContents(secondWork.Spec.WorkloadGroups[0])).To(Equal(map[string]string{
+				"configmap.yaml": namespaceManifest,
+			}))
 		})
 
-		When("it runs again with the same flags", func() {
-			It("updates the existing Work instead of creating a new one", func() {
-				Expect(runResourceWorkflow()).To(Succeed())
-				firstWork := getOnlyWork("team-a")
+		It("creates a separate Work for a different pipeline name", func() {
+			Expect(runResourceWorkflow()).To(Succeed())
 
-				writeFile(inputDirectory, "input/configmap.yaml", namespaceManifest)
-				Expect(runResourceWorkflow()).To(Succeed())
+			err := runWorkCreator(
+				"--input-directory", inputDirectory,
+				"--promise-name", "redis",
+				"--pipeline-name", "another-pipeline",
+				"--resource-name", "my-redis",
+				"--namespace", "team-a",
+			)
+			Expect(err).NotTo(HaveOccurred())
 
-				secondWork := getOnlyWork("team-a")
-				Expect(secondWork.Name).To(Equal(firstWork.Name))
-				Expect(workloadContents(secondWork.Spec.WorkloadGroups[0])).To(Equal(map[string]string{
-					"configmap.yaml": namespaceManifest,
-				}))
-			})
+			Expect(listWorks("team-a")).To(HaveLen(2))
 		})
 
-		When("it runs with a different pipeline name", func() {
-			It("creates a separate Work", func() {
-				Expect(runResourceWorkflow()).To(Succeed())
+		It("adds the resource namespace to the Work name and labels when --resource-namespace is set", func() {
+			Expect(runResourceWorkflow("--resource-namespace", "my-team")).To(Succeed())
 
-				err := runWorkCreator(
-					"--input-directory", inputDirectory,
-					"--promise-name", "redis",
-					"--pipeline-name", "another-pipeline",
-					"--resource-name", "my-redis",
-					"--namespace", "team-a",
-				)
-				Expect(err).NotTo(HaveOccurred())
-
-				Expect(listWorks("team-a")).To(HaveLen(2))
-			})
+			work := getOnlyWork("team-a")
+			Expect(work.Name).To(MatchRegexp(`^redis-my-redis-my-team-configure-[0-9a-f]{5}$`))
+			Expect(work.Labels).To(HaveKeyWithValue(v1alpha1.ResourceNamespaceLabel, "my-team"))
 		})
 
-		When("--resource-namespace is set", func() {
-			It("adds the resource namespace to the Work name", func() {
-				Expect(runResourceWorkflow("--resource-namespace", "my-team")).To(Succeed())
+		It("labels the Work as a dry run when KRATIX_DRY_RUN is true", func() {
+			GinkgoT().Setenv(v1alpha1.KratixDryRunEnvVar, "true")
 
-				Expect(getOnlyWork("team-a").Name).To(MatchRegexp(`^redis-my-redis-my-team-configure-\w{5}$`))
-			})
+			Expect(runResourceWorkflow()).To(Succeed())
 
-			It("adds the resource namespace to the Work labels", func() {
-				Expect(runResourceWorkflow("--resource-namespace", "my-team")).To(Succeed())
-
-				Expect(getOnlyWork("team-a").Labels).To(HaveKeyWithValue(v1alpha1.ResourceNamespaceLabel, "my-team"))
-			})
+			Expect(getOnlyWork("team-a").Labels).To(HaveKeyWithValue(v1alpha1.DryRunLabel, "true"))
 		})
 
-		When("the KRATIX_DRY_RUN environment variable is true", func() {
-			It("labels the Work as a dry run", func() {
-				GinkgoT().Setenv(v1alpha1.KratixDryRunEnvVar, "true")
+		It("fails without creating a Work when the input folder does not exist", func() {
+			Expect(os.RemoveAll(filepath.Join(inputDirectory, "input"))).To(Succeed())
 
-				Expect(runResourceWorkflow()).To(Succeed())
-
-				Expect(getOnlyWork("team-a").Labels).To(HaveKeyWithValue(v1alpha1.DryRunLabel, "true"))
-			})
+			Expect(runResourceWorkflow()).To(MatchError(ContainSubstring("no such file or directory")))
+			Expect(listWorks("team-a")).To(BeEmpty())
 		})
 	})
 
 	Describe("a custom resource workflow type", func() {
-		It("labels the Work with the custom workflow type", func() {
-			Expect(runResourceWorkflow("--workflow-type", "resource-custom-works")).To(Succeed())
-
-			Expect(getOnlyWork("team-a").Labels).To(HaveKeyWithValue(v1alpha1.WorkTypeLabel, "resource-custom-works"))
-		})
-
-		It("names the Work like a resource Work", func() {
-			Expect(runResourceWorkflow("--workflow-type", "resource-custom-works")).To(Succeed())
-
-			Expect(getOnlyWork("team-a").Name).To(MatchRegexp(`^redis-my-redis-configure-\w{5}$`))
-		})
-
-		It("keeps its own Work next to the resource workflow Work with the same pipeline name", func() {
+		It("creates its own Work next to the resource workflow Work with the same pipeline name", func() {
 			Expect(runResourceWorkflow()).To(Succeed())
 
 			writeFile(inputDirectory, "input/configmap.yaml", namespaceManifest)
@@ -246,13 +189,26 @@ var _ = Describe("work-creator command", func() {
 
 			works := listWorks("team-a")
 			Expect(works).To(HaveLen(2))
-			contentsByWorkflowType := map[string]map[string]string{}
+			worksByWorkflowType := map[string]v1alpha1.Work{}
 			for _, work := range works {
-				contentsByWorkflowType[work.Labels[v1alpha1.WorkTypeLabel]] = workloadContents(work.Spec.WorkloadGroups[0])
+				worksByWorkflowType[work.Labels[v1alpha1.WorkTypeLabel]] = work
 			}
-			Expect(contentsByWorkflowType).To(Equal(map[string]map[string]string{
-				"resource":              {"configmap.yaml": configMapManifest},
-				"resource-custom-works": {"configmap.yaml": namespaceManifest},
+			Expect(worksByWorkflowType).To(HaveKey("resource"))
+			Expect(worksByWorkflowType).To(HaveKey("resource-custom-works"))
+
+			customWork := worksByWorkflowType["resource-custom-works"]
+			Expect(customWork.Name).To(MatchRegexp(`^redis-my-redis-configure-[0-9a-f]{5}$`))
+			Expect(customWork.Labels).To(Equal(map[string]string{
+				v1alpha1.PromiseNameLabel:  "redis",
+				v1alpha1.ResourceNameLabel: "my-redis",
+				v1alpha1.PipelineNameLabel: "configure",
+				v1alpha1.WorkTypeLabel:     "resource-custom-works",
+			}))
+			Expect(workloadContents(customWork.Spec.WorkloadGroups[0])).To(Equal(map[string]string{
+				"configmap.yaml": namespaceManifest,
+			}))
+			Expect(workloadContents(worksByWorkflowType["resource"].Spec.WorkloadGroups[0])).To(Equal(map[string]string{
+				"configmap.yaml": configMapManifest,
 			}))
 		})
 
@@ -267,103 +223,87 @@ var _ = Describe("work-creator command", func() {
 	})
 
 	Describe("a promise workflow", func() {
-		runPromiseWorkflow := func() error {
-			return runWorkCreator(
+		It("creates a Work for the promise in kratix-platform-system", func() {
+			err := runWorkCreator(
 				"--input-directory", inputDirectory,
 				"--promise-name", "redis",
 				"--pipeline-name", "configure",
 				"--workflow-type", "promise",
 			)
-		}
+			Expect(err).NotTo(HaveOccurred())
 
-		It("names the Work after the promise and pipeline", func() {
-			Expect(runPromiseWorkflow()).To(Succeed())
-
-			Expect(getOnlyWork(v1alpha1.SystemNamespace).Name).To(MatchRegexp(`^redis-configure-\w{5}$`))
-		})
-
-		It("labels the Work with the promise, pipeline and workflow type", func() {
-			Expect(runPromiseWorkflow()).To(Succeed())
-
-			Expect(getOnlyWork(v1alpha1.SystemNamespace).Labels).To(Equal(map[string]string{
+			work := getOnlyWork(v1alpha1.SystemNamespace)
+			Expect(work.Name).To(MatchRegexp(`^redis-configure-[0-9a-f]{5}$`))
+			Expect(work.Labels).To(Equal(map[string]string{
 				v1alpha1.PromiseNameLabel:  "redis",
 				v1alpha1.PipelineNameLabel: "configure",
 				v1alpha1.WorkTypeLabel:     "promise",
 			}))
-		})
-
-		It("leaves the resource name on the Work empty", func() {
-			Expect(runPromiseWorkflow()).To(Succeed())
-
-			Expect(getOnlyWork(v1alpha1.SystemNamespace).Spec.ResourceName).To(BeEmpty())
+			Expect(work.Spec.PromiseName).To(Equal("redis"))
+			Expect(work.Spec.ResourceName).To(BeEmpty())
 		})
 	})
 
 	Describe("scheduling", func() {
-		It("does not add destination selectors when there is no metadata or promise scheduling", func() {
+		It("adds no destination selectors when there is no metadata or promise scheduling", func() {
 			Expect(runResourceWorkflow()).To(Succeed())
 
 			Expect(getOnlyWork("team-a").Spec.WorkloadGroups[0].DestinationSelectors).To(BeEmpty())
 		})
 
-		It("reads destination selectors from metadata/destination-selectors.yaml", func() {
-			writeFile(inputDirectory, "metadata/destination-selectors.yaml", "- matchLabels:\n    environment: production\n")
-
-			Expect(runResourceWorkflow()).To(Succeed())
-
-			Expect(getOnlyWork("team-a").Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
-				v1alpha1.WorkloadGroupScheduling{
-					MatchLabels: map[string]string{"environment": "production"},
-					Source:      "resource-workflow",
-				},
-			))
-		})
-
-		It("puts a directory with its own destination selectors in its own workload group", func() {
+		It("schedules each workload group with the selectors from metadata/destination-selectors.yaml", func() {
 			writeFile(inputDirectory, "input/special/namespace.yaml", namespaceManifest)
-			writeFile(inputDirectory, "metadata/destination-selectors.yaml", "- matchLabels:\n    environment: staging\n  directory: special\n")
+			writeFile(inputDirectory, "metadata/destination-selectors.yaml", `- matchLabels:
+    environment: production
+- matchLabels:
+    environment: staging
+  directory: special
+`)
 
 			Expect(runResourceWorkflow()).To(Succeed())
 
 			work := getOnlyWork("team-a")
 			Expect(work.Spec.WorkloadGroups).To(HaveLen(2))
+
 			specialGroup := work.Spec.WorkloadGroups[0]
 			Expect(specialGroup.Directory).To(Equal("special"))
 			Expect(workloadContents(specialGroup)).To(Equal(map[string]string{
 				"special/namespace.yaml": namespaceManifest,
 			}))
-			Expect(specialGroup.DestinationSelectors).To(ConsistOf(
-				v1alpha1.WorkloadGroupScheduling{
-					MatchLabels: map[string]string{"environment": "staging"},
-					Source:      "resource-workflow",
-				},
-			))
+			Expect(specialGroup.DestinationSelectors).To(ConsistOf(v1alpha1.WorkloadGroupScheduling{
+				MatchLabels: map[string]string{"environment": "staging"},
+				Source:      "resource-workflow",
+			}))
+
 			defaultGroup := work.Spec.WorkloadGroups[1]
 			Expect(defaultGroup.Directory).To(Equal(v1alpha1.DefaultWorkloadGroupDirectory))
 			Expect(workloadContents(defaultGroup)).To(Equal(map[string]string{
 				"configmap.yaml": configMapManifest,
 			}))
+			Expect(defaultGroup.DestinationSelectors).To(ConsistOf(v1alpha1.WorkloadGroupScheduling{
+				MatchLabels: map[string]string{"environment": "production"},
+				Source:      "resource-workflow",
+			}))
 		})
 
-		It("reads promise scheduling from kratix-system/promise-scheduling", func() {
-			writeFile(inputDirectory, "kratix-system/promise-scheduling", "- matchLabels:\n    environment: dev\n  source: promise\n")
+		It("adds the selectors from kratix-system/promise-scheduling", func() {
+			writeFile(inputDirectory, "kratix-system/promise-scheduling", `- matchLabels:
+    environment: dev
+  source: promise
+`)
 
 			Expect(runResourceWorkflow()).To(Succeed())
 
-			Expect(getOnlyWork("team-a").Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
-				v1alpha1.WorkloadGroupScheduling{
-					MatchLabels: map[string]string{"environment": "dev"},
-					Source:      "promise",
-				},
-			))
+			Expect(getOnlyWork("team-a").Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(v1alpha1.WorkloadGroupScheduling{
+				MatchLabels: map[string]string{"environment": "dev"},
+				Source:      "promise",
+			}))
 		})
 
-		It("fails when metadata/destination-selectors.yaml is not valid", func() {
+		It("fails without creating a Work when metadata/destination-selectors.yaml is not valid", func() {
 			writeFile(inputDirectory, "metadata/destination-selectors.yaml", "not-a-list: true\n")
 
-			err := runResourceWorkflow()
-
-			Expect(err).To(MatchError(ContainSubstring("invalid destination-selectors.yaml")))
+			Expect(runResourceWorkflow()).To(MatchError(ContainSubstring("invalid destination-selectors.yaml")))
 			Expect(listWorks("team-a")).To(BeEmpty())
 		})
 	})
@@ -391,14 +331,17 @@ var _ = Describe("work-creator command", func() {
 	})
 
 	Describe("the health definitions count file", func() {
+		var countFile string
+
 		BeforeEach(func() {
 			Expect(os.MkdirAll(filepath.Join(inputDirectory, "metadata"), 0o755)).To(Succeed())
+			countFile = filepath.Join(inputDirectory, "metadata", "health-definitions.yaml")
 		})
 
 		It("is written to metadata/health-definitions.yaml for a versioned resource workflow", func() {
 			Expect(runResourceWorkflow("--promise-version", "v1.0.0")).To(Succeed())
 
-			count, err := os.ReadFile(filepath.Join(inputDirectory, "metadata", "health-definitions.yaml"))
+			count, err := os.ReadFile(countFile)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(count)).To(Equal("healthDefinitions: 0\npromiseVersion: v1.0.0\n"))
 		})
@@ -406,19 +349,8 @@ var _ = Describe("work-creator command", func() {
 		It("is not written for a custom resource workflow type", func() {
 			Expect(runResourceWorkflow("--promise-version", "v1.0.0", "--workflow-type", "resource-custom-works")).To(Succeed())
 
-			_, err := os.Stat(filepath.Join(inputDirectory, "metadata", "health-definitions.yaml"))
+			_, err := os.Stat(countFile)
 			Expect(err).To(MatchError(os.ErrNotExist))
-		})
-	})
-
-	Describe("errors", func() {
-		It("fails when the input folder does not exist", func() {
-			Expect(os.RemoveAll(filepath.Join(inputDirectory, "input"))).To(Succeed())
-
-			err := runResourceWorkflow()
-
-			Expect(err).To(HaveOccurred())
-			Expect(listWorks("team-a")).To(BeEmpty())
 		})
 	})
 })
