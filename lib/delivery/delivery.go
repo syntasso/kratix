@@ -26,8 +26,10 @@ const (
 const BuiltIn = ""
 
 // Factory builds the writer for a mode. base is the writer the state store would use on its own,
-// so a mode can delegate the parts it does not change.
-type Factory func(base writers.StateStoreWriter, config map[string]string) (writers.StateStoreWriter, error)
+// so a mode can delegate the parts it does not change. creds is the state store's secret, which a
+// mode needs when it talks to the host's API as well as to git.
+type Factory func(base writers.StateStoreWriter, config map[string]string,
+	creds map[string][]byte) (writers.StateStoreWriter, error)
 
 // Result is how a write ended. UpdateFiles cannot express Pending, because its string is already
 // the version identifier, so a deferred write returns this instead.

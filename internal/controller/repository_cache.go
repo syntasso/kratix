@@ -145,7 +145,7 @@ func (c *repositoryCache) initGitRepository(logger logr.Logger, store StateStore
 		return nil, NewInitialiseWriterError(fmt.Errorf("unable to clone repository: %w", err))
 	}
 
-	writer, deliveryErr := writerForDelivery(store, gitWriter)
+	writer, deliveryErr := writerForDelivery(store, gitWriter, secret.Data)
 	if deliveryErr != nil {
 		return nil, deliveryErr
 	}
@@ -161,7 +161,8 @@ func (c *repositoryCache) initGitRepository(logger logr.Logger, store StateStore
 
 // writerForDelivery wraps the writer the state store built for itself. Every path that writes to
 // a state store goes through Repository.Writer, so wrapping here covers all of them.
-func writerForDelivery(store StateStore, base writers.StateStoreWriter) (writers.StateStoreWriter, *StateStoreError) {
+func writerForDelivery(store StateStore, base writers.StateStoreWriter,
+	creds map[string][]byte) (writers.StateStoreWriter, *StateStoreError) {
 	deliverySpec := store.GetDelivery()
 	if deliverySpec == nil {
 		return base, nil
@@ -175,7 +176,7 @@ func writerForDelivery(store StateStore, base writers.StateStoreWriter) (writers
 		return base, nil
 	}
 
-	writer, err := factory(base, deliverySpec.Config)
+	writer, err := factory(base, deliverySpec.Config, creds)
 	if err != nil {
 		return nil, NewInitialiseWriterError(fmt.Errorf("delivery mode %q: %w", deliverySpec.Mode, err))
 	}
@@ -195,7 +196,7 @@ func (c *repositoryCache) initBucketRepository(logger logr.Logger, store StateSt
 		return nil, NewInitialiseWriterError(fmt.Errorf("unable to create bucket writer: %w", err))
 	}
 
-	writer, deliveryErr := writerForDelivery(store, s3Writer)
+	writer, deliveryErr := writerForDelivery(store, s3Writer, secret.Data)
 	if deliveryErr != nil {
 		return nil, deliveryErr
 	}

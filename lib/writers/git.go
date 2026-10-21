@@ -39,6 +39,8 @@ type GitExecutor interface {
 	Add(files ...string) (string, error)
 	Clone(branch string) (repoDir string, err error)
 	Commit(message, author, email string) (sha string, err error)
+	// Push passes branch to git as a refspec, so "HEAD:refs/heads/<name>" puts the current
+	// commit on a different branch. Validating it as a plain branch name would break that.
 	Push(branch string, force bool) (string, error)
 	Root() string
 	HasChanges() (bool, error)

@@ -12,7 +12,8 @@ import (
 // registration, so a shared name would make specs depend on their order.
 var _ = Describe("Delivery registry", func() {
 	stubFactory := func(string) delivery.Factory {
-		return func(base writers.StateStoreWriter, _ map[string]string) (writers.StateStoreWriter, error) {
+		return func(base writers.StateStoreWriter, _ map[string]string,
+			_ map[string][]byte) (writers.StateStoreWriter, error) {
 			return base, nil
 		}
 	}

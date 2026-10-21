@@ -38,8 +38,8 @@ func SetNewGitWriter(f func(logger logr.Logger, stateStoreSpec v1alpha1.GitState
 	}
 }
 
-func WriterForDelivery(store StateStore, base writers.StateStoreWriter) (writers.StateStoreWriter, *StateStoreError) {
-	return writerForDelivery(store, base)
+func WriterForDelivery(store StateStore, base writers.StateStoreWriter, creds map[string][]byte) (writers.StateStoreWriter, *StateStoreError) {
+	return writerForDelivery(store, base, creds)
 }
 
 func WorkPlacementStatusUpdatePredicate() predicate.Funcs {

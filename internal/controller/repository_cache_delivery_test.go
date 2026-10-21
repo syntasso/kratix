@@ -25,21 +25,21 @@ var _ = Describe("writerForDelivery", func() {
 	}
 
 	It("keeps the store's own writer when there is no delivery block", func() {
-		writer, err := controller.WriterForDelivery(storeWith(nil), base)
+		writer, err := controller.WriterForDelivery(storeWith(nil), base, nil)
 
 		Expect(err).ToNot(HaveOccurred())
 		Expect(writer).To(BeIdenticalTo(writers.StateStoreWriter(base)))
 	})
 
 	It("keeps the store's own writer when the mode is empty", func() {
-		writer, err := controller.WriterForDelivery(storeWith(&v1alpha1.Delivery{}), base)
+		writer, err := controller.WriterForDelivery(storeWith(&v1alpha1.Delivery{}), base, nil)
 
 		Expect(err).ToNot(HaveOccurred())
 		Expect(writer).To(BeIdenticalTo(writers.StateStoreWriter(base)))
 	})
 
 	It("names the mode when this build registers no writer for it", func() {
-		_, err := controller.WriterForDelivery(storeWith(&v1alpha1.Delivery{Mode: "unclaimed-mode"}), base)
+		_, err := controller.WriterForDelivery(storeWith(&v1alpha1.Delivery{Mode: "unclaimed-mode"}), base, nil)
 
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("unclaimed-mode"))
@@ -50,7 +50,7 @@ var _ = Describe("writerForDelivery", func() {
 		var gotBase writers.StateStoreWriter
 		var gotConfig map[string]string
 
-		delivery.Register("cache-registered", func(b writers.StateStoreWriter, c map[string]string) (writers.StateStoreWriter, error) {
+		delivery.Register("cache-registered", func(b writers.StateStoreWriter, c map[string]string, _ map[string][]byte) (writers.StateStoreWriter, error) {
 			gotBase, gotConfig = b, c
 			return registered, nil
 		})
@@ -58,7 +58,7 @@ var _ = Describe("writerForDelivery", func() {
 		writer, err := controller.WriterForDelivery(storeWith(&v1alpha1.Delivery{
 			Mode:   "cache-registered",
 			Config: map[string]string{"provider": "github"},
-		}), base)
+		}), base, nil)
 
 		Expect(err).ToNot(HaveOccurred())
 		Expect(writer).To(BeIdenticalTo(writers.StateStoreWriter(registered)))
@@ -70,7 +70,7 @@ var _ = Describe("writerForDelivery", func() {
 		store := &v1alpha1.BucketStateStore{}
 		store.Spec.Delivery = &v1alpha1.Delivery{Mode: "unclaimed-bucket-mode"}
 
-		_, err := controller.WriterForDelivery(store, base)
+		_, err := controller.WriterForDelivery(store, base, nil)
 
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("unclaimed-bucket-mode"))
