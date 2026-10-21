@@ -32,6 +32,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/compression"
+	"github.com/syntasso/kratix/lib/delivery"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/writers"
 	"github.com/syntasso/kratix/lib/writers/writersfakes"
@@ -40,6 +41,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	corev1 "k8s.io/api/core/v1"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -986,7 +988,123 @@ files:
 			Expect(workPlacement.GetFinalizers()).To(ConsistOf("finalizers.example.com/cleanup"))
 		})
 	})
+
+	When("the state store writer defers its writes", func() {
+		var deferredWriter *fakeDeferredWriter
+
+		reconcileTimes := func(times int) ctrl.Result {
+			var result ctrl.Result
+			for range times {
+				var err error
+				result, err = reconciler.Reconcile(ctx, ctrl.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      workPlacement.GetName(),
+						Namespace: workPlacement.GetNamespace(),
+					},
+				})
+				Expect(err).NotTo(HaveOccurred())
+			}
+			return result
+		}
+
+		readCondition := func(conditionType string) *metav1.Condition {
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			return apiMeta.FindStatusCondition(workPlacement.Status.Conditions, conditionType)
+		}
+
+		BeforeEach(func() {
+			deferredWriter = &fakeDeferredWriter{FakeStateStoreWriter: &writersfakes.FakeStateStoreWriter{}}
+			deferredWriter.deliverResult = delivery.Result{
+				Outcome: delivery.Pending,
+				Receipt: "pr-42",
+				Reason:  "waiting for review of pull request 42",
+			}
+			repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{Writer: deferredWriter}, nil)
+
+			destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
+			destination.Spec.StateStoreRef.Kind = "BucketStateStore"
+			destination.Spec.StateStoreRef.Name = "test-state-store"
+			Expect(fakeK8sClient.Create(ctx, &destination)).To(Succeed())
+		})
+
+		It("delivers instead of writing, and records the receipt", func() {
+			result := reconcileTimes(2)
+
+			Expect(deferredWriter.deliverCalls).To(Equal(1))
+			Expect(deferredWriter.UpdateFilesCallCount()).To(Equal(0))
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			Expect(workPlacement.Status.DeliveryReceipt).To(Equal("pr-42"))
+			Expect(workPlacement.Status.VersionID).To(BeEmpty())
+
+			By("leaving the write unresolved rather than failed, so the Work stays pending")
+			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionUnknown))
+			Expect(readCondition("Ready").Status).To(Equal(metav1.ConditionFalse))
+			Expect(readCondition("Ready").Message).To(Equal("Pending"))
+
+			By("requeueing in seconds, because nothing wakes it when the delivery resolves")
+			Expect(result.RequeueAfter).To(Equal(30 * time.Second))
+		})
+
+		It("asks about the delivery already in flight instead of raising another", func() {
+			reconcileTimes(2)
+			deferredWriter.checkResult = delivery.Result{Outcome: delivery.Pending, Receipt: "pr-42"}
+
+			reconcileTimes(1)
+
+			Expect(deferredWriter.checkReceipts).To(ConsistOf("pr-42"))
+			Expect(deferredWriter.deliverCalls).To(Equal(1))
+		})
+
+		It("records the version the writer reports once the delivery lands", func() {
+			reconcileTimes(2)
+			deferredWriter.checkResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "merge-sha"}
+
+			reconcileTimes(1)
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			Expect(workPlacement.Status.VersionID).To(Equal("merge-sha"))
+			Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
+			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("fails the work placement when the delivery is rejected", func() {
+			reconcileTimes(2)
+			deferredWriter.checkResult = delivery.Result{Outcome: delivery.Rejected, Reason: "closed without merging"}
+
+			reconcileTimes(1)
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
+			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionFalse))
+			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Message).To(ContainSubstring("closed without merging"))
+		})
+	})
 })
+
+// fakeDeferredWriter is a StateStoreWriter that also reports deliveries, which is what makes the
+// controller take the Deliver path instead of UpdateFiles.
+type fakeDeferredWriter struct {
+	*writersfakes.FakeStateStoreWriter
+
+	deliverResult delivery.Result
+	deliverCalls  int
+	checkResult   delivery.Result
+	checkReceipts []string
+}
+
+func (f *fakeDeferredWriter) Deliver(_ context.Context, _, _ string, _ []v1alpha1.Workload, _ []string) (delivery.Result, error) {
+	f.deliverCalls++
+	return f.deliverResult, nil
+}
+
+func (f *fakeDeferredWriter) Check(_ context.Context, receipt string) (delivery.Result, error) {
+	f.checkReceipts = append(f.checkReceipts, receipt)
+	if f.checkResult.Outcome == "" {
+		return f.deliverResult, nil
+	}
+	return f.checkResult, nil
+}
 
 func setupGitDestination(gitStateStore *v1alpha1.GitStateStore, destination *v1alpha1.Destination) {
 	Expect(fakeK8sClient.Create(ctx, &corev1.Secret{

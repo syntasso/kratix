@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/syntasso/kratix/lib/delivery"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -170,6 +171,14 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 
 	if !d.destination.DeletionTimestamp.IsZero() {
 		return d.handleDeletion(repo)
+	}
+
+	// Canary files prove the state store is writable by writing to it. A writer that defers its
+	// writes cannot answer that: the probe, and the delete that follows it, would both wait on a
+	// delivery. The state store's own readiness check covers reachability instead.
+	if _, deferred := delivery.Deferred(repo.Writer); deferred {
+		d.logAndRecordEvent(nil, "Destination is Ready")
+		return ctrl.Result{}, d.setReadyStatus(v1alpha1.DestinationReadyReason, "Destination is ready")
 	}
 
 	if !d.destination.Spec.InitWorkloads.Enabled {

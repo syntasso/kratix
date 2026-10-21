@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
 )
 
@@ -28,10 +29,34 @@ const BuiltIn = ""
 // so a mode can delegate the parts it does not change.
 type Factory func(base writers.StateStoreWriter, config map[string]string) (writers.StateStoreWriter, error)
 
-// Tracker is implemented by a writer whose UpdateFiles returns before the write is delivered.
-// The identifier UpdateFiles returned comes back as receipt.
-type Tracker interface {
-	Track(ctx context.Context, receipt string) (Outcome, string, error)
+// Result is how a write ended. UpdateFiles cannot express Pending, because its string is already
+// the version identifier, so a deferred write returns this instead.
+type Result struct {
+	Outcome Outcome
+	// VersionID identifies the delivered content. Set only when Delivered.
+	VersionID string
+	// Receipt identifies the delivery to ask about later. Set only when Pending.
+	Receipt string
+	// Reason says why, for Rejected. It reaches the resource request.
+	Reason string
+}
+
+// Writer is a StateStoreWriter whose writes may not be finished when they return. A writer that
+// implements it also takes over readiness and the Destination's canary files, because neither
+// can wait for a delivery that has not happened yet.
+type Writer interface {
+	writers.StateStoreWriter
+
+	Deliver(ctx context.Context, subDir, workPlacementName string,
+		create []v1alpha1.Workload, remove []string) (Result, error)
+
+	Check(ctx context.Context, receipt string) (Result, error)
+}
+
+// Deferred reports whether this writer finishes its writes before returning.
+func Deferred(writer writers.StateStoreWriter) (Writer, bool) {
+	deferred, ok := writer.(Writer)
+	return deferred, ok
 }
 
 var (

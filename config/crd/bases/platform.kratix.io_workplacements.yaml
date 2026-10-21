@@ -151,6 +151,12 @@ spec:
                   - type
                   type: object
                 type: array
+              deliveryReceipt:
+                description: |-
+                  DeliveryReceipt identifies a write the StateStore's writer accepted but has not finished
+                  delivering, and is what the writer is asked about later. It is set while WriteSucceeded is
+                  Unknown and cleared once the delivery resolves.
+                type: string
               versionID:
                 description: |-
                   VersionID contains the version identifier of the last applied workplacement
