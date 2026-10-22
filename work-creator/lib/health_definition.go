@@ -14,7 +14,7 @@ import (
 )
 
 // HealthDefinitionCountFile is written by the work-writer under
-// <rootDirectory>/metadata on every versioned run. The status-writer reads it
+// the metadata directory on every versioned run. The status-writer reads it
 // to record which version the resource now expects health results for, and
 // how many HealthDefinitions the pipeline shipped. A count of zero is
 // meaningful: it tells the platform that this version has no health check.
@@ -123,7 +123,7 @@ func (v *healthDefinitionVersioner) annotate(work *v1alpha1.Work) {
 
 // writeCountFile totals the count across the resource's configure Works at this
 // version, so it covers every pipeline, and writes it for the status-writer.
-func (v *healthDefinitionVersioner) writeCountFile(rootDirectory string, works []v1alpha1.Work) error {
+func (v *healthDefinitionVersioner) writeCountFile(metadataDirectory string, works []v1alpha1.Work) error {
 	if v == nil {
 		return nil
 	}
@@ -142,7 +142,7 @@ func (v *healthDefinitionVersioner) writeCountFile(rootDirectory string, works [
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(healthDefinitionCountPath(rootDirectory), content, 0o644); err != nil {
+	if err := os.WriteFile(healthDefinitionCountPath(metadataDirectory), content, 0o644); err != nil {
 		return fmt.Errorf("failed to write %s: %w", HealthDefinitionCountFile, err)
 	}
 	return nil
@@ -150,14 +150,17 @@ func (v *healthDefinitionVersioner) writeCountFile(rootDirectory string, works [
 
 // removeHealthDefinitionCountFile clears any count file left by a previous
 // step, so that its presence always means this run wrote it.
-func removeHealthDefinitionCountFile(rootDirectory string) error {
-	err := os.Remove(healthDefinitionCountPath(rootDirectory))
+func removeHealthDefinitionCountFile(metadataDirectory string) error {
+	if metadataDirectory == "" {
+		return nil
+	}
+	err := os.Remove(healthDefinitionCountPath(metadataDirectory))
 	if err != nil && !goerr.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
 }
 
-func healthDefinitionCountPath(rootDirectory string) string {
-	return filepath.Join(rootDirectory, "metadata", HealthDefinitionCountFile)
+func healthDefinitionCountPath(metadataDirectory string) string {
+	return filepath.Join(metadataDirectory, HealthDefinitionCountFile)
 }
