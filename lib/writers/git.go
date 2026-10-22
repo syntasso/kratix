@@ -150,12 +150,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		"branch", g.GitServer.Branch,
 	)
 
-	err := g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, logger)
-	if err != nil {
-		return "", err
-	}
-
-	if err := WriteFiles(g.Runner, dirInGitRepo, workloadsToCreate, logger); err != nil {
+	if err := g.Stage(subDir, workloadsToCreate, workloadsToDelete); err != nil {
 		if errors.Is(err, ErrPathOutsideRepository) {
 			return "", nil
 		}
@@ -168,6 +163,18 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		action = "Update"
 	}
 	return g.commitAndPush(action, workPlacementName, logger)
+}
+
+// Stage puts a change in the worktree without committing it, so a writer that commits or pushes
+// differently does not repeat the layout rules. A named subDir is replaced wholesale.
+func (g *GitWriter) Stage(subDir string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
+	dirInGitRepo := filepath.Join(g.Runner.Root(), g.Path, subDir)
+	logger := g.Log.WithValues("dir", dirInGitRepo, "branch", g.GitServer.Branch)
+
+	if err := g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, logger); err != nil {
+		return err
+	}
+	return WriteFiles(g.Runner, dirInGitRepo, workloadsToCreate, logger)
 }
 
 // deleteExistingFiles removes all files in dir when removeDirectory is set to true
