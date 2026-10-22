@@ -24,28 +24,28 @@ var _ = Describe("writerForDelivery", func() {
 		return store
 	}
 
-	It("keeps the store's own writer when there is no delivery block", func() {
+	It("returns the store's default writer when the delivery field is not set", func() {
 		writer, err := controller.WriterForDelivery(storeWith(nil), base, nil)
 
 		Expect(err).ToNot(HaveOccurred())
 		Expect(writer).To(BeIdenticalTo(writers.StateStoreWriter(base)))
 	})
 
-	It("keeps the store's own writer when the mode is empty", func() {
+	It("returns the store's default writer when the delivery field is empty", func() {
 		writer, err := controller.WriterForDelivery(storeWith(&v1alpha1.Delivery{}), base, nil)
 
 		Expect(err).ToNot(HaveOccurred())
 		Expect(writer).To(BeIdenticalTo(writers.StateStoreWriter(base)))
 	})
 
-	It("names the mode when this build registers no writer for it", func() {
+	It("errors when the delivery.mode is unknown", func() {
 		_, err := controller.WriterForDelivery(storeWith(&v1alpha1.Delivery{Mode: "unclaimed-mode"}), base, nil)
 
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("unclaimed-mode"))
 	})
 
-	It("hands the registered writer the store's writer and its config", func() {
+	It("returns the custom writer when the delivery.mode is valid", func() {
 		registered := &writersfakes.FakeStateStoreWriter{}
 		var gotBase writers.StateStoreWriter
 		var gotConfig map[string]string

@@ -31,8 +31,7 @@ const BuiltIn = ""
 type Factory func(base writers.StateStoreWriter, config map[string]string,
 	creds map[string][]byte) (writers.StateStoreWriter, error)
 
-// Result is how a write ended. UpdateFiles cannot express Pending, because its string is already
-// the version identifier, so a deferred write returns this instead.
+// Result is how a write ended
 type Result struct {
 	Outcome Outcome
 	// VersionID identifies the delivered content. Set only when Delivered.

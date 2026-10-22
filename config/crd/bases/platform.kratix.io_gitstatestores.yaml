@@ -69,9 +69,7 @@ spec:
                 description: Branch of the git repository; default to main.
                 type: string
               delivery:
-                description: |-
-                  Delivery selects how documents reach this StateStore. When unset, Kratix writes to the
-                  StateStore directly, which is how every StateStore behaves without this field.
+                description: Delivery selects how documents reach this StateStore.
                 properties:
                   config:
                     additionalProperties:
@@ -81,10 +79,8 @@ spec:
                       and whether it needs any, depends on the mode.
                     type: object
                   mode:
-                    description: |-
-                      Mode names a registered writer. Leaving it unset writes to the StateStore directly.
-                      A mode that no writer in this build registers is reported on the Destination, which is
-                      then not ready, and no documents are written to the StateStore.
+                    description: Mode names a registered writer. Leaving it unset
+                      writes to the StateStore directly.
                     type: string
                 type: object
               gitAuthor:

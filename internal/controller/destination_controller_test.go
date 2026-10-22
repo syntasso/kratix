@@ -122,7 +122,7 @@ var _ = Describe("DestinationReconciler", func() {
 			Expect(fakeK8sClient.Create(ctx, testDestination)).To(Succeed())
 		})
 
-		It("writes no canary files, which a protected branch would reject", func() {
+		It("writes no canary files", func() {
 			result, err := t.reconcileUntilCompletion(reconciler, testDestination)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
@@ -130,7 +130,7 @@ var _ = Describe("DestinationReconciler", func() {
 			Expect(deferredWriter.UpdateFilesCallCount()).To(Equal(0))
 			Expect(deferredWriter.DeleteFilesCallCount()).To(Equal(0))
 
-			By("still marking the destination ready, so WorkPlacements are not blocked by the probe")
+			By("still marking the destination ready")
 			Expect(fakeK8sClient.Get(ctx, testDestinationName, updatedDestination)).To(Succeed())
 			Expect(updatedDestination.Status.Conditions).To(ContainElement(
 				SatisfyAll(

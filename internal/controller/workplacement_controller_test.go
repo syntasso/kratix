@@ -1016,8 +1016,8 @@ files:
 			deferredWriter = &fakeDeferredWriter{FakeStateStoreWriter: &writersfakes.FakeStateStoreWriter{}}
 			deferredWriter.deliverResult = delivery.Result{
 				Outcome: delivery.Pending,
-				Receipt: "pr-42",
-				Reason:  "waiting for review of pull request 42",
+				Receipt: "receipt-1",
+				Reason:  "waiting for the write to be accepted",
 			}
 			repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{Writer: deferredWriter}, nil)
 
@@ -1027,14 +1027,14 @@ files:
 			Expect(fakeK8sClient.Create(ctx, &destination)).To(Succeed())
 		})
 
-		It("delivers instead of writing, and records the receipt", func() {
+		It("delivers the write and records the receipt it was given", func() {
 			result := reconcileTimes(2)
 
 			Expect(deferredWriter.deliverCalls).To(Equal(1))
 			Expect(deferredWriter.UpdateFilesCallCount()).To(Equal(0))
 
 			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
-			Expect(workPlacement.Status.DeliveryReceipt).To(Equal("pr-42"))
+			Expect(workPlacement.Status.DeliveryReceipt).To(Equal("receipt-1"))
 			Expect(workPlacement.Status.VersionID).To(BeEmpty())
 
 			By("leaving the write unresolved rather than failed, so the Work stays pending")
@@ -1042,61 +1042,66 @@ files:
 			Expect(readCondition("Ready").Status).To(Equal(metav1.ConditionFalse))
 			Expect(readCondition("Ready").Message).To(Equal("Pending"))
 
-			By("requeueing in seconds, because nothing wakes it when the delivery resolves")
+			By("requeueing after a shorter interval")
 			Expect(result.RequeueAfter).To(Equal(30 * time.Second))
 		})
 
-		It("asks about the delivery already in flight instead of raising another", func() {
-			reconcileTimes(2)
-			deferredWriter.checkResult = delivery.Result{Outcome: delivery.Pending, Receipt: "pr-42"}
+		When("a write is already pending", func() {
+			BeforeEach(func() {
+				reconcileTimes(2)
+			})
 
-			reconcileTimes(1)
+			It("verifies the pending write instead of delivering again", func() {
+				deferredWriter.checkResult = delivery.Result{Outcome: delivery.Pending, Receipt: "receipt-1"}
 
-			Expect(deferredWriter.checkReceipts).To(ConsistOf("pr-42"))
-			Expect(deferredWriter.deliverCalls).To(Equal(1))
-		})
+				reconcileTimes(1)
 
-		It("records the version the writer reports once the delivery lands", func() {
-			reconcileTimes(2)
-			deferredWriter.checkResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "merge-sha"}
+				Expect(deferredWriter.checkReceipts).To(ConsistOf("receipt-1"))
+				Expect(deferredWriter.deliverCalls).To(Equal(1))
+			})
 
-			reconcileTimes(1)
+			It("fails the work placement when the writer rejects the write", func() {
+				deferredWriter.checkResult = delivery.Result{Outcome: delivery.Rejected, Reason: "closed without merging"}
 
-			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
-			Expect(workPlacement.Status.VersionID).To(Equal("merge-sha"))
-			Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
-			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
-		})
+				reconcileTimes(1)
 
-		It("discards a delivery the workloads have moved past, rather than crediting it", func() {
-			reconcileTimes(2)
-			deferredWriter.checkResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "stale-merge"}
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+				Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
+				Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionFalse))
+				Expect(readCondition(v1alpha1.WriteSucceededConditionType).Message).To(ContainSubstring("closed without merging"))
+			})
 
-			By("changing the workloads and bumping the generation the API server would bump")
-			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
-			workPlacement.Spec.Workloads = []v1alpha1.Workload{{Filepath: "new.yaml", Content: "new: true"}}
-			// The test client does not maintain metadata.generation, so the spec change has to
-			// carry it; without this the guard compares two zeroes and never fires.
-			workPlacement.SetGeneration(workPlacement.GetGeneration() + 1)
-			Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+			When("the writer reports 'Delivered' for a previously pending request", func() {
+				It("records the version the writer reports", func() {
+					deferredWriter.checkResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "merge-sha"}
 
-			reconcileTimes(1)
+					reconcileTimes(1)
 
-			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
-			Expect(workPlacement.Status.VersionID).NotTo(Equal("stale-merge"))
-			Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
-		})
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					Expect(workPlacement.Status.VersionID).To(Equal("merge-sha"))
+					Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
+					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
+				})
+			})
 
-		It("fails the work placement when the delivery is rejected", func() {
-			reconcileTimes(2)
-			deferredWriter.checkResult = delivery.Result{Outcome: delivery.Rejected, Reason: "closed without merging"}
+			When("the workloads are updated", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					workPlacement.Spec.Workloads = []v1alpha1.Workload{{Filepath: "new.yaml", Content: "new: true"}}
+					workPlacement.SetGeneration(workPlacement.GetGeneration() + 1)
+					Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+				})
 
-			reconcileTimes(1)
+				It("discards the pending write rather than crediting it", func() {
+					deferredWriter.checkResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "stale-merge"}
 
-			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
-			Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
-			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionFalse))
-			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Message).To(ContainSubstring("closed without merging"))
+					reconcileTimes(1)
+
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					Expect(workPlacement.Status.VersionID).NotTo(Equal("stale-merge"))
+					Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
+				})
+			})
 		})
 	})
 })

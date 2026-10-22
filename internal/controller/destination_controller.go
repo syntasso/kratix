@@ -173,9 +173,7 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 		return d.handleDeletion(repo)
 	}
 
-	// Canary files prove the state store is writable by writing to it. A writer that defers its
-	// writes cannot answer that: the probe, and the delete that follows it, would both wait on a
-	// delivery. The state store's own readiness check covers reachability instead.
+	// If the writer defers the check, no canary is written, so the destination is ready
 	if _, deferred := delivery.Deferred(repo.Writer); deferred {
 		d.logAndRecordEvent(nil, "Destination is Ready")
 		return ctrl.Result{}, d.setReadyStatus(v1alpha1.DestinationReadyReason, "Destination is ready")
@@ -311,8 +309,6 @@ func (d *destinationReconcileContext) handleDeletion(repo *Repository) (ctrl.Res
 			return defaultRequeue, nil
 		}
 
-		// A deferred writer was never given canary files to write, so there are none to remove.
-		// Asking it to would requeue forever and strand the finalizer.
 		if repo != nil {
 			if _, deferred := delivery.Deferred(repo.Writer); !deferred {
 				if err := d.deleteCanaryFiles(repo); err != nil {

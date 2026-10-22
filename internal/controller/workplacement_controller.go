@@ -547,23 +547,23 @@ func (w *workPlacementReconcileContext) delete(repo *Repository, workloadsToDele
 	return ctrl.Result{}, nil
 }
 
-// deliveryRequeue is short because nothing wakes a WorkPlacement when a delivery resolves
-// outside the cluster, and the state store interval is hours.
+// deliveryRequeue is the interval a pending delivery is verified
 const deliveryRequeue = 30 * time.Second
 
-// resolveOutstandingDelivery asks about the delivery already in flight instead of writing again,
-// so a re-reconcile does not raise a second one for content that is still being reviewed.
+// resolveOutstandingDelivery verifies if a pending delivery has been completed
 func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Repository, receipt string) (ctrl.Result, error) {
 	deferred, isDeferred := delivery.Deferred(repo.Writer)
 	if !isDeferred {
 		// The delivery mode was taken off the state store while this one was in flight.
-		return fastRequeue, w.clearOutstandingDelivery()
+		w.clearOutstandingDelivery()
+		return fastRequeue, w.client.Status().Update(w.ctx, w.workPlacement)
 	}
 
 	// The workloads moved on while this delivery was in flight, so whatever it carries is not
 	// what this generation asks for. Resolving it would mark stale content as written.
 	if w.workPlacement.Status.DeliveryGeneration != w.workPlacement.GetGeneration() {
-		return fastRequeue, w.clearOutstandingDelivery()
+		w.clearOutstandingDelivery()
+		return fastRequeue, w.client.Status().Update(w.ctx, w.workPlacement)
 	}
 
 	result, err := deferred.Check(w.ctx, receipt)
@@ -585,16 +585,14 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 		return ctrl.Result{RequeueAfter: deliveryRequeue}, nil
 
 	case delivery.Rejected:
-		w.workPlacement.Status.DeliveryReceipt = ""
-		w.workPlacement.Status.DeliveryGeneration = 0
+		w.clearOutstandingDelivery()
 		if err := w.updateResourceStatus("", errors.New(result.Reason)); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
 
 	case delivery.Delivered:
-		w.workPlacement.Status.DeliveryReceipt = ""
-		w.workPlacement.Status.DeliveryGeneration = 0
+		w.clearOutstandingDelivery()
 		w.setVersionID(result.VersionID)
 		w.publishWriteEvent("WorkloadsWrittenToStateStore", result.VersionID, nil)
 		if err := w.updateResourceStatus(result.VersionID, nil); err != nil {
@@ -626,8 +624,6 @@ func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (del
 		return delivery.Result{}, workloadErr
 	}
 
-	// A write the writer has not delivered is not a successful write, so it is neither recorded
-	// as one nor given a version.
 	if result.Outcome != delivery.Delivered {
 		return result, nil
 	}
@@ -795,8 +791,7 @@ func getDir(destinationPath string, workPlacement v1alpha1.WorkPlacement) string
 	}
 }
 
-func (w *workPlacementReconcileContext) clearOutstandingDelivery() error {
+func (w *workPlacementReconcileContext) clearOutstandingDelivery() {
 	w.workPlacement.Status.DeliveryReceipt = ""
 	w.workPlacement.Status.DeliveryGeneration = 0
-	return w.client.Status().Update(w.ctx, w.workPlacement)
 }

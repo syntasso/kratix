@@ -26,7 +26,7 @@ var _ = Describe("Delivery registry", func() {
 			Expect(factory).To(BeNil())
 		})
 
-		It("names the mode nobody registered, and what this build does register", func() {
+		It("errors when called with an unregistered delivery mode", func() {
 			delivery.Register("for-names-others", stubFactory("for-names-others"))
 
 			_, err := delivery.For("pullRequest")
@@ -51,14 +51,14 @@ var _ = Describe("Delivery registry", func() {
 				To(PanicWith(ContainSubstring("cannot register the built-in mode")))
 		})
 
-		It("refuses a second registration for one mode, rather than letting the last one win", func() {
+		It("refuses a second registration for one mode", func() {
 			delivery.Register("register-twice", stubFactory("register-twice"))
 
 			Expect(func() { delivery.Register("register-twice", stubFactory("register-twice")) }).
 				To(PanicWith(ContainSubstring(`mode "register-twice" is already registered`)))
 		})
 
-		It("refuses a nil factory, which would panic later at the write instead", func() {
+		It("refuses a nil factory", func() {
 			Expect(func() { delivery.Register("register-nil", nil) }).
 				To(PanicWith(ContainSubstring("nil factory")))
 		})
