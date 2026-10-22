@@ -3,6 +3,8 @@ package writers
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -21,6 +23,7 @@ type GitWriter struct {
 	Path      string
 	Log       logr.Logger
 	BasicAuth bool
+	Insecure  bool
 
 	Runner GitExecutor
 }
@@ -39,6 +42,7 @@ type GitExecutor interface {
 	Add(files ...string) (string, error)
 	Clone(branch string) (repoDir string, err error)
 	Commit(message, author, email string) (sha string, err error)
+	// Push passes branch to git as a refspec, i.e. "HEAD:refs/heads/<name>"
 	Push(branch string, force bool) (string, error)
 	Root() string
 	HasChanges() (bool, error)
@@ -115,6 +119,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 	gw := &GitWriter{
 		// TODO: use this value for forceBasicAuth in git native client
 		BasicAuth: stateStoreSpec.AuthMethod == v1alpha1.BasicAuthMethod,
+		Insecure:  stateStoreSpec.TLSVerificationDisabled(),
 		GitServer: gitServer{
 			URL:    stateStoreSpec.URL,
 			Branch: stateStoreSpec.Branch,
@@ -149,12 +154,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		"branch", g.GitServer.Branch,
 	)
 
-	err := g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, logger)
-	if err != nil {
-		return "", err
-	}
-
-	if err := WriteFiles(g.Runner, dirInGitRepo, workloadsToCreate, logger); err != nil {
+	if err := g.Stage(subDir, workloadsToCreate, workloadsToDelete); err != nil {
 		if errors.Is(err, ErrPathOutsideRepository) {
 			return "", nil
 		}
@@ -167,6 +167,17 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		action = "Update"
 	}
 	return g.commitAndPush(action, workPlacementName, logger)
+}
+
+// Stage puts a change in the worktree without committing it. A named subDir is replaced wholesale.
+func (g *GitWriter) Stage(subDir string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
+	dirInGitRepo := filepath.Join(g.Runner.Root(), g.Path, subDir)
+	logger := g.Log.WithValues("dir", dirInGitRepo, "branch", g.GitServer.Branch)
+
+	if err := g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, logger); err != nil {
+		return err
+	}
+	return WriteFiles(g.Runner, dirInGitRepo, workloadsToCreate, logger)
 }
 
 // deleteExistingFiles removes all files in dir when removeDirectory is set to true
@@ -353,4 +364,23 @@ func (g *GitWriter) DeleteFiles(workplacementName string, files []string) error 
 
 	_, err := g.commitAndPush("Delete", workplacementName, g.Log)
 	return err
+}
+
+// apiHTTPTimeout matches the git client's.
+const apiHTTPTimeout = 15 * time.Second
+
+// APIHTTPClient talks to the state store host's API with the trust the git connection uses.
+func (g *GitWriter) APIHTTPClient() *http.Client {
+	var host string
+	if parsed, err := url.Parse(g.GitServer.URL); err == nil {
+		host = parsed.Host
+	}
+
+	return &http.Client{
+		Timeout: apiHTTPTimeout,
+		Transport: &http.Transport{
+			Proxy:           http.ProxyFromEnvironment,
+			TLSClientConfig: git.APITLSConfig(host, g.Insecure),
+		},
+	}
 }

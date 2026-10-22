@@ -106,6 +106,41 @@ var _ = Describe("DestinationReconciler", func() {
 		})
 	})
 
+	When("the state store writer defers its writes", func() {
+		var deferredWriter *fakeDeferredWriter
+
+		BeforeEach(func() {
+			deferredWriter = &fakeDeferredWriter{FakeStateStoreWriter: &writersfakes.FakeStateStoreWriter{}}
+			repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{
+				Writer: deferredWriter,
+			}, nil)
+
+			setup := stateStoreSetups["BucketStateStore"]
+			Expect(fakeK8sClient.Create(ctx, setup.CreateSecret())).To(Succeed())
+			Expect(fakeK8sClient.Create(ctx, setup.CreateStateStore())).To(Succeed())
+			setup.SetDestinationStateStoreRef(testDestination)
+			Expect(fakeK8sClient.Create(ctx, testDestination)).To(Succeed())
+		})
+
+		It("writes no canary files", func() {
+			result, err := t.reconcileUntilCompletion(reconciler, testDestination)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			Expect(deferredWriter.UpdateFilesCallCount()).To(Equal(0))
+			Expect(deferredWriter.DeleteFilesCallCount()).To(Equal(0))
+
+			By("still marking the destination ready")
+			Expect(fakeK8sClient.Get(ctx, testDestinationName, updatedDestination)).To(Succeed())
+			Expect(updatedDestination.Status.Conditions).To(ContainElement(
+				SatisfyAll(
+					HaveField("Type", "Ready"),
+					HaveField("Status", metav1.ConditionTrue),
+				),
+			))
+		})
+	})
+
 	Describe("destinations backed by", func() {
 		for stateStoreKind, setup := range stateStoreSetups {
 			Context(fmt.Sprintf("a %s", stateStoreKind), func() {

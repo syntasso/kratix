@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/syntasso/kratix/lib/delivery"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -172,6 +173,12 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 		return d.handleDeletion(repo)
 	}
 
+	// If the writer defers the check, no canary is written, so the destination is ready
+	if _, deferred := delivery.Deferred(repo.Writer); deferred {
+		d.logAndRecordEvent(nil, "Destination is Ready")
+		return ctrl.Result{}, d.setReadyStatus(v1alpha1.DestinationReadyReason, "Destination is ready")
+	}
+
 	if !d.destination.Spec.InitWorkloads.Enabled {
 		if err := d.deleteCanaryFiles(repo); err != nil {
 			return ctrl.Result{}, err
@@ -303,9 +310,11 @@ func (d *destinationReconcileContext) handleDeletion(repo *Repository) (ctrl.Res
 		}
 
 		if repo != nil {
-			if err := d.deleteCanaryFiles(repo); err != nil {
-				logging.Error(d.logger, err, "error deleting state store contents")
-				return defaultRequeue, nil
+			if _, deferred := delivery.Deferred(repo.Writer); !deferred {
+				if err := d.deleteCanaryFiles(repo); err != nil {
+					logging.Error(d.logger, err, "error deleting state store contents")
+					return defaultRequeue, nil
+				}
 			}
 		}
 

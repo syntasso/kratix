@@ -56,6 +56,16 @@ type WorkPlacementStatus struct {
 	// For Bucket StateStores, this is always empty
 	VersionID string `json:"versionID,omitempty"`
 
+	// +optional
+	// DeliveryReceipt identifies a write the StateStore's writer accepted but has not delivered.
+	// It is set while WriteSucceeded is Unknown and cleared once the delivery resolves.
+	DeliveryReceipt string `json:"deliveryReceipt,omitempty"`
+
+	// +optional
+	// DeliveryGeneration is the generation the outstanding delivery carries. An older one cannot
+	// satisfy the current generation, however it resolves.
+	DeliveryGeneration int64 `json:"deliveryGeneration,omitempty"`
+
 	// Status fields set by other controllers, kept so typed status updates do not drop them.
 	Custom map[string]apiextensionsv1.JSON `json:"-"`
 }
@@ -166,6 +176,26 @@ func (w *WorkPlacement) SetWorkplacementReadyStatus() bool {
 		)
 	}
 	return false
+}
+
+// SetWriteDeferredCondition marks a write the writer accepted but has not delivered.
+// Unknown, not False: False is read as a failed write and fails the resource request.
+func (w *WorkPlacement) SetWriteDeferredCondition(message string) bool {
+	writeSucceededUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+		Type:               WriteSucceededConditionType,
+		Status:             metav1.ConditionUnknown,
+		Reason:             "WorkloadsAwaitingDelivery",
+		Message:            message,
+		ObservedGeneration: w.GetGeneration(),
+	})
+	readyUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionFalse,
+		Reason:             "WorkloadsAwaitingDelivery",
+		Message:            "Pending",
+		ObservedGeneration: w.GetGeneration(),
+	})
+	return writeSucceededUpdated || readyUpdated
 }
 
 func (w *WorkPlacement) SetWriteFailedCondition(err error) bool {

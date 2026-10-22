@@ -269,3 +269,19 @@ func getRepoHTTPClient(logger logr.Logger, repoURL string, insecure bool, creds 
 	}
 	return customHTTPClient
 }
+
+// APITLSConfig trusts the certificate configured for host under KRATIX_TLS_DATA_PATH.
+func APITLSConfig(host string, insecure bool) *tls.Config {
+	config := &tls.Config{MinVersion: tls.VersionTLS12}
+	if insecure {
+		config.InsecureSkipVerify = true // #nosec G402 -- the state store asked for it
+		return config
+	}
+
+	pemData, err := getCertificateForConnect(host)
+	if err != nil || len(pemData) == 0 {
+		return config
+	}
+	config.RootCAs = getCertPoolFromPEMData(pemData)
+	return config
+}

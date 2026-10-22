@@ -96,6 +96,10 @@ type GitStateStore struct {
 	Status StateStoreStatus  `json:"status,omitempty"`
 }
 
+func (g *GitStateStore) GetDelivery() *Delivery {
+	return g.Spec.Delivery
+}
+
 func (g *GitStateStore) GetSecretRef() *corev1.SecretReference {
 	if g.Spec.SecretRef == nil {
 		return nil
