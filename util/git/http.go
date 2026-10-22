@@ -270,8 +270,7 @@ func getRepoHTTPClient(logger logr.Logger, repoURL string, insecure bool, creds 
 	return customHTTPClient
 }
 
-// APITLSConfig trusts the certificate configured for host under KRATIX_TLS_DATA_PATH, so an API
-// call reaches a private certificate authority on the same terms as the git connection does.
+// APITLSConfig trusts the certificate configured for host under KRATIX_TLS_DATA_PATH.
 func APITLSConfig(host string, insecure bool) *tls.Config {
 	config := &tls.Config{MinVersion: tls.VersionTLS12}
 	if insecure {

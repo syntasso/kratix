@@ -366,11 +366,10 @@ func (g *GitWriter) DeleteFiles(workplacementName string, files []string) error 
 	return err
 }
 
-// apiHTTPTimeout matches the git client's, so an API call cannot hang longer than a clone.
+// apiHTTPTimeout matches the git client's.
 const apiHTTPTimeout = 15 * time.Second
 
-// APIHTTPClient talks to the state store host's API with the trust the git connection uses,
-// including a private certificate authority under KRATIX_TLS_DATA_PATH.
+// APIHTTPClient talks to the state store host's API with the trust the git connection uses.
 func (g *GitWriter) APIHTTPClient() *http.Client {
 	var host string
 	if parsed, err := url.Parse(g.GitServer.URL); err == nil {
