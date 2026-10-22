@@ -3,6 +3,8 @@ package writers
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -21,6 +23,7 @@ type GitWriter struct {
 	Path      string
 	Log       logr.Logger
 	BasicAuth bool
+	Insecure  bool
 
 	Runner GitExecutor
 }
@@ -116,6 +119,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 	gw := &GitWriter{
 		// TODO: use this value for forceBasicAuth in git native client
 		BasicAuth: stateStoreSpec.AuthMethod == v1alpha1.BasicAuthMethod,
+		Insecure:  stateStoreSpec.TLSVerificationDisabled(),
 		GitServer: gitServer{
 			URL:    stateStoreSpec.URL,
 			Branch: stateStoreSpec.Branch,
@@ -360,4 +364,24 @@ func (g *GitWriter) DeleteFiles(workplacementName string, files []string) error 
 
 	_, err := g.commitAndPush("Delete", workplacementName, g.Log)
 	return err
+}
+
+// apiHTTPTimeout matches the git client's, so an API call cannot hang longer than a clone.
+const apiHTTPTimeout = 15 * time.Second
+
+// APIHTTPClient talks to the state store host's API with the trust the git connection uses,
+// including a private certificate authority under KRATIX_TLS_DATA_PATH.
+func (g *GitWriter) APIHTTPClient() *http.Client {
+	var host string
+	if parsed, err := url.Parse(g.GitServer.URL); err == nil {
+		host = parsed.Host
+	}
+
+	return &http.Client{
+		Timeout: apiHTTPTimeout,
+		Transport: &http.Transport{
+			Proxy:           http.ProxyFromEnvironment,
+			TLSClientConfig: git.APITLSConfig(host, g.Insecure),
+		},
+	}
 }
