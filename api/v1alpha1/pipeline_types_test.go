@@ -967,7 +967,9 @@ var _ = Describe("Pipeline", func() {
 						Expect(container.Command).To(Equal([]string{"/bin/pipeline-adapter"}))
 						Expect(container.Args).To(Equal([]string{
 							"work-creator",
-							"--input-directory", "/work-creator-files",
+							"--workloads-directory", "/work-creator-files/input",
+							"--metadata-directory", "/work-creator-files/metadata",
+							"--promise-scheduling-directory", "/work-creator-files/kratix-system",
 							"--promise-name", promise.GetName(),
 							"--pipeline-name", pipeline.GetName(),
 							"--namespace", factory.Namespace,
@@ -1029,7 +1031,9 @@ var _ = Describe("Pipeline", func() {
 						Expect(container.Command).To(Equal([]string{"/bin/pipeline-adapter"}))
 						Expect(container.Args).To(Equal([]string{
 							"work-creator",
-							"--input-directory", "/work-creator-files",
+							"--workloads-directory", "/work-creator-files/input",
+							"--metadata-directory", "/work-creator-files/metadata",
+							"--promise-scheduling-directory", "/work-creator-files/kratix-system",
 							"--promise-name", promise.GetName(),
 							"--pipeline-name", pipeline.GetName(),
 							"--namespace", factory.Namespace,
@@ -1892,7 +1896,9 @@ var _ = Describe("Pipeline", func() {
 					Expect(container.Command).To(Equal([]string{"/bin/pipeline-adapter"}))
 					Expect(container.Args).To(Equal([]string{
 						"work-creator",
-						"--input-directory", "/work-creator-files",
+						"--workloads-directory", "/work-creator-files/input",
+						"--metadata-directory", "/work-creator-files/metadata",
+						"--promise-scheduling-directory", "/work-creator-files/kratix-system",
 						"--promise-name", promise.GetName(),
 						"--pipeline-name", pipeline.GetName(),
 						"--namespace", f.Namespace,
@@ -2015,7 +2021,9 @@ var _ = Describe("Pipeline", func() {
 			Expect(workWriter.Name).To(Equal("work-writer"))
 			Expect(workWriter.Args).To(Equal([]string{
 				"work-creator",
-				"--input-directory", "/work-creator-files",
+				"--workloads-directory", "/work-creator-files/input",
+				"--metadata-directory", "/work-creator-files/metadata",
+				"--promise-scheduling-directory", "/work-creator-files/kratix-system",
 				"--promise-name", promise.GetName(),
 				"--pipeline-name", pipeline.GetName(),
 				"--namespace", factory.Namespace,

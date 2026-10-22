@@ -57,7 +57,7 @@ var _ = Describe("WorkCreator", func() {
 
 			BeforeEach(func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
+				err := workCreator.Execute(resourceWorkflowOptions(mockPipelineDirectory, pipelineName))
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -87,7 +87,7 @@ var _ = Describe("WorkCreator", func() {
 
 			It("has the expected workloads", func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
+				err := workCreator.Execute(resourceWorkflowOptions(mockPipelineDirectory, pipelineName))
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -117,7 +117,7 @@ var _ = Describe("WorkCreator", func() {
 
 				It("Should update the previously created work", func() {
 					mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete-updated")
-					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
+					err := workCreator.Execute(resourceWorkflowOptions(mockPipelineDirectory, pipelineName))
 					Expect(err).ToNot(HaveOccurred())
 
 					newWorkResource := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -202,7 +202,9 @@ var _ = Describe("WorkCreator", func() {
 		When("workflow namespace and resource namespace are different", func() {
 			It("includes resource namespace when generating name for work", func() {
 				mockPipelineDirectory := filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "my-a-team", "resource", pipelineName, "")
+				options := resourceWorkflowOptions(mockPipelineDirectory, pipelineName)
+				options.ResourceNamespace = "my-a-team"
+				err := workCreator.Execute(options)
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -212,7 +214,7 @@ var _ = Describe("WorkCreator", func() {
 
 		Context("with empty metadata directory", func() {
 			BeforeEach(func() {
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
+				err := workCreator.Execute(resourceWorkflowOptions(filepath.Join(getRootDirectory(), "empty-metadata"), pipelineName))
 				Expect(err).ToNot(HaveOccurred())
 			})
 
@@ -232,7 +234,9 @@ var _ = Describe("WorkCreator", func() {
 		Context("with empty namespace string", func() {
 			BeforeEach(func() {
 				expectedNamespace = "kratix-platform-system"
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "", "resource-name", "", "resource", pipelineName, "")
+				options := resourceWorkflowOptions(filepath.Join(getRootDirectory(), "empty-metadata"), pipelineName)
+				options.Namespace = ""
+				err := workCreator.Execute(options)
 				Expect(err).NotTo(HaveOccurred())
 			})
 
@@ -247,7 +251,7 @@ var _ = Describe("WorkCreator", func() {
 
 			BeforeEach(func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "empty-default-workload-group")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
+				err := workCreator.Execute(resourceWorkflowOptions(mockPipelineDirectory, pipelineName))
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -282,7 +286,15 @@ var _ = Describe("WorkCreator", func() {
 
 		When("given a complete set of inputs for a Promise", func() {
 			BeforeEach(func() {
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "", "", "promise", pipelineName, "")
+				sampleDirectory := filepath.Join(getRootDirectory(), "complete-for-promise")
+				err := workCreator.Execute(lib.ExecuteOptions{
+					WorkloadsDirectory:         filepath.Join(sampleDirectory, "input"),
+					MetadataDirectory:          filepath.Join(sampleDirectory, "metadata"),
+					PromiseSchedulingDirectory: filepath.Join(sampleDirectory, "kratix-system"),
+					PromiseName:                "promise-name",
+					WorkflowType:               "promise",
+					PipelineName:               pipelineName,
+				})
 				Expect(err).NotTo(HaveOccurred())
 			})
 
@@ -332,7 +344,9 @@ var _ = Describe("WorkCreator", func() {
 				var workResource v1alpha1.Work
 
 				BeforeEach(func() {
-					err := workCreator.Execute(healthDefinitionTree, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
+					healthDefinitionOptions := resourceWorkflowOptions(healthDefinitionTree, pipelineName)
+					healthDefinitionOptions.PromiseVersion = "v2.0.0"
+					err := workCreator.Execute(healthDefinitionOptions)
 					Expect(err).ToNot(HaveOccurred())
 					workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
 				})
@@ -377,11 +391,15 @@ var _ = Describe("WorkCreator", func() {
 
 			When("the resource has several configure pipelines", func() {
 				It("counts the HealthDefinitions of every pipeline's Work", func() {
-					err := workCreator.Execute(healthDefinitionTree, "promise-name", "default", "resource-name", "", "resource", "first-pipeline", "v2.0.0")
+					healthDefinitionOptions := resourceWorkflowOptions(healthDefinitionTree, "first-pipeline")
+					healthDefinitionOptions.PromiseVersion = "v2.0.0"
+					err := workCreator.Execute(healthDefinitionOptions)
 					Expect(err).ToNot(HaveOccurred())
 
 					completeTree := copySamples("complete")
-					err = workCreator.Execute(completeTree, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
+					completeOptions := resourceWorkflowOptions(completeTree, pipelineName)
+					completeOptions.PromiseVersion = "v2.0.0"
+					err = workCreator.Execute(completeOptions)
 					Expect(err).ToNot(HaveOccurred())
 
 					secondWork := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -392,11 +410,15 @@ var _ = Describe("WorkCreator", func() {
 				})
 
 				It("leaves out a Work counted at another version", func() {
-					err := workCreator.Execute(healthDefinitionTree, "promise-name", "default", "resource-name", "", "resource", "removed-pipeline", "v1.0.0")
+					healthDefinitionOptions := resourceWorkflowOptions(healthDefinitionTree, "removed-pipeline")
+					healthDefinitionOptions.PromiseVersion = "v1.0.0"
+					err := workCreator.Execute(healthDefinitionOptions)
 					Expect(err).ToNot(HaveOccurred())
 
 					completeTree := copySamples("complete")
-					err = workCreator.Execute(completeTree, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
+					completeOptions := resourceWorkflowOptions(completeTree, pipelineName)
+					completeOptions.PromiseVersion = "v2.0.0"
+					err = workCreator.Execute(completeOptions)
 					Expect(err).ToNot(HaveOccurred())
 
 					count, err := os.ReadFile(countFilePath(completeTree))
@@ -405,11 +427,17 @@ var _ = Describe("WorkCreator", func() {
 				})
 
 				It("leaves out a same-named resource in another namespace", func() {
-					err := workCreator.Execute(healthDefinitionTree, "promise-name", "default", "resource-name", "team-a", "resource", pipelineName, "v2.0.0")
+					healthDefinitionOptions := resourceWorkflowOptions(healthDefinitionTree, pipelineName)
+					healthDefinitionOptions.ResourceNamespace = "team-a"
+					healthDefinitionOptions.PromiseVersion = "v2.0.0"
+					err := workCreator.Execute(healthDefinitionOptions)
 					Expect(err).ToNot(HaveOccurred())
 
 					completeTree := copySamples("complete")
-					err = workCreator.Execute(completeTree, "promise-name", "default", "resource-name", "team-b", "resource", pipelineName, "v2.0.0")
+					completeOptions := resourceWorkflowOptions(completeTree, pipelineName)
+					completeOptions.ResourceNamespace = "team-b"
+					completeOptions.PromiseVersion = "v2.0.0"
+					err = workCreator.Execute(completeOptions)
 					Expect(err).ToNot(HaveOccurred())
 
 					count, err := os.ReadFile(countFilePath(completeTree))
@@ -419,12 +447,16 @@ var _ = Describe("WorkCreator", func() {
 
 				It("leaves dry-run Works out of the count", func() {
 					GinkgoT().Setenv(v1alpha1.KratixDryRunEnvVar, "true")
-					err := workCreator.Execute(healthDefinitionTree, "promise-name", "default", "resource-name", "", "resource", "dry-run-pipeline", "v2.0.0")
+					healthDefinitionOptions := resourceWorkflowOptions(healthDefinitionTree, "dry-run-pipeline")
+					healthDefinitionOptions.PromiseVersion = "v2.0.0"
+					err := workCreator.Execute(healthDefinitionOptions)
 					Expect(err).ToNot(HaveOccurred())
 					GinkgoT().Setenv(v1alpha1.KratixDryRunEnvVar, "")
 
 					completeTree := copySamples("complete")
-					err = workCreator.Execute(completeTree, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
+					completeOptions := resourceWorkflowOptions(completeTree, pipelineName)
+					completeOptions.PromiseVersion = "v2.0.0"
+					err = workCreator.Execute(completeOptions)
 					Expect(err).ToNot(HaveOccurred())
 
 					count, err := os.ReadFile(countFilePath(completeTree))
@@ -439,7 +471,9 @@ var _ = Describe("WorkCreator", func() {
 				BeforeEach(func() {
 					completeTree = copySamples("complete")
 					Expect(os.WriteFile(countFilePath(completeTree), []byte("promiseVersion: stale\nhealthDefinitions: 9\n"), 0o644)).To(Succeed())
-					err := workCreator.Execute(completeTree, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
+					completeOptions := resourceWorkflowOptions(completeTree, pipelineName)
+					completeOptions.PromiseVersion = "v2.0.0"
+					err := workCreator.Execute(completeOptions)
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -454,7 +488,9 @@ var _ = Describe("WorkCreator", func() {
 			When("documents only resemble a HealthDefinition", func() {
 				It("ships them verbatim and counts none", func() {
 					lookalikes := copySamples("health-definition-lookalikes")
-					err := workCreator.Execute(lookalikes, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
+					lookalikesOptions := resourceWorkflowOptions(lookalikes, pipelineName)
+					lookalikesOptions.PromiseVersion = "v2.0.0"
+					err := workCreator.Execute(lookalikesOptions)
 					Expect(err).ToNot(HaveOccurred())
 
 					expectWorkloadsUnchanged(getWork(expectedNamespace, promiseName, resourceName, pipelineName), lookalikes)
@@ -466,7 +502,9 @@ var _ = Describe("WorkCreator", func() {
 
 			DescribeTable("when the promise is unversioned", func(promiseVersion string) {
 				Expect(os.WriteFile(countFilePath(healthDefinitionTree), []byte("promiseVersion: stale\nhealthDefinitions: 9\n"), 0o644)).To(Succeed())
-				err := workCreator.Execute(healthDefinitionTree, "promise-name", "default", "resource-name", "", "resource", pipelineName, promiseVersion)
+				healthDefinitionOptions := resourceWorkflowOptions(healthDefinitionTree, pipelineName)
+				healthDefinitionOptions.PromiseVersion = promiseVersion
+				err := workCreator.Execute(healthDefinitionOptions)
 				Expect(err).ToNot(HaveOccurred())
 
 				expectWorkloadsUnchanged(getWork(expectedNamespace, promiseName, resourceName, pipelineName), healthDefinitionTree)
@@ -481,7 +519,7 @@ var _ = Describe("WorkCreator", func() {
 		Context("Workflow Control File", func() {
 			When("it suspends the pipeline", func() {
 				It("does not create a Work", func() {
-					err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-with-suspend"), "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
+					err := workCreator.Execute(resourceWorkflowOptions(filepath.Join(getRootDirectory(), "complete-with-suspend"), pipelineName))
 					Expect(err).NotTo(HaveOccurred())
 
 					works := &v1alpha1.WorkList{}
@@ -493,7 +531,9 @@ var _ = Describe("WorkCreator", func() {
 					tree := copySamples("complete-with-suspend")
 					Expect(os.WriteFile(countFilePath(tree), []byte("promiseVersion: stale\nhealthDefinitions: 9\n"), 0o644)).To(Succeed())
 
-					err := workCreator.Execute(tree, "promise-name", "default", "resource-name", "", "resource", pipelineName, "v2.0.0")
+					suspendOptions := resourceWorkflowOptions(tree, pipelineName)
+					suspendOptions.PromiseVersion = "v2.0.0"
+					err := workCreator.Execute(suspendOptions)
 					Expect(err).NotTo(HaveOccurred())
 
 					_, err = os.Stat(countFilePath(tree))
@@ -505,13 +545,13 @@ var _ = Describe("WorkCreator", func() {
 				var initialWork v1alpha1.Work
 
 				BeforeEach(func() {
-					err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete"), "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
+					err := workCreator.Execute(resourceWorkflowOptions(filepath.Join(getRootDirectory(), "complete"), pipelineName))
 					Expect(err).NotTo(HaveOccurred())
 					initialWork = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
 				})
 
 				It("does not update an existing Work", func() {
-					err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-with-retry"), "promise-name", "default", "resource-name", "", "resource", pipelineName, "")
+					err := workCreator.Execute(resourceWorkflowOptions(filepath.Join(getRootDirectory(), "complete-with-retry"), pipelineName))
 					Expect(err).NotTo(HaveOccurred())
 
 					currentWork := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -582,6 +622,19 @@ func copySamples(name string) string {
 	ExpectWithOffset(1, os.CopyFS(tree, os.DirFS(filepath.Join(getRootDirectory(), name)))).To(Succeed())
 	ExpectWithOffset(1, os.MkdirAll(filepath.Join(tree, "metadata"), 0o755)).To(Succeed())
 	return tree
+}
+
+func resourceWorkflowOptions(sampleDirectory, pipelineName string) lib.ExecuteOptions {
+	return lib.ExecuteOptions{
+		WorkloadsDirectory:         filepath.Join(sampleDirectory, "input"),
+		MetadataDirectory:          filepath.Join(sampleDirectory, "metadata"),
+		PromiseSchedulingDirectory: filepath.Join(sampleDirectory, "kratix-system"),
+		PromiseName:                "promise-name",
+		Namespace:                  "default",
+		ResourceName:               "resource-name",
+		WorkflowType:               "resource",
+		PipelineName:               pipelineName,
+	}
 }
 
 func countFilePath(tree string) string {

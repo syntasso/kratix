@@ -233,7 +233,9 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 	args := []string{
 		"work-creator",
-		"--input-directory", "/work-creator-files",
+		"--workloads-directory", "/work-creator-files/input",
+		"--metadata-directory", "/work-creator-files/metadata",
+		"--promise-scheduling-directory", "/work-creator-files/kratix-system",
 		"--promise-name", p.Promise.GetName(),
 		"--pipeline-name", p.Pipeline.GetName(),
 		"--namespace", p.Namespace,
