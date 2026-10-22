@@ -229,6 +229,10 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 		return w.resolveOutstandingDelivery(repo, receipt)
 	}
 
+	if err := w.clearSupersededFailure(repo); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	written, err := w.writeToStateStore(repo)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -571,6 +575,24 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 		return ctrl.Result{}, err
 	}
 	return w.recordDeliveryResult(result)
+}
+
+// clearSupersededFailure marks the WorkPlacement deferred before a delivery starts. The Work
+// reports a failed write without comparing generations.
+func (w *workPlacementReconcileContext) clearSupersededFailure(repo *Repository) error {
+	if _, isDeferred := delivery.Deferred(repo.Writer); !isDeferred {
+		return nil
+	}
+
+	written := apiMeta.FindStatusCondition(w.workPlacement.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+	if written == nil || written.Status != metav1.ConditionFalse ||
+		written.ObservedGeneration == w.workPlacement.GetGeneration() {
+		return nil
+	}
+
+	return w.persistDeliveryStatus(func() {
+		w.workPlacement.SetWriteDeferredCondition("delivering the current workloads")
+	})
 }
 
 // persistDeliveryStatus retries on conflict: losing a receipt strands the delivery it names.

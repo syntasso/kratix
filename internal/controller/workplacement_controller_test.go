@@ -1028,6 +1028,41 @@ files:
 			Expect(fakeK8sClient.Create(ctx, &destination)).To(Succeed())
 		})
 
+		When("an earlier generation was rejected", func() {
+			BeforeEach(func() {
+				reconcileTimes(2)
+				deferredWriter.checkResult = delivery.Result{Outcome: delivery.Rejected, Reason: "closed without merging"}
+				reconcileTimes(1)
+
+				Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionFalse))
+
+				By("changing the workloads, as an update to the request does")
+				updated, err := compression.CompressContent([]byte("{new: true}"))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+				workPlacement.Spec.Workloads = []v1alpha1.Workload{{Filepath: "new.yaml", Content: string(updated)}}
+				workPlacement.SetGeneration(workPlacement.GetGeneration() + 1)
+				Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+				deferredWriter.checkResult = delivery.Result{}
+			})
+
+			It("stops reporting the old failure while the new workloads are delivered", func() {
+				deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Pending, Receipt: "receipt-2"}
+				var duringDelivery metav1.ConditionStatus
+				deferredWriter.onDeliver = func() {
+					if written := readCondition(v1alpha1.WriteSucceededConditionType); written != nil {
+						duringDelivery = written.Status
+					}
+				}
+
+				reconcileTimes(1)
+
+				Expect(deferredWriter.deliverCalls).To(BeNumerically(">", 0))
+				Expect(duringDelivery).NotTo(Equal(metav1.ConditionFalse),
+					"a verdict on superseded workloads reads as a current failure for the whole delivery")
+			})
+		})
+
 		It("keeps the receipt when a concurrent write conflicts, since the delivery exists", func() {
 			errSubResourceUpdateOnce = errors.NewConflict(
 				schema.GroupResource{Group: "platform.kratix.io", Resource: "workplacements"},
@@ -1119,19 +1154,23 @@ files:
 	})
 })
 
-// fakeDeferredWriter is a StateStoreWriter that also reports deliveries, which is what makes the
-// controller take the Deliver path instead of UpdateFiles.
+// fakeDeferredWriter is a StateStoreWriter that also reports deliveries.
 type fakeDeferredWriter struct {
 	*writersfakes.FakeStateStoreWriter
 
 	deliverResult delivery.Result
 	deliverCalls  int
+	// onDeliver runs inside the call, which is the window the Work reads while a delivery runs.
+	onDeliver     func()
 	checkResult   delivery.Result
 	checkReceipts []string
 }
 
 func (f *fakeDeferredWriter) Deliver(_ context.Context, _, _ string, _ []v1alpha1.Workload, _ []string) (delivery.Result, error) {
 	f.deliverCalls++
+	if f.onDeliver != nil {
+		f.onDeliver()
+	}
 	return f.deliverResult, nil
 }
 
