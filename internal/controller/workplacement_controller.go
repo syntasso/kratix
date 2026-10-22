@@ -39,6 +39,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -573,13 +574,29 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 	return w.recordDeliveryResult(result)
 }
 
+// persistDeliveryStatus retries on conflict. A receipt names a delivery that already exists
+// outside the cluster, so losing it to a concurrent write strands that delivery.
+func (w *workPlacementReconcileContext) persistDeliveryStatus(apply func()) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		apply()
+		err := w.client.Status().Update(w.ctx, w.workPlacement)
+		if apierrors.IsConflict(err) {
+			if getErr := w.client.Get(w.ctx, client.ObjectKeyFromObject(w.workPlacement), w.workPlacement); getErr != nil {
+				return getErr
+			}
+		}
+		return err
+	})
+}
+
 func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Result) (ctrl.Result, error) {
 	switch result.Outcome {
 	case delivery.Pending:
-		w.workPlacement.Status.DeliveryReceipt = result.Receipt
-		w.workPlacement.Status.DeliveryGeneration = w.workPlacement.GetGeneration()
-		w.workPlacement.SetWriteDeferredCondition(result.Reason)
-		if err := w.client.Status().Update(w.ctx, w.workPlacement); err != nil {
+		if err := w.persistDeliveryStatus(func() {
+			w.workPlacement.Status.DeliveryReceipt = result.Receipt
+			w.workPlacement.Status.DeliveryGeneration = w.workPlacement.GetGeneration()
+			w.workPlacement.SetWriteDeferredCondition(result.Reason)
+		}); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: deliveryRequeue}, nil

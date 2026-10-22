@@ -43,6 +43,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	//+kubebuilder:scaffold:imports
@@ -1025,6 +1026,18 @@ files:
 			destination.Spec.StateStoreRef.Kind = "BucketStateStore"
 			destination.Spec.StateStoreRef.Name = "test-state-store"
 			Expect(fakeK8sClient.Create(ctx, &destination)).To(Succeed())
+		})
+
+		It("keeps the receipt when a concurrent write conflicts, since the delivery exists", func() {
+			errSubResourceUpdateOnce = errors.NewConflict(
+				schema.GroupResource{Group: "platform.kratix.io", Resource: "workplacements"},
+				workPlacement.GetName(), fmt.Errorf("the object has been modified"))
+			DeferCleanup(func() { errSubResourceUpdateOnce = nil })
+
+			reconcileTimes(2)
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			Expect(workPlacement.Status.DeliveryReceipt).To(Equal("receipt-1"))
 		})
 
 		It("delivers the write and records the receipt it was given", func() {

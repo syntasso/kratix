@@ -53,6 +53,8 @@ var (
 	t                       *testReconciler
 	interceptorsFuncs       interceptor.Funcs
 	errSubResourceUpdate    error
+	// errSubResourceUpdateOnce fails a single status write, for the paths that retry one.
+	errSubResourceUpdateOnce error
 
 	// Lets a spec reorder List results, which a real cache does not guarantee.
 	reorderListResults func(client.ObjectList)
@@ -81,6 +83,11 @@ var _ = BeforeEach(func() {
 	interceptorsFuncs.SubResourceUpdate = func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
 		if errSubResourceUpdate != nil {
 			return errSubResourceUpdate
+		}
+		if errSubResourceUpdateOnce != nil {
+			err := errSubResourceUpdateOnce
+			errSubResourceUpdateOnce = nil
+			return err
 		}
 		return client.Status().Update(ctx, obj, opts...)
 	}
