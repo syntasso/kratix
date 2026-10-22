@@ -8,8 +8,7 @@ import (
 	"github.com/syntasso/kratix/lib/writers"
 )
 
-// Each spec registers its own mode: the registry is process-wide and refuses a second
-// registration, so a shared name would make specs depend on their order.
+// Each spec registers its own mode: the registry is process-wide and refuses a second one.
 var _ = Describe("Delivery registry", func() {
 	stubFactory := func(string) delivery.Factory {
 		return func(base writers.StateStoreWriter, _ map[string]string,

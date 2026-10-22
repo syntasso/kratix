@@ -560,8 +560,7 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 		return fastRequeue, w.client.Status().Update(w.ctx, w.workPlacement)
 	}
 
-	// The workloads moved on while this delivery was in flight, so whatever it carries is not
-	// what this generation asks for. Resolving it would mark stale content as written.
+	// Resolving a delivery the workloads have moved past would mark stale content as written.
 	if w.workPlacement.Status.DeliveryGeneration != w.workPlacement.GetGeneration() {
 		w.clearOutstandingDelivery()
 		return fastRequeue, w.client.Status().Update(w.ctx, w.workPlacement)
@@ -574,8 +573,7 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 	return w.recordDeliveryResult(result)
 }
 
-// persistDeliveryStatus retries on conflict. A receipt names a delivery that already exists
-// outside the cluster, so losing it to a concurrent write strands that delivery.
+// persistDeliveryStatus retries on conflict: losing a receipt strands the delivery it names.
 func (w *workPlacementReconcileContext) persistDeliveryStatus(apply func()) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		apply()

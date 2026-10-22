@@ -57,14 +57,13 @@ type WorkPlacementStatus struct {
 	VersionID string `json:"versionID,omitempty"`
 
 	// +optional
-	// DeliveryReceipt identifies a write the StateStore's writer accepted but has not finished
-	// delivering, and is what the writer is asked about later. It is set while WriteSucceeded is
-	// Unknown and cleared once the delivery resolves.
+	// DeliveryReceipt identifies a write the StateStore's writer accepted but has not delivered.
+	// It is set while WriteSucceeded is Unknown and cleared once the delivery resolves.
 	DeliveryReceipt string `json:"deliveryReceipt,omitempty"`
 
 	// +optional
-	// DeliveryGeneration is the generation the outstanding delivery carries. A delivery made for
-	// an older generation cannot satisfy the current one, however it resolves.
+	// DeliveryGeneration is the generation the outstanding delivery carries. An older one cannot
+	// satisfy the current generation, however it resolves.
 	DeliveryGeneration int64 `json:"deliveryGeneration,omitempty"`
 
 	// Status fields set by other controllers, kept so typed status updates do not drop them.
@@ -180,8 +179,7 @@ func (w *WorkPlacement) SetWorkplacementReadyStatus() bool {
 }
 
 // SetWriteDeferredCondition marks a write the writer accepted but has not delivered.
-// WriteSucceeded is Unknown rather than False: False is read as a failed write and fails the
-// resource request, while Unknown leaves the Work pending until the delivery resolves.
+// Unknown, not False: False is read as a failed write and fails the resource request.
 func (w *WorkPlacement) SetWriteDeferredCondition(message string) bool {
 	writeSucceededUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
 		Type:               WriteSucceededConditionType,

@@ -153,15 +153,14 @@ spec:
                 type: array
               deliveryGeneration:
                 description: |-
-                  DeliveryGeneration is the generation the outstanding delivery carries. A delivery made for
-                  an older generation cannot satisfy the current one, however it resolves.
+                  DeliveryGeneration is the generation the outstanding delivery carries. An older one cannot
+                  satisfy the current generation, however it resolves.
                 format: int64
                 type: integer
               deliveryReceipt:
                 description: |-
-                  DeliveryReceipt identifies a write the StateStore's writer accepted but has not finished
-                  delivering, and is what the writer is asked about later. It is set while WriteSucceeded is
-                  Unknown and cleared once the delivery resolves.
+                  DeliveryReceipt identifies a write the StateStore's writer accepted but has not delivered.
+                  It is set while WriteSucceeded is Unknown and cleared once the delivery resolves.
                 type: string
               versionID:
                 description: |-
