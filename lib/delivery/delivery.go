@@ -25,9 +25,8 @@ const (
 // BuiltIn is the mode of a state store with no delivery block. It cannot be registered.
 const BuiltIn = ""
 
-// Factory builds the writer for a mode. base is the writer the state store would use on its own,
-// so a mode can delegate the parts it does not change. creds is the state store's secret, which a
-// mode needs when it talks to the host's API as well as to git.
+// Factory builds the writer for a mode. base is the writer the state store would use on its own;
+// creds is the state store's secret.
 type Factory func(base writers.StateStoreWriter, config map[string]string,
 	creds map[string][]byte) (writers.StateStoreWriter, error)
 
@@ -42,9 +41,8 @@ type Result struct {
 	Reason string
 }
 
-// Writer is a StateStoreWriter whose writes may not be finished when they return. A writer that
-// implements it also takes over readiness and the Destination's canary files, because neither
-// can wait for a delivery that has not happened yet.
+// Writer is a StateStoreWriter whose writes may not be finished when they return. Implementing it
+// also takes over readiness and the Destination's canary files.
 type Writer interface {
 	writers.StateStoreWriter
 
@@ -65,8 +63,7 @@ var (
 	registry = map[string]Factory{}
 )
 
-// Register panics rather than returning an error: it runs from init(), where there is no caller
-// to handle one, and a silently dropped registration would leave writes going to the wrong place.
+// Register panics: it runs from init(), and a dropped registration sends writes to the wrong place.
 func Register(mode string, factory Factory) {
 	mu.Lock()
 	defer mu.Unlock()

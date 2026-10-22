@@ -159,8 +159,7 @@ func (c *repositoryCache) initGitRepository(logger logr.Logger, store StateStore
 	return repo, nil
 }
 
-// writerForDelivery wraps the writer the state store built for itself. Every path that writes to
-// a state store goes through Repository.Writer, so wrapping here covers all of them.
+// writerForDelivery wraps the writer the state store built for itself, which every write path uses.
 func writerForDelivery(store StateStore, base writers.StateStoreWriter,
 	creds map[string][]byte) (writers.StateStoreWriter, *StateStoreError) {
 	deliverySpec := store.GetDelivery()

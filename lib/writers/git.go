@@ -165,8 +165,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 	return g.commitAndPush(action, workPlacementName, logger)
 }
 
-// Stage puts a change in the worktree without committing it, so a writer that commits or pushes
-// differently does not repeat the layout rules. A named subDir is replaced wholesale.
+// Stage puts a change in the worktree without committing it. A named subDir is replaced wholesale.
 func (g *GitWriter) Stage(subDir string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
 	dirInGitRepo := filepath.Join(g.Runner.Root(), g.Path, subDir)
 	logger := g.Log.WithValues("dir", dirInGitRepo, "branch", g.GitServer.Branch)
