@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/client-go/tools/events"
@@ -45,6 +46,7 @@ func (o *Opts) SetParentObject(parentObj *unstructured.Unstructured) {
 	o.parentObject = parentObj
 }
 
+var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
 var ErrDeletePipelineFailed = fmt.Errorf("delete Pipeline Failed")
 
 func NewOpts(ctx context.Context, client client.Client, eventRecorder events.EventRecorder, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, workflowType string, numberOfJobsToKeep int, namespace string) Opts {
@@ -746,6 +748,10 @@ func applyResources(opts Opts, resources ...client.Object) {
 			logging.Debug(logger, "resource created")
 		}
 	}
+
+	// Without this gap a reconcile can list Jobs before the one just created reaches the
+	// cache, read its name from status, find nothing and start the pipeline a second time.
+	time.Sleep(minimumPeriodBetweenCreatingPipelineResources)
 }
 
 func deleteResources(opts Opts, resources ...client.Object) {
