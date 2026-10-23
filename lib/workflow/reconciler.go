@@ -672,12 +672,11 @@ func setPipelineStartingStatus(opts Opts, obj *unstructured.Unstructured, job *b
 	return opts.client.Status().Update(opts.ctx, obj)
 }
 
-// getWorkflowJobs lists the Jobs for every action of this workflow. Status is
-// written before a Job is created, so a reconcile that runs straight after can
-// see a Job named in status that the cache does not have yet. Trusting the
-// cache then would start a pipeline a second time, or start the delete
-// pipeline while a configure Job is still running, so the Jobs are listed from
-// the API server instead.
+// getWorkflowJobs lists this workflow's Jobs from the informer cache. Marking a
+// pipeline as running in status triggers a reconcile straight away, before the
+// new Job may be in the cache. If status names a running Job the cache does not
+// have, the Jobs are listed from the API server instead, so the pipeline is not
+// started twice.
 func getWorkflowJobs(opts Opts) ([]batchv1.Job, error) {
 	jobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
 	if err != nil || opts.apiReader == nil {

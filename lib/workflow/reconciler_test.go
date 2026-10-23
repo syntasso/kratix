@@ -370,8 +370,6 @@ var _ = Describe("Workflow Reconciler", func() {
 			It("does not start the pipeline a second time", func() {
 				staleCacheClient := clientWithEmptyJobCache()
 
-				// Promises are cluster scoped, so the Promise controller passes an empty
-				// namespace even though the Jobs run in the system namespace.
 				opts := workflow.NewOpts(ctx, staleCacheClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, "")
 				opts.SetAPIReader(fakeK8sClient)
 				_, err := workflow.ReconcileConfigure(opts)
@@ -3455,8 +3453,6 @@ func resetWorkflowPipelineJobs(workflowPipelines []v1alpha1.PipelineJobResources
 	}
 }
 
-// clientWithEmptyJobCache acts like a controller whose cache has not seen any
-// Jobs yet: listing Jobs returns nothing, everything else works as normal.
 func clientWithEmptyJobCache() client.Client {
 	return interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
 		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
