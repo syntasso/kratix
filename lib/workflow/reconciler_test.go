@@ -366,6 +366,51 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
+		When("the next reconcile runs before the new job reaches the cache", func() {
+			It("does not start the pipeline a second time", func() {
+				staleCacheClient := clientWithEmptyJobCache()
+
+				// Promises are cluster scoped, so the Promise controller passes an empty
+				// namespace even though the Jobs run in the system namespace.
+				opts := workflow.NewOpts(ctx, staleCacheClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, "")
+				opts.SetAPIReader(fakeK8sClient)
+				_, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(listJobs(namespace)).To(HaveLen(1))
+
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+				uPromise, err = promise.ToUnstructured()
+				Expect(err).NotTo(HaveOccurred())
+				opts = workflow.NewOpts(ctx, staleCacheClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, "")
+				opts.SetAPIReader(fakeK8sClient)
+				_, err = workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(listJobs(namespace)).To(HaveLen(1))
+				Expect(countEvents(eventRecorder, "PipelineStarted")).To(Equal(1))
+			})
+		})
+
+		When("status says a pipeline is running but its job no longer exists", func() {
+			It("starts the pipeline again", func() {
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+				promise.Status.Kratix.Workflows["configure"].Pipelines[0].Phase = v1alpha1.WorkflowPhaseRunning
+				promise.Status.Kratix.Workflows["configure"].Pipelines[0].Job = "deleted-job"
+				promise.Status.Kratix.Workflows["configure"].Pipelines[0].Hash = workflowPipelines[0].Job.Labels[v1alpha1.KratixResourceHashLabel]
+				Expect(fakeK8sClient.Status().Update(ctx, &promise)).To(Succeed())
+
+				uPromise, err := promise.ToUnstructured()
+				Expect(err).NotTo(HaveOccurred())
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, "")
+				opts.SetAPIReader(fakeK8sClient)
+				_, err = workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(listJobs(namespace)).To(HaveLen(1))
+				Expect(countEvents(eventRecorder, "PipelineStarted")).To(Equal(1))
+			})
+		})
+
 		When("the status update that resumes a suspended pipeline hits a conflict", func() {
 			It("does not start the pipeline a second time on the next reconcile", func() {
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
@@ -2795,6 +2840,40 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
+		When("a configure job has just started but is not in the cache yet", func() {
+			var configureJob *batchv1.Job
+
+			BeforeEach(func() {
+				generated, err := pipelines[0].ForPromise(&promise, v1alpha1.WorkflowActionConfigure).Resources(nil)
+				Expect(err).NotTo(HaveOccurred())
+				configureJob = generated.Job
+				Expect(fakeK8sClient.Create(ctx, configureJob)).To(Succeed())
+				Expect(resourceutil.MarkCurrentPipelineAsRunning(uPromise, logger, configureJob, "configure")).To(Succeed())
+				Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
+			})
+
+			It("does not start the delete pipeline", func() {
+				opts := workflow.NewOpts(ctx, clientWithEmptyJobCache(), eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, "")
+				opts.SetAPIReader(fakeK8sClient)
+				requeue, err := workflow.ReconcileDelete(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeue).To(BeTrue())
+
+				Expect(listJobs(namespace)).To(ConsistOf(HaveField("Name", configureJob.Name)))
+				Expect(countEvents(eventRecorder, "PipelineStarted")).To(Equal(0))
+			})
+
+			When("there are no delete pipelines", func() {
+				It("does not report the workflow as completed", func() {
+					opts := workflow.NewOpts(ctx, clientWithEmptyJobCache(), eventRecorder, logger, uPromise, []v1alpha1.PipelineJobResources{}, "promise", 5, "")
+					opts.SetAPIReader(fakeK8sClient)
+					requeue, err := workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeue).To(BeTrue())
+				})
+			})
+		})
+
 		When("there are pipelines to reconcile", func() {
 			It("reconciles the first pipeline", func() {
 				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
@@ -3374,4 +3453,17 @@ func resetWorkflowPipelineJobs(workflowPipelines []v1alpha1.PipelineJobResources
 		p.Job.SetName(p.Job.Name + uuid.New().String()[0:5])
 		p.Job.SetResourceVersion("")
 	}
+}
+
+// clientWithEmptyJobCache acts like a controller whose cache has not seen any
+// Jobs yet: listing Jobs returns nothing, everything else works as normal.
+func clientWithEmptyJobCache() client.Client {
+	return interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if _, ok := list.(*batchv1.JobList); ok {
+				return nil
+			}
+			return c.List(ctx, list, opts...)
+		},
+	})
 }

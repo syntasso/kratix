@@ -36,6 +36,7 @@ type Opts struct {
 	numberOfJobsToKeep int
 	eventRecorder      events.EventRecorder
 	namespace          string
+	apiReader          client.Reader
 
 	// WorkflowKey isolates status for controllers that embed the workflow engine.
 	WorkflowKey string
@@ -43,6 +44,12 @@ type Opts struct {
 
 func (o *Opts) SetParentObject(parentObj *unstructured.Unstructured) {
 	o.parentObject = parentObj
+}
+
+// SetAPIReader sets a reader that bypasses the cache. It is used to list Jobs
+// when status names a running Job that the cache has not seen yet.
+func (o *Opts) SetAPIReader(reader client.Reader) {
+	o.apiReader = reader
 }
 
 var ErrDeletePipelineFailed = fmt.Errorf("delete Pipeline Failed")
@@ -197,7 +204,7 @@ func readWorkflowProgress(opts Opts) (Progress, error) {
 		progress.Pipelines = append(progress.Pipelines, pipeline)
 	}
 
-	if progress.Jobs, err = getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace); err != nil {
+	if progress.Jobs, err = getWorkflowJobs(opts); err != nil {
 		return Progress{}, err
 	}
 
@@ -339,7 +346,7 @@ func firstUnfinishedJob(jobs []batchv1.Job) *batchv1.Job {
 
 // AnyJobRunning reports whether any Job of this workflow is still running.
 func AnyJobRunning(opts Opts) (bool, error) {
-	jobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
+	jobs, err := getWorkflowJobs(opts)
 	if err != nil {
 		return false, err
 	}
@@ -665,7 +672,51 @@ func setPipelineStartingStatus(opts Opts, obj *unstructured.Unstructured, job *b
 	return opts.client.Status().Update(opts.ctx, obj)
 }
 
+// getWorkflowJobs lists the Jobs for every action of this workflow. Status is
+// written before a Job is created, so a reconcile that runs straight after can
+// see a Job named in status that the cache does not have yet. Trusting the
+// cache then would start a pipeline a second time, or start the delete
+// pipeline while a configure Job is still running, so the Jobs are listed from
+// the API server instead.
+func getWorkflowJobs(opts Opts) ([]batchv1.Job, error) {
+	jobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
+	if err != nil || opts.apiReader == nil {
+		return jobs, err
+	}
+	for _, name := range runningJobNamesInStatus(opts) {
+		if findJobByName(jobs, name) == nil {
+			logging.Info(opts.logger, "running job not in cache yet; listing jobs from the API server", "job", name)
+			return listJobs(opts.ctx, opts.logger, opts.apiReader, labelsForJobs(opts), opts.namespace)
+		}
+	}
+	return jobs, nil
+}
+
+// runningJobNamesInStatus returns the Jobs that status says are running, for
+// both the configure and the delete workflow.
+func runningJobNamesInStatus(opts Opts) []string {
+	keys := []string{string(v1alpha1.WorkflowActionConfigure), string(v1alpha1.WorkflowActionDelete)}
+	if opts.WorkflowKey != "" {
+		keys = []string{opts.WorkflowKey}
+	}
+	var names []string
+	for _, key := range keys {
+		entries, _, _ := unstructured.NestedSlice(opts.parentObject.Object, "status", "kratix", "workflows", key, "pipelines")
+		for _, entry := range entries {
+			pipeline, err := pipelineStatusFromUnstructured(entry)
+			if err == nil && pipeline.Phase == v1alpha1.WorkflowPhaseRunning && pipeline.Job != "" {
+				names = append(names, pipeline.Job)
+			}
+		}
+	}
+	return names
+}
+
 func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {
+	return listJobs(opts.ctx, opts.logger, opts.client, jobLabels, namespace)
+}
+
+func listJobs(ctx context.Context, logger logr.Logger, reader client.Reader, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {
 	selectorLabels := labels.FormatLabels(jobLabels)
 	selector, err := labels.Parse(selectorLabels)
 
@@ -679,9 +730,9 @@ func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string)
 	}
 
 	jobs := &batchv1.JobList{}
-	err = opts.client.List(opts.ctx, jobs, listOps)
+	err = reader.List(ctx, jobs, listOps)
 	if err != nil {
-		logging.Error(opts.logger, err, "error listing jobs", "selectors", selector.String())
+		logging.Error(logger, err, "error listing jobs", "selectors", selector.String())
 		return nil, err
 	}
 	return jobs.Items, nil
