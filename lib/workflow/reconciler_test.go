@@ -370,7 +370,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			It("does not start the pipeline a second time", func() {
 				staleCacheClient := clientWithEmptyJobCache()
 
-				opts := workflow.NewOpts(ctx, staleCacheClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, "")
+				opts := workflow.NewOpts(ctx, staleCacheClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 				opts.SetAPIReader(fakeK8sClient)
 				_, err := workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
@@ -379,7 +379,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
 				uPromise, err = promise.ToUnstructured()
 				Expect(err).NotTo(HaveOccurred())
-				opts = workflow.NewOpts(ctx, staleCacheClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, "")
+				opts = workflow.NewOpts(ctx, staleCacheClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 				opts.SetAPIReader(fakeK8sClient)
 				_, err = workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
@@ -399,7 +399,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 				uPromise, err := promise.ToUnstructured()
 				Expect(err).NotTo(HaveOccurred())
-				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, "")
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 				opts.SetAPIReader(fakeK8sClient)
 				_, err = workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
@@ -2851,7 +2851,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 
 			It("does not start the delete pipeline", func() {
-				opts := workflow.NewOpts(ctx, clientWithEmptyJobCache(), eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, "")
+				opts := workflow.NewOpts(ctx, clientWithEmptyJobCache(), eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 				opts.SetAPIReader(fakeK8sClient)
 				requeue, err := workflow.ReconcileDelete(opts)
 				Expect(err).NotTo(HaveOccurred())
@@ -2863,7 +2863,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 			When("there are no delete pipelines", func() {
 				It("does not report the workflow as completed", func() {
-					opts := workflow.NewOpts(ctx, clientWithEmptyJobCache(), eventRecorder, logger, uPromise, []v1alpha1.PipelineJobResources{}, "promise", 5, "")
+					opts := workflow.NewOpts(ctx, clientWithEmptyJobCache(), eventRecorder, logger, uPromise, []v1alpha1.PipelineJobResources{}, "promise", 5, namespace)
 					opts.SetAPIReader(fakeK8sClient)
 					requeue, err := workflow.ReconcileDelete(opts)
 					Expect(err).NotTo(HaveOccurred())

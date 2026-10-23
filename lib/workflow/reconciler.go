@@ -46,8 +46,8 @@ func (o *Opts) SetParentObject(parentObj *unstructured.Unstructured) {
 	o.parentObject = parentObj
 }
 
-// SetAPIReader sets a reader that bypasses the cache. It is used to list Jobs
-// when status names a running Job that the cache has not seen yet.
+// SetAPIReader sets a reader that bypasses the cache. It is used to read a Job
+// that status says is running but the cache has not seen yet.
 func (o *Opts) SetAPIReader(reader client.Reader) {
 	o.apiReader = reader
 }
@@ -675,7 +675,7 @@ func setPipelineStartingStatus(opts Opts, obj *unstructured.Unstructured, job *b
 // getWorkflowJobs lists this workflow's Jobs from the informer cache. Marking a
 // pipeline as running in status triggers a reconcile straight away, before the
 // new Job may be in the cache. If status names a running Job the cache does not
-// have, the Jobs are listed from the API server instead, so the pipeline is not
+// have, that Job is read from the API server instead, so the pipeline is not
 // started twice.
 func getWorkflowJobs(opts Opts) ([]batchv1.Job, error) {
 	jobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
@@ -683,9 +683,16 @@ func getWorkflowJobs(opts Opts) ([]batchv1.Job, error) {
 		return jobs, err
 	}
 	for _, name := range runningJobNamesInStatus(opts) {
-		if findJobByName(jobs, name) == nil {
-			logging.Info(opts.logger, "running job not in cache yet; listing jobs from the API server", "job", name)
-			return listJobs(opts.ctx, opts.logger, opts.apiReader, labelsForJobs(opts), opts.namespace)
+		if findJobByName(jobs, name) != nil {
+			continue
+		}
+		logging.Debug(opts.logger, "running job not in cache yet; reading it from the API server", "job", name)
+		job := batchv1.Job{}
+		err := opts.apiReader.Get(opts.ctx, client.ObjectKey{Namespace: opts.namespace, Name: name}, &job)
+		if err == nil {
+			jobs = append(jobs, job)
+		} else if client.IgnoreNotFound(err) != nil {
+			return nil, err
 		}
 	}
 	return jobs, nil
@@ -712,10 +719,6 @@ func runningJobNamesInStatus(opts Opts) []string {
 }
 
 func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {
-	return listJobs(opts.ctx, opts.logger, opts.client, jobLabels, namespace)
-}
-
-func listJobs(ctx context.Context, logger logr.Logger, reader client.Reader, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {
 	selectorLabels := labels.FormatLabels(jobLabels)
 	selector, err := labels.Parse(selectorLabels)
 
@@ -729,9 +732,9 @@ func listJobs(ctx context.Context, logger logr.Logger, reader client.Reader, job
 	}
 
 	jobs := &batchv1.JobList{}
-	err = reader.List(ctx, jobs, listOps)
+	err = opts.client.List(opts.ctx, jobs, listOps)
 	if err != nil {
-		logging.Error(logger, err, "error listing jobs", "selectors", selector.String())
+		logging.Error(opts.logger, err, "error listing jobs", "selectors", selector.String())
 		return nil, err
 	}
 	return jobs.Items, nil

@@ -1093,8 +1093,8 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return false, nil, err
 	}
 
-	namespace := promise.GetNamespace()
-	if promise.Spec.Workflows.Config.PipelineNamespace != "" {
+	namespace := v1alpha1.SystemNamespace
+	if promise.WorkflowPipelineNamespaceSet() {
 		namespace = promise.Spec.Workflows.Config.PipelineNamespace
 	}
 
@@ -1611,8 +1611,8 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 			return ctrl.Result{}, err
 		}
 
-		namespace := promise.GetNamespace()
-		if promise.Spec.Workflows.Config.PipelineNamespace != "" {
+		namespace := v1alpha1.SystemNamespace
+		if promise.WorkflowPipelineNamespaceSet() {
 			namespace = promise.Spec.Workflows.Config.PipelineNamespace
 		}
 		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelines, "promise", r.NumberOfJobsToKeep, namespace)
