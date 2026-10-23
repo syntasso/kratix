@@ -335,6 +335,7 @@ func main() {
 	if err = (&controller.PromiseReconciler{
 		ApiextensionsClient:    apiextensionsClient.ApiextensionsV1(),
 		Client:                 mgr.GetClient(),
+		APIReader:              mgr.GetAPIReader(),
 		Log:                    ctrl.Log.WithName("controllers").WithName("Promise"),
 		Manager:                mgr,
 		Scheme:                 mgr.GetScheme(),

@@ -36,6 +36,7 @@ type Opts struct {
 	numberOfJobsToKeep int
 	eventRecorder      events.EventRecorder
 	namespace          string
+	apiReader          client.Reader
 
 	// WorkflowKey isolates status for controllers that embed the workflow engine.
 	WorkflowKey string
@@ -43,6 +44,12 @@ type Opts struct {
 
 func (o *Opts) SetParentObject(parentObj *unstructured.Unstructured) {
 	o.parentObject = parentObj
+}
+
+// SetAPIReader sets a reader that bypasses the cache. It is used to read a Job
+// that status says is running but the cache has not seen yet.
+func (o *Opts) SetAPIReader(reader client.Reader) {
+	o.apiReader = reader
 }
 
 var ErrDeletePipelineFailed = fmt.Errorf("delete Pipeline Failed")
@@ -197,7 +204,7 @@ func readWorkflowProgress(opts Opts) (Progress, error) {
 		progress.Pipelines = append(progress.Pipelines, pipeline)
 	}
 
-	if progress.Jobs, err = getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace); err != nil {
+	if progress.Jobs, err = getWorkflowJobs(opts); err != nil {
 		return Progress{}, err
 	}
 
@@ -339,7 +346,7 @@ func firstUnfinishedJob(jobs []batchv1.Job) *batchv1.Job {
 
 // AnyJobRunning reports whether any Job of this workflow is still running.
 func AnyJobRunning(opts Opts) (bool, error) {
-	jobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
+	jobs, err := getWorkflowJobs(opts)
 	if err != nil {
 		return false, err
 	}
@@ -663,6 +670,52 @@ func setPipelineStartingStatus(opts Opts, obj *unstructured.Unstructured, job *b
 		return err
 	}
 	return opts.client.Status().Update(opts.ctx, obj)
+}
+
+// getWorkflowJobs lists this workflow's Jobs from the informer cache. Marking a
+// pipeline as running in status triggers a reconcile straight away, before the
+// new Job may be in the cache. If status names a running Job the cache does not
+// have, that Job is read from the API server instead, so the pipeline is not
+// started twice.
+func getWorkflowJobs(opts Opts) ([]batchv1.Job, error) {
+	jobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
+	if err != nil || opts.apiReader == nil {
+		return jobs, err
+	}
+	for _, name := range runningJobNamesInStatus(opts) {
+		if findJobByName(jobs, name) != nil {
+			continue
+		}
+		logging.Debug(opts.logger, "running job not in cache yet; reading it from the API server", "job", name)
+		job := batchv1.Job{}
+		err := opts.apiReader.Get(opts.ctx, client.ObjectKey{Namespace: opts.namespace, Name: name}, &job)
+		if err == nil {
+			jobs = append(jobs, job)
+		} else if client.IgnoreNotFound(err) != nil {
+			return nil, err
+		}
+	}
+	return jobs, nil
+}
+
+// runningJobNamesInStatus returns the Jobs that status says are running, for
+// both the configure and the delete workflow.
+func runningJobNamesInStatus(opts Opts) []string {
+	keys := []string{string(v1alpha1.WorkflowActionConfigure), string(v1alpha1.WorkflowActionDelete)}
+	if opts.WorkflowKey != "" {
+		keys = []string{opts.WorkflowKey}
+	}
+	var names []string
+	for _, key := range keys {
+		entries, _, _ := unstructured.NestedSlice(opts.parentObject.Object, "status", "kratix", "workflows", key, "pipelines")
+		for _, entry := range entries {
+			pipeline, err := pipelineStatusFromUnstructured(entry)
+			if err == nil && pipeline.Phase == v1alpha1.WorkflowPhaseRunning && pipeline.Job != "" {
+				names = append(names, pipeline.Job)
+			}
+		}
+	}
+	return names
 }
 
 func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {

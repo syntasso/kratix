@@ -71,6 +71,7 @@ const (
 type DynamicResourceRequestController struct {
 	// use same naming conventions as other controllers
 	Client                 client.Client
+	APIReader              client.Reader
 	GVK                    *schema.GroupVersionKind
 	Scheme                 *runtime.Scheme
 	PromiseIdentifier      string
@@ -258,6 +259,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		r.NumberOfJobsToKeep,
 		namespace,
 	)
+	jobOpts.SetAPIReader(r.APIReader)
 
 	if migrated, err := workflow.MigrateStatus(jobOpts); migrated || err != nil {
 		return ctrl.Result{}, err
@@ -1286,6 +1288,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		}
 
 		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
+		jobOpts.SetAPIReader(r.APIReader)
 		if migrated, err := workflow.MigrateStatus(jobOpts); migrated || err != nil {
 			return ctrl.Result{}, err
 		}

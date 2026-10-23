@@ -75,6 +75,7 @@ type Manager interface {
 type PromiseReconciler struct {
 	Scheme                    *runtime.Scheme
 	Client                    client.Client
+	APIReader                 client.Reader
 	ApiextensionsClient       apiextensionsv1cs.CustomResourceDefinitionsGetter
 	Log                       logr.Logger
 	Manager                   ctrl.Manager
@@ -1092,12 +1093,13 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return false, nil, err
 	}
 
-	namespace := promise.GetNamespace()
-	if promise.Spec.Workflows.Config.PipelineNamespace != "" {
+	namespace := v1alpha1.SystemNamespace
+	if promise.WorkflowPipelineNamespaceSet() {
 		namespace = promise.Spec.Workflows.Config.PipelineNamespace
 	}
 
 	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep, namespace)
+	jobOpts.SetAPIReader(r.APIReader)
 
 	logging.Debug(o.logger, "reconciling configure workflow")
 	passiveRequeue, err := reconcileConfigure(jobOpts)
@@ -1261,6 +1263,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	//once resolved, delete dynamic controller rather than disable
 	dynamicResourceRequestController := &DynamicResourceRequestController{
 		Client:                 r.Client,
+		APIReader:              r.APIReader,
 		Scheme:                 r.Scheme,
 		GVK:                    rrGVK,
 		CRD:                    rrCRD,
@@ -1608,11 +1611,12 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 			return ctrl.Result{}, err
 		}
 
-		namespace := promise.GetNamespace()
-		if promise.Spec.Workflows.Config.PipelineNamespace != "" {
+		namespace := v1alpha1.SystemNamespace
+		if promise.WorkflowPipelineNamespaceSet() {
 			namespace = promise.Spec.Workflows.Config.PipelineNamespace
 		}
 		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelines, "promise", r.NumberOfJobsToKeep, namespace)
+		jobOpts.SetAPIReader(r.APIReader)
 
 		requeue, err := reconcileDelete(jobOpts)
 		if stderrors.Is(err, workflow.ErrDeletePipelineFailed) {
