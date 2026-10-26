@@ -66,6 +66,12 @@ type WorkPlacementStatus struct {
 	// satisfy the current generation, however it resolves.
 	DeliveryGeneration int64 `json:"deliveryGeneration,omitempty"`
 
+	// +optional
+	// DeliveryURL is where a person can follow the latest delivery, such as the pull request a
+	// StateStore's delivery writer opened. It is set from every result that writer returns and
+	// stays after the delivery resolves. It is empty for StateStores without a delivery writer.
+	DeliveryURL string `json:"deliveryURL,omitempty"`
+
 	// Status fields set by other controllers, kept so typed status updates do not drop them.
 	Custom map[string]apiextensionsv1.JSON `json:"-"`
 }
@@ -206,11 +212,6 @@ func (w *WorkPlacement) SetWriteFailedCondition(err error) bool {
 	return w.setWriteFailed("WorkloadsFailedWrite", err.Error())
 }
 
-// SetWriteRejectedCondition marks a write the writer accepted and then rejected.
-func (w *WorkPlacement) SetWriteRejectedCondition(message string) bool {
-	return w.setWriteFailed(WorkloadsRejectedReason, message)
-}
-
 func (w *WorkPlacement) setWriteFailed(reason, message string) bool {
 	writeSucceededUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
 		Type:               WriteSucceededConditionType,
@@ -223,6 +224,25 @@ func (w *WorkPlacement) setWriteFailed(reason, message string) bool {
 		Status:             metav1.ConditionFalse,
 		Type:               "Ready",
 		Reason:             "WorkloadsFailedWrite",
+		Message:            "Failing",
+		ObservedGeneration: w.GetGeneration(),
+	})
+	return writeSucceededUpdated || readyUpdated
+}
+
+// SetWriteRejectedCondition marks a write the writer accepted and then rejected.
+func (w *WorkPlacement) SetWriteRejectedCondition(reason string) bool {
+	writeSucceededUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+		Type:               WriteSucceededConditionType,
+		Status:             metav1.ConditionFalse,
+		Reason:             WorkloadsRejectedReason,
+		Message:            reason,
+		ObservedGeneration: w.GetGeneration(),
+	})
+	readyUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+		Status:             metav1.ConditionFalse,
+		Type:               "Ready",
+		Reason:             WorkloadsRejectedReason,
 		Message:            "Failing",
 		ObservedGeneration: w.GetGeneration(),
 	})

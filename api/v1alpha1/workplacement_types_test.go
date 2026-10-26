@@ -48,7 +48,8 @@ var _ = Describe("WorkPlacement", func() {
 
 		BeforeEach(func() {
 			statusWithCustomFields = map[string]any{"status": map[string]any{
-				"versionID": "abc123",
+				"versionID":   "abc123",
+				"deliveryURL": "https://github.com/acme/platform/pull/41",
 				"conditions": []any{
 					map[string]any{"type": "Ready", "status": "True", "reason": "Ready", "message": "Ready", "lastTransitionTime": "2026-01-01T00:00:00Z"},
 				},
@@ -63,6 +64,8 @@ var _ = Describe("WorkPlacement", func() {
 			workPlacement := &v1alpha1.WorkPlacement{}
 			Expect(json.Unmarshal(data, workPlacement)).To(Succeed())
 			Expect(workPlacement.Status.VersionID).To(Equal("abc123"))
+			Expect(workPlacement.Status.DeliveryURL).To(Equal("https://github.com/acme/platform/pull/41"))
+			Expect(workPlacement.Status.Custom).NotTo(HaveKey("deliveryURL"))
 			Expect(workPlacement.Status.Conditions).To(HaveLen(1))
 			Expect(workPlacement.Status.Custom).To(HaveKey("pullRequest"))
 
@@ -70,6 +73,7 @@ var _ = Describe("WorkPlacement", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(out)).To(ContainSubstring(`"pullRequest":{"generation":4,"url":"https://github.com/acme/platform/pull/42"}`))
 			Expect(string(out)).To(ContainSubstring(`"versionID":"abc123"`))
+			Expect(string(out)).To(ContainSubstring(`"deliveryURL":"https://github.com/acme/platform/pull/41"`))
 		})
 
 		It("keeps custom fields through the unstructured converter", func() {

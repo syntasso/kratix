@@ -162,6 +162,12 @@ spec:
                   DeliveryReceipt identifies a write the StateStore's writer accepted but has not delivered.
                   It is set while WriteSucceeded is Unknown and cleared once the delivery resolves.
                 type: string
+              deliveryURL:
+                description: |-
+                  DeliveryURL is where a person can follow the latest delivery, such as the pull request a
+                  StateStore's delivery writer opened. It is set from every result that writer returns and
+                  stays after the delivery resolves. It is empty for StateStores without a delivery writer.
+                type: string
               versionID:
                 description: |-
                   VersionID contains the version identifier of the last applied workplacement
