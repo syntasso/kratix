@@ -1204,6 +1204,7 @@ files:
 
 			By("leaving the write unresolved rather than failed, so the Work stays pending")
 			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionUnknown))
+			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).To(Equal("WorkloadsAwaitingDelivery"))
 			Expect(readCondition("Ready").Status).To(Equal(metav1.ConditionFalse))
 			Expect(readCondition("Ready").Message).To(Equal("Pending"))
 
@@ -1290,6 +1291,21 @@ files:
 				Expect(readCondition("Ready").Reason).To(Equal("WorkloadsRejected"))
 				Expect(readCondition("Ready").Message).To(Equal("Failing"))
 				Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
+				Expect(workPlacement.Status.DeliveryURL).To(Equal("https://h/pr/8"))
+			})
+
+			It("keeps the rejection's URL when a concurrent write conflicts", func() {
+				deferredWriter.checkResult = delivery.Result{
+					Outcome: delivery.Rejected, Reason: "closed without merging", URL: "https://h/pr/8",
+				}
+				errSubResourceUpdateOnce = errors.NewConflict(
+					schema.GroupResource{Group: "platform.kratix.io", Resource: "workplacements"},
+					workPlacement.GetName(), fmt.Errorf("the object has been modified"))
+				DeferCleanup(func() { errSubResourceUpdateOnce = nil })
+
+				reconcileTimes(1)
+
+				Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).To(Equal("WorkloadsRejected"))
 				Expect(workPlacement.Status.DeliveryURL).To(Equal("https://h/pr/8"))
 			})
 

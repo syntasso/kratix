@@ -920,6 +920,19 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				return condition
 			}
 
+			It("returns the error when the WorkPlacements cannot be listed", func() {
+				failList = func(list client.ObjectList) error {
+					if _, ok := list.(*v1alpha1.WorkPlacementList); ok {
+						return fmt.Errorf("cannot list WorkPlacements")
+					}
+					return nil
+				}
+				createWorkWithReadyMessage("Pending")
+
+				_, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).To(MatchError(ContainSubstring("cannot list WorkPlacements")))
+			})
+
 			Context("WorksSucceeded", func() {
 				When("a WorkPlacement is waiting for its delivery", func() {
 					It("names the Destination and the delivery text", func() {

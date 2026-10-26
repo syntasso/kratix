@@ -94,7 +94,7 @@ func MarkResourceRequestAsWorksFailed(obj *unstructured.Unstructured, works []st
 	return SetConditionIfChanged(obj, &clusterv1.Condition{
 		Type:               WorksSucceededCondition,
 		Status:             v1.ConditionFalse,
-		Message:            fmt.Sprintf("Some works associated with this resource failed: [%s]%s", strings.Join(works, ","), worksDeliveryDetails(entries)),
+		Message:            worksMessage("Some works associated with this resource failed", works, entries),
 		Reason:             "WorksFailing",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
@@ -114,7 +114,7 @@ func MarkResourceRequestAsWorksPending(obj *unstructured.Unstructured, works []s
 	return SetConditionIfChanged(obj, &clusterv1.Condition{
 		Type:               WorksSucceededCondition,
 		Status:             v1.ConditionUnknown,
-		Message:            fmt.Sprintf("Some works associated with this resource are not ready: [%s]%s", strings.Join(works, ","), worksDeliveryDetails(entries)),
+		Message:            worksMessage("Some works associated with this resource are not ready", works, entries),
 		Reason:             "WorksPending",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})

@@ -67,9 +67,10 @@ type WorkPlacementStatus struct {
 	DeliveryGeneration int64 `json:"deliveryGeneration,omitempty"`
 
 	// +optional
-	// DeliveryURL is where a person can follow the latest delivery, such as the pull request a
-	// StateStore's delivery writer opened. It is set from every result that writer returns and
-	// stays after the delivery resolves. It is empty for StateStores without a delivery writer.
+	// DeliveryURL is a link to the latest delivery of these workloads, such as the pull request
+	// opened for a GitStateStore with `spec.delivery.mode` set. It is kept after the change is
+	// merged or rejected, until the next delivery replaces or clears it. It is empty when the
+	// StateStore has no delivery mode.
 	DeliveryURL string `json:"deliveryURL,omitempty"`
 
 	// Status fields set by other controllers, kept so typed status updates do not drop them.

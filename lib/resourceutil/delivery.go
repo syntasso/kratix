@@ -21,9 +21,10 @@ const (
 	WorksRejectedReason         = "WorksRejected"
 
 	reconciledDeliveryMessageMaxRunes = 120
+	worksSucceededMessageMaxRunes     = 4096
 )
 
-// DeliveryEntry is a WorkPlacement whose write is waiting on, or was rejected by, a delivery.
+// DeliveryEntry is a WorkPlacement whose delivery is waiting for approval or was rejected.
 type DeliveryEntry struct {
 	WorkPlacement string
 	Destination   string
@@ -32,7 +33,7 @@ type DeliveryEntry struct {
 }
 
 // ListDeliveryEntries returns the WorkPlacements of the given Works that are awaiting
-// delivery or were rejected, sorted by WorkPlacement name.
+// delivery or were rejected, and are not being deleted, sorted by WorkPlacement name.
 func ListDeliveryEntries(ctx context.Context, c client.Client, works []v1alpha1.Work) ([]DeliveryEntry, error) {
 	var entries []DeliveryEntry
 	for _, work := range works {
@@ -44,6 +45,9 @@ func ListDeliveryEntries(ctx context.Context, c client.Client, works []v1alpha1.
 			return nil, fmt.Errorf("listing WorkPlacements of Work %s/%s: %w", work.GetNamespace(), work.GetName(), err)
 		}
 		for _, placement := range placements.Items {
+			if !placement.GetDeletionTimestamp().IsZero() {
+				continue
+			}
 			write := apimeta.FindStatusCondition(placement.Status.Conditions, v1alpha1.WriteSucceededConditionType)
 			if write == nil || (write.Reason != v1alpha1.WorkloadsAwaitingDeliveryReason && write.Reason != v1alpha1.WorkloadsRejectedReason) {
 				continue
@@ -109,10 +113,11 @@ func cutToRunes(text string, maxRunes int) string {
 	return string(runes[:maxRunes-1]) + "…"
 }
 
-func worksDeliveryDetails(entries []DeliveryEntry) string {
-	var details strings.Builder
+func worksMessage(summary string, works []string, entries []DeliveryEntry) string {
+	var message strings.Builder
+	fmt.Fprintf(&message, "%s: [%s]", summary, strings.Join(works, ","))
 	for _, entry := range entries {
-		fmt.Fprintf(&details, ". Destination %s: %s", entry.Destination, entry.Message)
+		fmt.Fprintf(&message, ". Destination %s: %s", entry.Destination, entry.Message)
 	}
-	return details.String()
+	return cutToRunes(message.String(), worksSucceededMessageMaxRunes)
 }

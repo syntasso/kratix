@@ -1052,6 +1052,21 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 			})
 
+			It("returns the error when the Work's WorkPlacements cannot be listed", func() {
+				failingClient := interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+					List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+						if _, ok := list.(*v1alpha1.WorkPlacementList); ok {
+							return fmt.Errorf("cannot list WorkPlacements")
+						}
+						return c.List(ctx, list, opts...)
+					},
+				})
+				failingOpts := workflow.NewOpts(ctx, failingClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+
+				_, err := workflow.ReconcileConfigure(failingOpts)
+				Expect(err).To(MatchError(ContainSubstring("cannot list WorkPlacements")))
+			})
+
 			When("the Work's WorkPlacement delivery was rejected", func() {
 				It("shows the rejection text on the Reconciled condition", func() {
 					markWorkFailing(firstPipelineWork)
