@@ -1075,6 +1075,20 @@ files:
 			Expect(workPlacement.Status.DeliveryReceipt).To(Equal("receipt-1"))
 		})
 
+		It("names the WorkPlacement the delivery is for, so a writer can explain it", func() {
+			reconcileTimes(2)
+
+			Expect(deferredWriter.deliverTargets).To(ConsistOf(delivery.Target{
+				Dir:           "test-path/resources/default/test-promise/test-resource/5058f/",
+				Namespace:     "default",
+				WorkPlacement: workPlacement.GetName(),
+				Promise:       "test-promise",
+				Resource:      "test-resource",
+				Pipeline:      workPlacement.PipelineName(),
+				Destination:   "test-destination",
+			}))
+		})
+
 		It("delivers the write and records the receipt it was given", func() {
 			result := reconcileTimes(2)
 
@@ -1094,6 +1108,14 @@ files:
 			Expect(result.RequeueAfter).To(Equal(30 * time.Second))
 		})
 
+		It("checks a pending write again after the CheckAfter the writer returned", func() {
+			deferredWriter.deliverResult.CheckAfter = 5 * time.Second
+
+			result := reconcileTimes(2)
+
+			Expect(result.RequeueAfter).To(Equal(5 * time.Second))
+		})
+
 		When("a write is already pending", func() {
 			BeforeEach(func() {
 				reconcileTimes(2)
@@ -1106,6 +1128,16 @@ files:
 
 				Expect(deferredWriter.checkReceipts).To(ConsistOf("receipt-1"))
 				Expect(deferredWriter.deliverCalls).To(Equal(1))
+			})
+
+			It("checks a pending write again after the CheckAfter the writer returned", func() {
+				deferredWriter.checkResult = delivery.Result{
+					Outcome: delivery.Pending, Receipt: "receipt-1", CheckAfter: 5 * time.Second,
+				}
+
+				result := reconcileTimes(1)
+
+				Expect(result.RequeueAfter).To(Equal(5 * time.Second))
 			})
 
 			It("fails the work placement when the writer rejects the write", func() {
@@ -1158,16 +1190,18 @@ files:
 type fakeDeferredWriter struct {
 	*writersfakes.FakeStateStoreWriter
 
-	deliverResult delivery.Result
-	deliverCalls  int
+	deliverResult  delivery.Result
+	deliverCalls   int
+	deliverTargets []delivery.Target
 	// onDeliver runs inside the call, which is the window the Work reads while a delivery runs.
 	onDeliver     func()
 	checkResult   delivery.Result
 	checkReceipts []string
 }
 
-func (f *fakeDeferredWriter) Deliver(_ context.Context, _, _ string, _ []v1alpha1.Workload, _ []string) (delivery.Result, error) {
+func (f *fakeDeferredWriter) Deliver(_ context.Context, target delivery.Target, _ []v1alpha1.Workload, _ []string) (delivery.Result, error) {
 	f.deliverCalls++
+	f.deliverTargets = append(f.deliverTargets, target)
 	if f.onDeliver != nil {
 		f.onDeliver()
 	}
