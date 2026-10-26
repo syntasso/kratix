@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -49,6 +50,11 @@ const dryRunComponentsSucceededCondition = "ComponentsSucceeded"
 // pipeline crash-loops never reports a condition at all, so without a bound the
 // compound dry run would wait forever.
 const componentDryRunTimeout = 10 * time.Minute
+
+// dryRunWorksTimeout bounds how long a dry run waits for its Works once its
+// pipeline has completed. Works that fail to write are retried, so a dry run only
+// fails on its Works if they are still not ready after this.
+const dryRunWorksTimeout = 2 * time.Minute
 
 type DryRunReconciler struct {
 	Client client.Client
@@ -104,10 +110,10 @@ func (r *DryRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	worksSucceeded := resourceutil.GetCondition(rrObj, resourceutil.WorksSucceededCondition)
-	if worksSucceeded != nil && worksSucceeded.Status == corev1.ConditionFalse {
-		return ctrl.Result{}, r.markDryRunFailed(ctx, dryRun, "pipeline failed: "+worksSucceeded.Message)
-	}
 	if worksSucceeded == nil || worksSucceeded.Status != corev1.ConditionTrue {
+		if reason := worksFailure(configureCompleted, worksSucceeded, time.Now()); reason != "" {
+			return ctrl.Result{}, r.markDryRunFailed(ctx, dryRun, reason)
+		}
 		logger.Info("waiting for ephemeral RR WorksSucceeded", "ephemeralRR", ephemeralName)
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
@@ -740,6 +746,22 @@ func componentsSucceededCondition(components []v1alpha1.DryRunComponentStatus) m
 			LastTransitionTime: metav1.Now(),
 		}
 	}
+}
+
+// worksFailure returns why the dry run's Works failed, or "" while they may still
+// become ready.
+func worksFailure(configureCompleted, worksSucceeded *clusterv1.Condition, now time.Time) string {
+	if configureCompleted == nil || configureCompleted.Status != corev1.ConditionTrue {
+		return ""
+	}
+	if now.Sub(configureCompleted.LastTransitionTime.Time) < dryRunWorksTimeout {
+		return ""
+	}
+	reason := fmt.Sprintf("works not ready %s after the pipeline completed", dryRunWorksTimeout)
+	if worksSucceeded != nil && worksSucceeded.Message != "" {
+		reason += ": " + worksSucceeded.Message
+	}
+	return reason
 }
 
 func isDryRunCompleted(dryRun *v1alpha1.DryRun) bool {

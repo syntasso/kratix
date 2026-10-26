@@ -58,3 +58,7 @@ func PromiseRevisionAnnotationChangedPredicate() predicate.Predicate {
 func WithTrace(logger logr.Logger, reconcileFunc func() (ctrl.Result, error)) (ctrl.Result, error) {
 	return withTrace(logger, reconcileFunc)
 }
+
+var DryRunWorksFailure = worksFailure
+
+const DryRunWorksTimeout = dryRunWorksTimeout
