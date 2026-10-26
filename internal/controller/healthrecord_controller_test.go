@@ -355,6 +355,31 @@ var _ = Describe("HealthRecordController", func() {
 		})
 	})
 
+	When("a record in the resource namespace reports on a resource of the same name elsewhere", func() {
+		BeforeEach(func() {
+			otherNamespaceRecord := &v1alpha1.HealthRecord{
+				ObjectMeta: metav1.ObjectMeta{Name: "other-namespace-record", Namespace: resource.GetNamespace()},
+				Data: v1alpha1.HealthRecordData{
+					PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
+					ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: "other-ns"},
+					State:       "unhealthy",
+					LastRun:     now,
+					Details:     details,
+				},
+			}
+
+			Expect(fakeK8sClient.Create(ctx, otherNamespaceRecord)).To(Succeed())
+		})
+
+		It("only considers records with a matching resourceRef namespace", func() {
+			updatedResource := reconcile()
+
+			status := getResourceStatus(updatedResource)
+			Expect(getHealthRecordSources(status)).To(Equal([]string{"default/" + healthRecord.GetName()}))
+			Expect(getHealthStatusState(status)).To(Equal("ready"))
+		})
+	})
+
 	When("another promise has a resource with the same name and namespace", func() {
 		BeforeEach(func() {
 			otherPromiseRecord := &v1alpha1.HealthRecord{
