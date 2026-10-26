@@ -71,6 +71,35 @@ var _ = Describe("StatusUpdater", func() {
 			))
 			Expect(result).To(HaveLen(5))
 		})
+
+		It("merges nested maps, keeping keys only present in the existing map", func() {
+			existing := map[string]any{
+				"message": "User created",
+				"iam":     map[string]any{"user": "admin", "roles": map[string]any{"a": "read"}},
+			}
+			incoming := map[string]any{
+				"message": "User created and vault secret created",
+				"iam":     map[string]any{"password": "vault-ref", "roles": map[string]any{"b": "write"}},
+			}
+
+			result := lib.MergeStatuses(existing, incoming)
+
+			Expect(result).To(Equal(map[string]any{
+				"message": "User created and vault secret created",
+				"iam": map[string]any{
+					"user":     "admin",
+					"password": "vault-ref",
+					"roles":    map[string]any{"a": "read", "b": "write"},
+				},
+			}))
+		})
+
+		It("overwrites when the existing and incoming types differ", func() {
+			existing := map[string]any{"iam": map[string]any{"user": "admin"}}
+			incoming := map[string]any{"iam": "none"}
+
+			Expect(lib.MergeStatuses(existing, incoming)).To(HaveKeyWithValue("iam", "none"))
+		})
 	})
 
 	Describe("MarkAsCompleted", func() {

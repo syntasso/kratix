@@ -14,8 +14,9 @@ import (
 // MergeStatuses takes two status maps and returns a new status map that is a
 // merge of the two.
 //
-// If a key exists in both maps, the value from the incoming map will be used.
-// `conditions` are treated differently. The incoming conditions will be merged
+// If a key exists in both maps, the value from the incoming map will be used,
+// except when both values are maps: those are merged key by key, recursively.
+// Lists are replaced, not appended to. `conditions` are treated differently. The incoming conditions will be merged
 // with the existing conditions.
 func MergeStatuses(existing map[string]any, incoming map[string]any) map[string]any {
 	return mergeRecursive(existing, incoming)
@@ -212,7 +213,16 @@ func mergeRecursive(existing, incoming map[string]any) map[string]any {
 			}
 		}
 
-		// For all other keys, simply overwrite
+		// Nested maps are merged so a Pipeline can add keys without dropping
+		// the ones written by earlier Pipelines
+		if existingMap, ok := result[k].(map[string]any); ok {
+			if incomingMap, ok := v.(map[string]any); ok {
+				result[k] = mergeRecursive(existingMap, incomingMap)
+				continue
+			}
+		}
+
+		// For everything else, simply overwrite
 		result[k] = v
 	}
 
