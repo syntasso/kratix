@@ -43,10 +43,24 @@ type Result struct {
 
 // Writer is a StateStoreWriter whose writes may not be finished when they return. Implementing it
 // also takes over readiness and the Destination's canary files.
+// Target is the WorkPlacement a delivery carries. A writer that asks a person to approve
+// the change needs to name what the change is for.
+type Target struct {
+	// Dir is the path within the StateStore the workloads are written under.
+	Dir           string
+	Namespace     string
+	WorkPlacement string
+	Promise       string
+	// Resource is empty for a Promise's dependencies.
+	Resource    string
+	Pipeline    string
+	Destination string
+}
+
 type Writer interface {
 	writers.StateStoreWriter
 
-	Deliver(ctx context.Context, subDir, workPlacementName string,
+	Deliver(ctx context.Context, target Target,
 		create []v1alpha1.Workload, remove []string) (Result, error)
 
 	Check(ctx context.Context, receipt string) (Result, error)

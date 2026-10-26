@@ -726,7 +726,15 @@ func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Reposit
 	}
 
 	if deferred, isDeferred := delivery.Deferred(repo.Writer); isDeferred {
-		result, err := deferred.Deliver(w.ctx, dir, w.workPlacement.Name, workloadsToCreate, workloadsToDelete)
+		result, err := deferred.Deliver(w.ctx, delivery.Target{
+			Dir:           dir,
+			Namespace:     w.workPlacement.GetNamespace(),
+			WorkPlacement: w.workPlacement.GetName(),
+			Promise:       w.workPlacement.Spec.PromiseName,
+			Resource:      w.workPlacement.Spec.ResourceName,
+			Pipeline:      w.workPlacement.PipelineName(),
+			Destination:   w.workPlacement.Spec.TargetDestinationName,
+		}, workloadsToCreate, workloadsToDelete)
 		if err != nil {
 			logging.Error(w.logger, err, "error delivering resources to repository")
 		}
