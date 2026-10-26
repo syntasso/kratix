@@ -94,6 +94,25 @@ var _ = Describe("StatusUpdater", func() {
 			}))
 		})
 
+		It("removes a key when the incoming value is null", func() {
+			existing := map[string]any{
+				"message": "User created",
+				"iam":     map[string]any{"user": "admin", "password": "vault-ref"},
+				"extra":   "value",
+			}
+			incoming := map[string]any{
+				"iam":   map[string]any{"password": nil},
+				"extra": nil,
+			}
+
+			result := lib.MergeStatuses(existing, incoming)
+
+			Expect(result).To(Equal(map[string]any{
+				"message": "User created",
+				"iam":     map[string]any{"user": "admin"},
+			}))
+		})
+
 		It("overwrites when the existing and incoming types differ", func() {
 			existing := map[string]any{"iam": map[string]any{"user": "admin"}}
 			incoming := map[string]any{"iam": "none"}

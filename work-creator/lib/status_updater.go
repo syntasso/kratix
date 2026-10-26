@@ -16,7 +16,8 @@ import (
 //
 // If a key exists in both maps, the value from the incoming map will be used,
 // except when both values are maps: those are merged key by key, recursively.
-// Lists are replaced, not appended to. `conditions` are treated differently. The incoming conditions will be merged
+// Lists are replaced, not appended to. A null incoming value removes the key.
+// `conditions` are treated differently. The incoming conditions will be merged
 // with the existing conditions.
 func MergeStatuses(existing map[string]any, incoming map[string]any) map[string]any {
 	return mergeRecursive(existing, incoming)
@@ -203,6 +204,11 @@ func mergeRecursive(existing, incoming map[string]any) map[string]any {
 
 	// Then merge or overwrite with overlay
 	for k, v := range incoming {
+		if v == nil {
+			delete(result, k)
+			continue
+		}
+
 		// Special handling for conditions
 		if k == "conditions" {
 			if existingConditions, existingFound := result[k].([]any); existingFound {
