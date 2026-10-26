@@ -1108,7 +1108,7 @@ files:
 			Expect(result.RequeueAfter).To(Equal(30 * time.Second))
 		})
 
-		It("checks the write again when the writer asks", func() {
+		It("checks a pending write again after the CheckAfter the writer returned", func() {
 			deferredWriter.deliverResult.CheckAfter = 5 * time.Second
 
 			result := reconcileTimes(2)
@@ -1130,7 +1130,7 @@ files:
 				Expect(deferredWriter.deliverCalls).To(Equal(1))
 			})
 
-			It("checks the write again when the writer asks", func() {
+			It("checks a pending write again after the CheckAfter the writer returned", func() {
 				deferredWriter.checkResult = delivery.Result{
 					Outcome: delivery.Pending, Receipt: "receipt-1", CheckAfter: 5 * time.Second,
 				}
