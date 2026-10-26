@@ -46,7 +46,8 @@ var _ = Describe("StatusUpdater", func() {
 					},
 				},
 			}
-			result := lib.MergeStatuses(existing, incoming)
+			result, err := lib.MergeStatuses(existing, incoming)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(SatisfyAll(
 				HaveKeyWithValue("message", "Resource requested"),
 				HaveKeyWithValue("extra", "value"),
@@ -82,7 +83,8 @@ var _ = Describe("StatusUpdater", func() {
 				"iam":     map[string]any{"password": "vault-ref", "roles": map[string]any{"b": "write"}},
 			}
 
-			result := lib.MergeStatuses(existing, incoming)
+			result, err := lib.MergeStatuses(existing, incoming)
+			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result).To(Equal(map[string]any{
 				"message": "User created and vault secret created",
@@ -105,12 +107,46 @@ var _ = Describe("StatusUpdater", func() {
 				"extra": nil,
 			}
 
-			result := lib.MergeStatuses(existing, incoming)
+			result, err := lib.MergeStatuses(existing, incoming)
+			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result).To(Equal(map[string]any{
 				"message": "User created",
 				"iam":     map[string]any{"user": "admin"},
 			}))
+		})
+
+		It("keeps whole numbers as int64", func() {
+			existing := map[string]any{"count": int64(1), "nested": map[string]any{"a": int64(2)}}
+			incoming := map[string]any{"nested": map[string]any{"b": int64(3)}}
+
+			result, err := lib.MergeStatuses(existing, incoming)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(result).To(Equal(map[string]any{
+				"count":  int64(1),
+				"nested": map[string]any{"a": int64(2), "b": int64(3)},
+			}))
+		})
+
+		It("returns conditions in a stable order, sorted by type", func() {
+			existing := map[string]any{"conditions": []any{
+				map[string]any{"type": "Zeta", "status": "True"},
+				map[string]any{"type": "Alpha", "status": "True"},
+			}}
+			incoming := map[string]any{"conditions": []any{
+				map[string]any{"type": "Mid", "status": "True"},
+			}}
+
+			for i := 0; i < 20; i++ {
+				result, err := lib.MergeStatuses(existing, incoming)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result["conditions"]).To(HaveExactElements(
+					HaveKeyWithValue("type", "Alpha"),
+					HaveKeyWithValue("type", "Mid"),
+					HaveKeyWithValue("type", "Zeta"),
+				))
+			}
 		})
 
 		It("overwrites when the existing and incoming types differ", func() {
