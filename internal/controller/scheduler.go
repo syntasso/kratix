@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	workLabelKey               = v1alpha1.KratixPrefix + "work"
+	workLabelKey               = v1alpha1.WorkLabel
 	workloadGroupIDKey         = v1alpha1.KratixPrefix + "workload-group-id"
 	misscheduledLabel          = v1alpha1.KratixPrefix + "misplaced"
 	TargetDestinationNameLabel = v1alpha1.KratixPrefix + "targetDestinationName"

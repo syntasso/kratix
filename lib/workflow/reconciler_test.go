@@ -1035,6 +1035,41 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(countEvents(eventRecorder, "Normal WaitingForPipelineOutput Waiting for the output of pipeline")).To(Equal(1))
 			})
 
+			When("the Work's WorkPlacement is waiting for its delivery", func() {
+				It("shows the delivery text on the Reconciled condition", func() {
+					createDeliveryPlacement(firstPipelineWork, v1alpha1.WorkloadsAwaitingDeliveryReason,
+						"Waiting for approval: https://github.com/org/repo/pull/7")
+
+					_, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+
+					updatedPromise := &v1alpha1.Promise{}
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), updatedPromise)).To(Succeed())
+					reconciled := updatedPromise.GetCondition(string(resourceutil.ReconciledCondition))
+					Expect(reconciled.Status).To(Equal(metav1.ConditionUnknown))
+					Expect(reconciled.Reason).To(Equal("WorksAwaitingDelivery"))
+					Expect(reconciled.Message).To(Equal("Waiting for approval: https://github.com/org/repo/pull/7"))
+				})
+			})
+
+			When("the Work's WorkPlacement delivery was rejected", func() {
+				It("shows the rejection text on the Reconciled condition", func() {
+					markWorkFailing(firstPipelineWork)
+					createDeliveryPlacement(firstPipelineWork, v1alpha1.WorkloadsRejectedReason,
+						"Rejected in https://github.com/org/repo/pull/7 with no comment")
+
+					_, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+
+					updatedPromise := &v1alpha1.Promise{}
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), updatedPromise)).To(Succeed())
+					reconciled := updatedPromise.GetCondition(string(resourceutil.ReconciledCondition))
+					Expect(reconciled.Status).To(Equal(metav1.ConditionFalse))
+					Expect(reconciled.Reason).To(Equal("WorksRejected"))
+					Expect(reconciled.Message).To(Equal("Rejected in https://github.com/org/repo/pull/7 with no comment"))
+				})
+			})
+
 			When("the Work fails to be written", func() {
 				BeforeEach(func() {
 					markWorkFailing(firstPipelineWork)
@@ -3156,6 +3191,26 @@ func createPipelineWork(promiseName, pipelineName string) *v1alpha1.Work {
 	Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
 	Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(work), work)).To(Succeed())
 	return work
+}
+
+func createDeliveryPlacement(work *v1alpha1.Work, reason, message string) {
+	GinkgoHelper()
+	placement := &v1alpha1.WorkPlacement{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      work.GetName() + "-prod",
+			Namespace: work.GetNamespace(),
+			Labels:    map[string]string{v1alpha1.WorkLabel: work.GetName()},
+		},
+		Spec: v1alpha1.WorkPlacementSpec{TargetDestinationName: "prod"},
+		Status: v1alpha1.WorkPlacementStatus{Conditions: []metav1.Condition{{
+			Type:               v1alpha1.WriteSucceededConditionType,
+			Status:             metav1.ConditionFalse,
+			Reason:             reason,
+			Message:            message,
+			LastTransitionTime: metav1.Now(),
+		}}},
+	}
+	Expect(fakeK8sClient.Create(ctx, placement)).To(Succeed())
 }
 
 func markWorkReady(work *v1alpha1.Work) {

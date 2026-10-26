@@ -90,11 +90,11 @@ func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstruc
 	logging.Warn(logger, "marking configure workflow as failed", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", ConfigureWorkflowCompletedFailedReason)
 }
 
-func MarkResourceRequestAsWorksFailed(obj *unstructured.Unstructured, works []string) bool {
+func MarkResourceRequestAsWorksFailed(obj *unstructured.Unstructured, works []string, entries []DeliveryEntry) bool {
 	return SetConditionIfChanged(obj, &clusterv1.Condition{
 		Type:               WorksSucceededCondition,
 		Status:             v1.ConditionFalse,
-		Message:            fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(works, ",")),
+		Message:            fmt.Sprintf("Some works associated with this resource failed: [%s]%s", strings.Join(works, ","), worksDeliveryDetails(entries)),
 		Reason:             "WorksFailing",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
@@ -110,11 +110,11 @@ func MarkResourceRequestAsWorksMisplaced(obj *unstructured.Unstructured, works [
 	})
 }
 
-func MarkResourceRequestAsWorksPending(obj *unstructured.Unstructured, works []string) bool {
+func MarkResourceRequestAsWorksPending(obj *unstructured.Unstructured, works []string, entries []DeliveryEntry) bool {
 	return SetConditionIfChanged(obj, &clusterv1.Condition{
 		Type:               WorksSucceededCondition,
 		Status:             v1.ConditionUnknown,
-		Message:            fmt.Sprintf("Some works associated with this resource are not ready: [%s]", strings.Join(works, ",")),
+		Message:            fmt.Sprintf("Some works associated with this resource are not ready: [%s]%s", strings.Join(works, ","), worksDeliveryDetails(entries)),
 		Reason:             "WorksPending",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})

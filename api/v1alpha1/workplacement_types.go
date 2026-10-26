@@ -141,6 +141,9 @@ func (w *WorkPlacement) GetUniqueID() string {
 const (
 	WriteSucceededConditionType    = "WriteSucceeded"
 	ScheduleSucceededConditionType = "ScheduleSucceeded"
+
+	WorkloadsAwaitingDeliveryReason = "WorkloadsAwaitingDelivery"
+	WorkloadsRejectedReason         = "WorkloadsRejected"
 )
 
 func (w *WorkPlacement) SetWriteSucceededCondition() bool {
@@ -190,23 +193,19 @@ func (w *WorkPlacement) SetWriteDeferredCondition(message string) bool {
 	writeSucceededUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
 		Type:               WriteSucceededConditionType,
 		Status:             metav1.ConditionUnknown,
-		Reason:             "WorkloadsAwaitingDelivery",
+		Reason:             WorkloadsAwaitingDeliveryReason,
 		Message:            message,
 		ObservedGeneration: w.GetGeneration(),
 	})
 	readyUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
 		Type:               "Ready",
 		Status:             metav1.ConditionFalse,
-		Reason:             "WorkloadsAwaitingDelivery",
+		Reason:             WorkloadsAwaitingDeliveryReason,
 		Message:            "Pending",
 		ObservedGeneration: w.GetGeneration(),
 	})
 	return writeSucceededUpdated || readyUpdated
 }
-
-// WorkloadsRejectedReason marks a failure that a later generation's delivery must clear
-// before it starts, or the Work reports the old failure for the whole delivery.
-const WorkloadsRejectedReason = "WorkloadsRejected"
 
 func (w *WorkPlacement) SetWriteFailedCondition(err error) bool {
 	return w.setWriteFailed("WorkloadsFailedWrite", err.Error())

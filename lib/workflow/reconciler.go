@@ -402,7 +402,10 @@ func waitForPreviousPipelineOutput(opts Opts, decision Decision) error {
 		decision.PreviousPipelineName, workName)
 	patch := client.MergeFromWithOptions(opts.parentObject.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	conditionChanged := resourceutil.MarkConfigureWorkflowAsWaitingForPipelineOutput(opts.parentObject, message)
-	reconciledChanged := setReconciledFromPipelineWork(opts.parentObject, decision.PreviousPipelineWork)
+	reconciledChanged, err := setReconciledFromPipelineWork(opts, decision.PreviousPipelineWork)
+	if err != nil {
+		return err
+	}
 	messageChanged, err := resourceutil.SetPipelineMessage(opts.parentObject, decision.Pipeline.Name, message, opts.workflowKey())
 	if err != nil {
 		return err
@@ -419,14 +422,18 @@ func waitForPreviousPipelineOutput(opts Opts, decision Decision) error {
 	return nil
 }
 
-func setReconciledFromPipelineWork(parentObject *unstructured.Unstructured, previousPipelineWork *v1alpha1.Work) bool {
+func setReconciledFromPipelineWork(opts Opts, previousPipelineWork *v1alpha1.Work) (bool, error) {
+	deliveries, err := resourceutil.ListDeliveryEntries(opts.ctx, opts.client, []v1alpha1.Work{*previousPipelineWork})
+	if err != nil {
+		return false, err
+	}
 	ready := apimeta.FindStatusCondition(previousPipelineWork.Status.Conditions, "Ready")
 	previousPipelineOutputFailing := ready != nil && ready.Reason == "WorkplacementsFailing" &&
 		ready.ObservedGeneration == previousPipelineWork.GetGeneration()
 	if previousPipelineOutputFailing {
-		return resourceutil.MarkReconciledFailing(parentObject, "WorksFailing")
+		return resourceutil.MarkReconciledWorksFailing(opts.parentObject, deliveries), nil
 	}
-	return resourceutil.MarkReconciledPending(parentObject, "WorksPending")
+	return resourceutil.MarkReconciledWorksPending(opts.parentObject, deliveries), nil
 }
 
 func labelsForJobs(opts Opts) map[string]string {

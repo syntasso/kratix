@@ -37,6 +37,7 @@ const (
 	PipelineNamespaceLabel               = KratixPrefix + "pipeline-namespace"
 	WorkTypeLabel                        = KratixPrefix + "work-type"
 	WorkActionLabel                      = KratixPrefix + "work-action"
+	WorkLabel                            = KratixPrefix + "work"
 	UserPermissionResourceNamespaceLabel = KratixPrefix + "resource-namespace"
 
 	// Job annotations for cross-namespace resource identification
