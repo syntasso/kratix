@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
@@ -37,6 +38,8 @@ type Result struct {
 	VersionID string
 	// Receipt identifies the delivery to ask about later. Set only when Pending.
 	Receipt string
+	// CheckAfter is how long to wait before checking a Pending delivery. Zero uses the default.
+	CheckAfter time.Duration
 	// Reason says why, for Rejected. It reaches the resource request.
 	Reason string
 }

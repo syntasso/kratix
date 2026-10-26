@@ -552,8 +552,8 @@ func (w *workPlacementReconcileContext) delete(repo *Repository, workloadsToDele
 	return ctrl.Result{}, nil
 }
 
-// deliveryRequeue is the interval a pending delivery is verified
-const deliveryRequeue = 30 * time.Second
+// defaultDeliveryCheckInterval is the interval a pending delivery is verified
+const defaultDeliveryCheckInterval = 30 * time.Second
 
 // resolveOutstandingDelivery verifies if a pending delivery has been completed
 func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Repository, receipt string) (ctrl.Result, error) {
@@ -609,6 +609,13 @@ func (w *workPlacementReconcileContext) persistDeliveryStatus(apply func()) erro
 	})
 }
 
+func checkInterval(result delivery.Result) time.Duration {
+	if result.CheckAfter <= 0 {
+		return defaultDeliveryCheckInterval
+	}
+	return result.CheckAfter
+}
+
 func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Result) (ctrl.Result, error) {
 	switch result.Outcome {
 	case delivery.Pending:
@@ -619,7 +626,7 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{RequeueAfter: deliveryRequeue}, nil
+		return ctrl.Result{RequeueAfter: checkInterval(result)}, nil
 
 	case delivery.Rejected:
 		w.clearOutstandingDelivery()

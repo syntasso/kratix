@@ -1108,6 +1108,14 @@ files:
 			Expect(result.RequeueAfter).To(Equal(30 * time.Second))
 		})
 
+		It("checks the write again when the writer asks", func() {
+			deferredWriter.deliverResult.CheckAfter = 5 * time.Second
+
+			result := reconcileTimes(2)
+
+			Expect(result.RequeueAfter).To(Equal(5 * time.Second))
+		})
+
 		When("a write is already pending", func() {
 			BeforeEach(func() {
 				reconcileTimes(2)
@@ -1120,6 +1128,16 @@ files:
 
 				Expect(deferredWriter.checkReceipts).To(ConsistOf("receipt-1"))
 				Expect(deferredWriter.deliverCalls).To(Equal(1))
+			})
+
+			It("checks the write again when the writer asks", func() {
+				deferredWriter.checkResult = delivery.Result{
+					Outcome: delivery.Pending, Receipt: "receipt-1", CheckAfter: 5 * time.Second,
+				}
+
+				result := reconcileTimes(1)
+
+				Expect(result.RequeueAfter).To(Equal(5 * time.Second))
 			})
 
 			It("fails the work placement when the writer rejects the write", func() {
