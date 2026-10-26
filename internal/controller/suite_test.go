@@ -104,6 +104,7 @@ var _ = BeforeEach(func() {
 	fakeK8sClient = fake.NewClientBuilder().
 		WithInterceptorFuncs(interceptorsFuncs).
 		WithScheme(scheme.Scheme).
+		WithIndex(&v1alpha1.HealthRecord{}, controller.HealthRecordResourceIndex, controller.HealthRecordResourceKeys).
 		WithStatusSubresource(
 			&v1alpha1.PromiseRelease{},
 			&v1alpha1.Promise{},
