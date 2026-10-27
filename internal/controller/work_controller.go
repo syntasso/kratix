@@ -329,7 +329,7 @@ func workWriteSucceededCondition(work *v1alpha1.Work, live []v1alpha1.WorkPlacem
 	case allWorkloadGroupsWrittenAtCurrentGeneration(work, live):
 		return condition(metav1.ConditionTrue, v1alpha1.WorkplacementsWrittenReason, "All workloads written")
 	default:
-		return condition(metav1.ConditionUnknown, v1alpha1.WaitingForWorkplacementsToBeWrittenReason, "Waiting for WorkPlacements to be written")
+		return condition(metav1.ConditionUnknown, v1alpha1.WaitingForWorkplacementsToBeReconciledReason, "Waiting for WorkPlacements to be reconciled")
 	}
 }
 

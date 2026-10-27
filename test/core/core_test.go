@@ -7,7 +7,6 @@ import (
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/test/kubeutils"
-	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -162,30 +161,25 @@ var _ = Describe("Core Tests", Ordered, func() {
 								}
 								conditions[i].ObservedGeneration = 0
 							}
-							expected := []metav1.Condition{
-								{
+							g.Expect(conditions).To(ConsistOf(
+								metav1.Condition{
 									Type:    "Ready",
 									Status:  metav1.ConditionTrue,
 									Reason:  readyReason,
 									Message: "Ready",
 								},
-								{
+								metav1.Condition{
 									Type:    "ScheduleSucceeded",
 									Status:  metav1.ConditionTrue,
 									Reason:  "AllWorkplacementsScheduled",
 									Message: "All workplacements scheduled successfully",
 								},
-							}
-							// The previous release, which the downgrade test runs, sets no WriteSucceeded.
-							if apiMeta.FindStatusCondition(conditions, "WriteSucceeded") != nil {
-								expected = append(expected, metav1.Condition{
+								metav1.Condition{
 									Type:    "WriteSucceeded",
 									Status:  metav1.ConditionTrue,
 									Reason:  "WorkplacementsWritten",
 									Message: "All workloads written",
-								})
-							}
-							g.Expect(conditions).To(ConsistOf(expected))
+								}))
 						}, 30*time.Second, interval).Should(Succeed())
 					})
 

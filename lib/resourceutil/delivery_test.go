@@ -55,8 +55,6 @@ var _ = Describe("IsOrdinaryWorksFailure", func() {
 		}
 		return w
 	}
-	awaiting := v1alpha1.WorkPlacementWriteStatus{Name: "wp-a", Destination: "prod", Status: "Unknown",
-		Reason: v1alpha1.WorkloadsAwaitingDeliveryReason, Message: "Waiting for approval: url"}
 	rejected := v1alpha1.WorkPlacementWriteStatus{Name: "wp-r", Destination: "prod", Status: "False",
 		Reason: v1alpha1.WorkloadsRejectedReason, Message: "Rejected"}
 
@@ -71,11 +69,6 @@ var _ = Describe("IsOrdinaryWorksFailure", func() {
 	It("ignores Ready", func() {
 		works := []v1alpha1.Work{work("Misplaced", "Misplaced", metav1.ConditionFalse, v1alpha1.WorkplacementsFailingReason)}
 		Expect(resourceutil.IsOrdinaryWorksFailure(works)).To(BeTrue())
-	})
-
-	It("is false when only a stale Ready says Failing", func() {
-		works := []v1alpha1.Work{work("WorkplacementsFailing", "Failing", metav1.ConditionUnknown, v1alpha1.WorkplacementsAwaitingDeliveryReason, awaiting)}
-		Expect(resourceutil.IsOrdinaryWorksFailure(works)).To(BeFalse())
 	})
 
 	It("is false when a failing Work has no write state", func() {

@@ -106,11 +106,11 @@ type WorkPlacementWriteStatus struct {
 
 const (
 	// Reasons for the Work's WriteSucceeded condition.
-	WorkplacementsFailingReason               = "WorkplacementsFailing"
-	WorkplacementsRejectedReason              = "WorkplacementsRejected"
-	WorkplacementsAwaitingDeliveryReason      = "WorkplacementsAwaitingDelivery"
-	WorkplacementsWrittenReason               = "WorkplacementsWritten"
-	WaitingForWorkplacementsToBeWrittenReason = "WaitingForWorkplacementsToBeWritten"
+	WorkplacementsFailingReason                  = "WorkplacementsFailing"
+	WorkplacementsRejectedReason                 = "WorkplacementsRejected"
+	WorkplacementsAwaitingDeliveryReason         = "WorkplacementsAwaitingDelivery"
+	WorkplacementsWrittenReason                  = "WorkplacementsWritten"
+	WaitingForWorkplacementsToBeReconciledReason = "WaitingForWorkplacementsToBeReconciled"
 )
 
 //+kubebuilder:object:root=true

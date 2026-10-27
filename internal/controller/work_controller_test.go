@@ -369,7 +369,7 @@ var _ = Describe("WorkReconciler", func() {
 			write := apimeta.FindStatusCondition(work.Status.Conditions, v1alpha1.WriteSucceededConditionType)
 			Expect(write).NotTo(BeNil())
 			Expect(write.Status).To(Equal(v1.ConditionUnknown))
-			Expect(write.Reason).To(Equal("WaitingForWorkplacementsToBeWritten"))
+			Expect(write.Reason).To(Equal("WaitingForWorkplacementsToBeReconciled"))
 			ready := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
 			Expect(ready.Reason).To(Equal("UnscheduledWorkloads"))
 			Expect(ready.Message).To(Equal("Pending"))
@@ -669,7 +669,7 @@ var _ = Describe("WorkReconciler", func() {
 
 			condition := writeSucceeded()
 			Expect(condition.Status).To(Equal(v1.ConditionUnknown))
-			Expect(condition.Reason).To(Equal("WaitingForWorkplacementsToBeWritten"))
+			Expect(condition.Reason).To(Equal("WaitingForWorkplacementsToBeReconciled"))
 		})
 
 		It("records the write state while the scheduler owns Ready", func() {

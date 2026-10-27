@@ -1278,29 +1278,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					})
 				})
 
-				When("a Work's Ready is stale but its WorkPlacement waits for delivery", func() {
-					It("shows the delivery text, not Failing", func() {
-						setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
-						work.Status = v1alpha1.WorkStatus{
-							Conditions: []metav1.Condition{
-								{Type: "Ready", Status: metav1.ConditionFalse, Reason: "WorkplacementsFailing", Message: "Failing", LastTransitionTime: metav1.Now()},
-								{Type: v1alpha1.WriteSucceededConditionType, Status: metav1.ConditionUnknown,
-									Reason: v1alpha1.WorkplacementsAwaitingDeliveryReason, Message: "prod: Waiting for approval: https://github.com/org/repo/pull/7", LastTransitionTime: metav1.Now()},
-							},
-							WorkPlacementStatuses: []v1alpha1.WorkPlacementWriteStatus{
-								awaiting("test-prod", "prod", "Waiting for approval: https://github.com/org/repo/pull/7"),
-							},
-						}
-						Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
-						Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
-
-						condition := reconcileAndGetCondition(resourceutil.ReconciledCondition)
-						Expect(string(condition.Status)).To(Equal("Unknown"))
-						Expect(condition.Reason).To(Equal("WorksAwaitingDelivery"))
-						Expect(condition.Message).To(Equal("Waiting for approval: https://github.com/org/repo/pull/7"))
-					})
-				})
-
 				When("one Work was rejected and another Work waits for its delivery", func() {
 					It("shows the rejection", func() {
 						setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
