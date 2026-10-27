@@ -1,9 +1,11 @@
-// Package delivery lets a build register how a state store's writes reach their destination.
-// Kratix prepares the change; a registered writer decides where it goes and when it is delivered.
+// Package delivery holds the writer every state store is written through. A state store with no
+// delivery mode uses Direct; a build can register other modes that decide where a change goes and
+// when it is delivered.
 package delivery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -29,7 +31,7 @@ const BuiltIn = ""
 // Factory builds the writer for a mode. base is the writer the state store would use on its own;
 // creds is the state store's secret.
 type Factory func(base writers.StateStoreWriter, config map[string]string,
-	creds map[string][]byte) (writers.StateStoreWriter, error)
+	creds map[string][]byte) (Writer, error)
 
 // Result is how a write ended
 type Result struct {
@@ -44,8 +46,6 @@ type Result struct {
 	Reason string
 }
 
-// Writer is a StateStoreWriter whose writes may not be finished when they return. Implementing it
-// also takes over readiness and the Destination's canary files.
 // Target is the WorkPlacement a delivery carries. A writer that asks a person to approve
 // the change needs to name what the change is for.
 type Target struct {
@@ -60,19 +60,58 @@ type Target struct {
 	Destination string
 }
 
+// Writer is how every state store is written to. The built-in mode's writer finishes each write
+// before returning; a registered writer may return Pending and finish it later.
 type Writer interface {
 	writers.StateStoreWriter
 
 	Deliver(ctx context.Context, target Target,
 		create []v1alpha1.Workload, remove []string) (Result, error)
 
+	// Check returns ErrUnknownReceipt for a receipt this writer did not issue.
 	Check(ctx context.Context, receipt string) (Result, error)
+
+	// WriteCanary reports false when the writer writes no canary; the Destination is then Ready
+	// without one.
+	WriteCanary(ctx context.Context, name string, workloads []v1alpha1.Workload) (bool, error)
+	RemoveCanary(ctx context.Context, name string, files []string) error
 }
 
-// Deferred reports whether this writer finishes its writes before returning.
-func Deferred(writer writers.StateStoreWriter) (Writer, bool) {
-	deferred, ok := writer.(Writer)
-	return deferred, ok
+// ErrUnknownReceipt means the receipt came from another writer, such as one for a delivery mode
+// since removed from the state store.
+var ErrUnknownReceipt = errors.New("receipt not issued by this writer")
+
+type direct struct {
+	writers.StateStoreWriter
+}
+
+// Direct is the built-in mode's writer: every call writes through base and finishes before returning.
+func Direct(base writers.StateStoreWriter) Writer {
+	return direct{StateStoreWriter: base}
+}
+
+func (d direct) Deliver(_ context.Context, target Target,
+	create []v1alpha1.Workload, remove []string) (Result, error) {
+	versionID, err := d.UpdateFiles(target.Dir, target.WorkPlacement, create, remove)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Outcome: Delivered, VersionID: versionID}, nil
+}
+
+func (d direct) Check(_ context.Context, receipt string) (Result, error) {
+	return Result{}, fmt.Errorf("%w: %q", ErrUnknownReceipt, receipt)
+}
+
+func (d direct) WriteCanary(_ context.Context, name string, workloads []v1alpha1.Workload) (bool, error) {
+	if _, err := d.UpdateFiles("", name, workloads, nil); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (d direct) RemoveCanary(_ context.Context, name string, files []string) error {
+	return d.DeleteFiles(name, files)
 }
 
 var (
@@ -97,13 +136,15 @@ func Register(mode string, factory Factory) {
 	registry[mode] = factory
 }
 
-// For returns nil for the built-in mode, so callers use the state store's own writer unchanged.
+// For returns Direct for the built-in mode.
 func For(mode string) (Factory, error) {
 	mu.RLock()
 	defer mu.RUnlock()
 
 	if mode == BuiltIn {
-		return nil, nil
+		return func(base writers.StateStoreWriter, _ map[string]string, _ map[string][]byte) (Writer, error) {
+			return Direct(base), nil
+		}, nil
 	}
 	factory, found := registry[mode]
 	if !found {

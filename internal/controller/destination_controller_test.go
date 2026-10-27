@@ -27,6 +27,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
+	"github.com/syntasso/kratix/lib/delivery"
 	"github.com/syntasso/kratix/lib/writers/writersfakes"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -94,7 +95,7 @@ var _ = Describe("DestinationReconciler", func() {
 		updatedDestination = &v1alpha1.Destination{}
 
 		repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{
-			Writer: fakeWriter,
+			Writer: delivery.Direct(fakeWriter),
 		}, nil)
 	})
 
@@ -130,14 +131,46 @@ var _ = Describe("DestinationReconciler", func() {
 			Expect(deferredWriter.UpdateFilesCallCount()).To(Equal(0))
 			Expect(deferredWriter.DeleteFilesCallCount()).To(Equal(0))
 
-			By("still marking the destination ready")
+			By("still marking the destination ready, without claiming test documents were written")
 			Expect(fakeK8sClient.Get(ctx, testDestinationName, updatedDestination)).To(Succeed())
 			Expect(updatedDestination.Status.Conditions).To(ContainElement(
 				SatisfyAll(
 					HaveField("Type", "Ready"),
 					HaveField("Status", metav1.ConditionTrue),
+					HaveField("Reason", v1alpha1.DestinationReadyReason),
 				),
 			))
+		})
+
+		It("removes no canary files when init workloads are disabled", func() {
+			Expect(fakeK8sClient.Get(ctx, testDestinationName, testDestination)).To(Succeed())
+			testDestination.Spec.InitWorkloads.Enabled = false
+			Expect(fakeK8sClient.Update(ctx, testDestination)).To(Succeed())
+
+			_, err := t.reconcileUntilCompletion(reconciler, testDestination)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(deferredWriter.DeleteFilesCallCount()).To(Equal(0))
+			Expect(fakeK8sClient.Get(ctx, testDestinationName, updatedDestination)).To(Succeed())
+			Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
+				HaveField("Type", "Ready"),
+				HaveField("Status", metav1.ConditionTrue),
+			)))
+		})
+
+		It("removes no canary files when the Destination is deleted", func() {
+			Expect(fakeK8sClient.Get(ctx, testDestinationName, testDestination)).To(Succeed())
+			testDestination.Spec.Cleanup = v1alpha1.DestinationCleanupAll
+			Expect(fakeK8sClient.Update(ctx, testDestination)).To(Succeed())
+			_, err := t.reconcileUntilCompletion(reconciler, testDestination)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fakeK8sClient.Delete(ctx, testDestination)).To(Succeed())
+
+			_, err = t.reconcileUntilCompletion(reconciler, testDestination)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, testDestinationName, &v1alpha1.Destination{})).To(MatchError(ContainSubstring("not found")))
+			Expect(deferredWriter.DeleteFilesCallCount()).To(Equal(0))
 		})
 	})
 
