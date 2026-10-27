@@ -31,6 +31,7 @@ import (
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/delivery"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
@@ -256,37 +257,34 @@ func (w *workPlacementReconcileContext) markDestinationNotReady(destinationMessa
 	return defaultRequeue, nil
 }
 
-func (w *workPlacementReconcileContext) updateResourceStatus(versionID string, err error) error {
-	var updated bool
-	var clearVersionCache bool
-
-	if err != nil {
-		updated = w.workPlacement.SetWriteFailedCondition(err)
-	} else {
-		versionID = w.getCachedVersionID(versionID)
-
-		versionChanged := versionID != "" && w.workPlacement.Status.VersionID != versionID
-		if versionChanged {
-			w.workPlacement.Status.VersionID = versionID
-		}
-		writeSucceededCondChanged := w.workPlacement.SetWriteSucceededCondition()
-		condChanged := w.workPlacement.SetWorkplacementReadyStatus()
-
-		updated = versionChanged || writeSucceededCondChanged || condChanged
-		clearVersionCache = true
+func (w *workPlacementReconcileContext) updateWriteFailedStatus(err error) error {
+	if !w.workPlacement.SetWriteFailedCondition(err) {
+		return nil
 	}
+	logging.Debug(w.logger, "updating workplacement status")
+	return w.client.Status().Update(w.ctx, w.workPlacement)
+}
 
-	if updated {
+func (w *workPlacementReconcileContext) updateWrittenStatus(written delivery.Result) error {
+	versionID := w.getCachedVersionID(written.VersionID)
+
+	versionChanged := versionID != "" && w.workPlacement.Status.VersionID != versionID
+	if versionChanged {
+		w.workPlacement.Status.VersionID = versionID
+	}
+	urlChanged := w.workPlacement.Status.DeliveryURL != written.URL
+	w.workPlacement.Status.DeliveryURL = written.URL
+	writeSucceededCondChanged := w.workPlacement.SetWriteSucceededCondition()
+	condChanged := w.workPlacement.SetWorkplacementReadyStatus()
+
+	if versionChanged || urlChanged || writeSucceededCondChanged || condChanged {
 		logging.Debug(w.logger, "updating workplacement status")
 		if err := w.client.Status().Update(w.ctx, w.workPlacement); err != nil {
 			return err
 		}
 	}
 
-	if clearVersionCache {
-		w.removeVersionIDFromCache()
-	}
-
+	w.removeVersionIDFromCache()
 	return nil
 }
 
@@ -552,6 +550,7 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 	if errors.Is(err, delivery.ErrUnknownReceipt) {
 		// Keeping a receipt the writer cannot resolve would stop the WorkPlacement being written again.
 		w.clearOutstandingDelivery()
+		w.workPlacement.Status.DeliveryURL = ""
 		return fastRequeue, w.client.Status().Update(w.ctx, w.workPlacement)
 	}
 	if err != nil {
@@ -600,16 +599,19 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 		if err := w.persistDeliveryStatus(func() {
 			w.workPlacement.Status.DeliveryReceipt = result.Receipt
 			w.workPlacement.Status.DeliveryGeneration = w.workPlacement.GetGeneration()
-			w.workPlacement.SetWriteDeferredCondition(result.Reason)
+			w.workPlacement.Status.DeliveryURL = result.URL
+			w.workPlacement.SetWriteDeferredCondition(resourceutil.CutToRunes(result.Reason, writeMessageMaxRunes))
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: checkInterval(result)}, nil
 
 	case delivery.Rejected:
-		w.clearOutstandingDelivery()
-		w.workPlacement.SetWriteRejectedCondition(result.Reason)
-		if err := w.client.Status().Update(w.ctx, w.workPlacement); err != nil {
+		if err := w.persistDeliveryStatus(func() {
+			w.clearOutstandingDelivery()
+			w.workPlacement.Status.DeliveryURL = result.URL
+			w.workPlacement.SetWriteRejectedCondition(resourceutil.CutToRunes(result.Reason, writeMessageMaxRunes))
+		}); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
@@ -618,7 +620,7 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 		w.clearOutstandingDelivery()
 		w.setVersionID(result.VersionID)
 		w.publishWriteEvent("WorkloadsWrittenToStateStore", result.VersionID, nil)
-		if err := w.updateResourceStatus(result.VersionID, nil); err != nil {
+		if err := w.updateWrittenStatus(result); err != nil {
 			if apierrors.IsConflict(err) {
 				return fastRequeue, nil
 			}
@@ -644,7 +646,7 @@ func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (del
 	if workloadErr != nil {
 		telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
 		w.logAndRecordError(workloadErr, "FailedWriteToDestination", "error writing to destination; check kubectl get destination for more info")
-		if err := w.updateResourceStatus("", workloadErr); err != nil {
+		if err := w.updateWriteFailedStatus(workloadErr); err != nil {
 			return delivery.Result{}, err
 		}
 		return delivery.Result{}, workloadErr

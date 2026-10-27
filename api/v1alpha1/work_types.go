@@ -37,6 +37,7 @@ const (
 	PipelineNamespaceLabel               = KratixPrefix + "pipeline-namespace"
 	WorkTypeLabel                        = KratixPrefix + "work-type"
 	WorkActionLabel                      = KratixPrefix + "work-action"
+	WorkLabel                            = KratixPrefix + "work"
 	UserPermissionResourceNamespaceLabel = KratixPrefix + "resource-namespace"
 
 	// Job annotations for cross-namespace resource identification
@@ -78,7 +79,39 @@ type WorkStatus struct {
 	WorkPlacements int `json:"workPlacements,omitempty"`
 	// Total number of WorkPlacements that have been created for this Work
 	WorkPlacementsCreated int `json:"workPlacementsCreated,omitempty"`
+	// Write state of each WorkPlacement of this Work, sorted by WorkPlacement name.
+	// WorkPlacements that are being deleted are not listed.
+	// +optional
+	WorkPlacementStatuses []WorkPlacementWriteStatus `json:"workPlacementStatuses,omitempty"`
 }
+
+// WorkPlacementWriteStatus is the write state of one WorkPlacement of a Work.
+type WorkPlacementWriteStatus struct {
+	// Name of the WorkPlacement
+	Name string `json:"name"`
+	// Name of the Destination the WorkPlacement writes to
+	Destination string `json:"destination"`
+	// Status of the WorkPlacement's WriteSucceeded condition: True, False or Unknown.
+	// Empty when the WorkPlacement has not been written yet.
+	Status string `json:"status"`
+	// Reason of the WorkPlacement's WriteSucceeded condition
+	Reason string `json:"reason"`
+	// Message of the WorkPlacement's WriteSucceeded condition
+	Message string `json:"message"`
+	// Link to the latest delivery of the WorkPlacement's workloads, such as a pull request.
+	// Empty when the Destination's StateStore has no delivery mode.
+	// +optional
+	DeliveryURL string `json:"deliveryURL,omitempty"`
+}
+
+const (
+	// Reasons for the Work's WriteSucceeded condition.
+	WorkplacementsFailingReason                  = "WorkplacementsFailing"
+	WorkplacementsRejectedReason                 = "WorkplacementsRejected"
+	WorkplacementsAwaitingDeliveryReason         = "WorkplacementsAwaitingDelivery"
+	WorkplacementsWrittenReason                  = "WorkplacementsWritten"
+	WaitingForWorkplacementsToBeReconciledReason = "WaitingForWorkplacementsToBeReconciled"
+)
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status

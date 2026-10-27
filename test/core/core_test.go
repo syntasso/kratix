@@ -173,6 +173,12 @@ var _ = Describe("Core Tests", Ordered, func() {
 									Status:  metav1.ConditionTrue,
 									Reason:  "AllWorkplacementsScheduled",
 									Message: "All workplacements scheduled successfully",
+								},
+								metav1.Condition{
+									Type:    "WriteSucceeded",
+									Status:  metav1.ConditionTrue,
+									Reason:  "WorkplacementsWritten",
+									Message: "All workloads written",
 								}))
 						}, 30*time.Second, interval).Should(Succeed())
 					})

@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	workLabelKey               = v1alpha1.KratixPrefix + "work"
+	workLabelKey               = v1alpha1.WorkLabel
 	workloadGroupIDKey         = v1alpha1.KratixPrefix + "workload-group-id"
 	misscheduledLabel          = v1alpha1.KratixPrefix + "misplaced"
 	TargetDestinationNameLabel = v1alpha1.KratixPrefix + "targetDestinationName"
@@ -100,13 +100,7 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 	var readyCond, scheduleSucceededCond metav1.Condition
 
 	if len(unscheduledWorkloadGroupIDs) > 0 {
-		readyCond = metav1.Condition{
-			Type:               "Ready",
-			Status:             metav1.ConditionFalse,
-			Reason:             "UnscheduledWorkloads",
-			Message:            "Pending",
-			ObservedGeneration: w.GetGeneration(),
-		}
+		readyCond = unscheduledReadyCondition(w.GetGeneration())
 		scheduleSucceededCond = metav1.Condition{
 			Type:   "ScheduleSucceeded",
 			Status: metav1.ConditionFalse,
@@ -128,13 +122,7 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 				strings.Join(misplacedWorkloadGroupIDs, ",")),
 			ObservedGeneration: w.GetGeneration(),
 		}
-		readyCond = metav1.Condition{
-			Type:               "Ready",
-			Status:             metav1.ConditionFalse,
-			Reason:             "Misplaced",
-			Message:            "Misplaced",
-			ObservedGeneration: w.GetGeneration(),
-		}
+		readyCond = misplacedReadyCondition(w.GetGeneration())
 		s.EventRecorder.Eventf(w, nil, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason, scheduleSucceededConditionMismatchReason, "Target destination no longer matches destinationSelectors for workloadGroups: [%s] ",
 			strings.Join(misplacedWorkloadGroupIDs, ","))
 	} else { // all works are scheduled and none is misplaced
@@ -158,6 +146,26 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 		updated = true
 	}
 	return updated
+}
+
+func unscheduledReadyCondition(generation int64) metav1.Condition {
+	return metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionFalse,
+		Reason:             "UnscheduledWorkloads",
+		Message:            "Pending",
+		ObservedGeneration: generation,
+	}
+}
+
+func misplacedReadyCondition(generation int64) metav1.Condition {
+	return metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionFalse,
+		Reason:             "Misplaced",
+		Message:            "Misplaced",
+		ObservedGeneration: generation,
+	}
 }
 
 func (s *Scheduler) cleanupDanglingWorkplacements(ctx context.Context, work *v1alpha1.Work) error {

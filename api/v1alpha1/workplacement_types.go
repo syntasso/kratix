@@ -66,6 +66,11 @@ type WorkPlacementStatus struct {
 	// satisfy the current generation, however it resolves.
 	DeliveryGeneration int64 `json:"deliveryGeneration,omitempty"`
 
+	// +optional
+	// DeliveryURL links to the latest delivery of these workloads, such as a pull request.
+	// Empty when the StateStore has no delivery mode.
+	DeliveryURL string `json:"deliveryURL,omitempty"`
+
 	// Status fields set by other controllers, kept so typed status updates do not drop them.
 	Custom map[string]apiextensionsv1.JSON `json:"-"`
 }
@@ -135,6 +140,9 @@ func (w *WorkPlacement) GetUniqueID() string {
 const (
 	WriteSucceededConditionType    = "WriteSucceeded"
 	ScheduleSucceededConditionType = "ScheduleSucceeded"
+
+	WorkloadsAwaitingDeliveryReason = "WorkloadsAwaitingDelivery"
+	WorkloadsRejectedReason         = "WorkloadsRejected"
 )
 
 func (w *WorkPlacement) SetWriteSucceededCondition() bool {
@@ -184,31 +192,22 @@ func (w *WorkPlacement) SetWriteDeferredCondition(message string) bool {
 	writeSucceededUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
 		Type:               WriteSucceededConditionType,
 		Status:             metav1.ConditionUnknown,
-		Reason:             "WorkloadsAwaitingDelivery",
+		Reason:             WorkloadsAwaitingDeliveryReason,
 		Message:            message,
 		ObservedGeneration: w.GetGeneration(),
 	})
 	readyUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
 		Type:               "Ready",
 		Status:             metav1.ConditionFalse,
-		Reason:             "WorkloadsAwaitingDelivery",
+		Reason:             WorkloadsAwaitingDeliveryReason,
 		Message:            "Pending",
 		ObservedGeneration: w.GetGeneration(),
 	})
 	return writeSucceededUpdated || readyUpdated
 }
 
-// WorkloadsRejectedReason marks a failure that a later generation's delivery must clear
-// before it starts, or the Work reports the old failure for the whole delivery.
-const WorkloadsRejectedReason = "WorkloadsRejected"
-
 func (w *WorkPlacement) SetWriteFailedCondition(err error) bool {
 	return w.setWriteFailed("WorkloadsFailedWrite", err.Error())
-}
-
-// SetWriteRejectedCondition marks a write the writer accepted and then rejected.
-func (w *WorkPlacement) SetWriteRejectedCondition(message string) bool {
-	return w.setWriteFailed(WorkloadsRejectedReason, message)
 }
 
 func (w *WorkPlacement) setWriteFailed(reason, message string) bool {
@@ -223,6 +222,25 @@ func (w *WorkPlacement) setWriteFailed(reason, message string) bool {
 		Status:             metav1.ConditionFalse,
 		Type:               "Ready",
 		Reason:             "WorkloadsFailedWrite",
+		Message:            "Failing",
+		ObservedGeneration: w.GetGeneration(),
+	})
+	return writeSucceededUpdated || readyUpdated
+}
+
+// SetWriteRejectedCondition marks a write the writer accepted and then rejected.
+func (w *WorkPlacement) SetWriteRejectedCondition(reason string) bool {
+	writeSucceededUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+		Type:               WriteSucceededConditionType,
+		Status:             metav1.ConditionFalse,
+		Reason:             WorkloadsRejectedReason,
+		Message:            reason,
+		ObservedGeneration: w.GetGeneration(),
+	})
+	readyUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+		Status:             metav1.ConditionFalse,
+		Type:               "Ready",
+		Reason:             WorkloadsRejectedReason,
 		Message:            "Failing",
 		ObservedGeneration: w.GetGeneration(),
 	})

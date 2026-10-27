@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -47,7 +49,13 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-const workCleanUpFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
+const (
+	workCleanUpFinalizer              = v1alpha1.KratixPrefix + "work-cleanup"
+	workWriteSucceededMessageMaxRunes = 4096
+	// writeMessageMaxRunes keeps a WorkPlacement's write message readable, and
+	// leaves room for several in the Work's WriteSucceeded message
+	writeMessageMaxRunes = 1024
+)
 
 // WorkReconciler reconciles a Work object.
 type WorkReconciler struct {
@@ -149,6 +157,9 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 		r.EventRecorder.Eventf(work, nil, v1.EventTypeNormal, "WaitingDestination", "WaitingDestination", "waiting for destination for workload group: [%s]",
 			strings.Join(unscheduledWorkloadGroupIDs, ","),
 		)
+		if err := r.updateWriteState(ctx, logger, work); err != nil {
+			return ctrl.Result{}, err
+		}
 		return slowRequeue, nil
 	}
 
@@ -159,14 +170,42 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 }
 
 func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) error {
+	workplacements, err := r.listWorkPlacements(ctx, logger, work)
+	if err != nil {
+		return err
+	}
+
+	writeStateChanged := setWorkPlacementWriteState(work, workplacements)
+	readyChanged := r.setReadyCondition(work, workplacements)
+	if writeStateChanged || readyChanged {
+		return r.Client.Status().Update(ctx, work)
+	}
+	return nil
+}
+
+func (r *WorkReconciler) updateWriteState(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) error {
+	workplacements, err := r.listWorkPlacements(ctx, logger, work)
+	if err != nil {
+		return err
+	}
+
+	if setWorkPlacementWriteState(work, workplacements) {
+		return r.Client.Status().Update(ctx, work)
+	}
+	return nil
+}
+
+func (r *WorkReconciler) listWorkPlacements(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) ([]v1alpha1.WorkPlacement, error) {
 	workplacements, err := listWorkplacementWithLabels(ctx, r.Client, logger, work.GetNamespace(), map[string]string{
 		workLabelKey: work.Name,
 	})
 	if err != nil {
 		logging.Error(logger, err, "failed to list associated WorkPlacements")
-		return err
 	}
+	return workplacements, err
+}
 
+func (r *WorkReconciler) setReadyCondition(work *v1alpha1.Work, workplacements []v1alpha1.WorkPlacement) bool {
 	var failedWorkPlacements []string
 	for _, wp := range workplacements {
 		if apiMeta.IsStatusConditionFalse(wp.Status.Conditions, v1alpha1.WriteSucceededConditionType) {
@@ -185,14 +224,14 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 		}
 		if apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond) {
 			r.EventRecorder.Eventf(work, nil, v1.EventTypeWarning, "WorkplacementsFailing", "WorkplacementsFailing", "Workplacements failed to write: [%s]", strings.Join(failedWorkPlacements, ","))
-			return r.Client.Status().Update(ctx, work)
+			return true
 		}
-		return nil
+		return false
 	}
 
 	schedulerHasAlreadySetReady := !apiMeta.IsStatusConditionTrue(work.Status.Conditions, v1alpha1.ScheduleSucceededConditionType)
 	if schedulerHasAlreadySetReady {
-		return nil
+		return restoreSchedulerReadyCondition(work)
 	}
 
 	readyCond := metav1.Condition{
@@ -211,10 +250,97 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 			ObservedGeneration: work.GetGeneration(),
 		}
 	}
-	if apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond) {
-		return r.Client.Status().Update(ctx, work)
+	return apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
+}
+
+// restoreSchedulerReadyCondition puts back the scheduler's Ready once no WorkPlacement is failing
+func restoreSchedulerReadyCondition(work *v1alpha1.Work) bool {
+	scheduleSucceeded := apiMeta.FindStatusCondition(work.Status.Conditions, v1alpha1.ScheduleSucceededConditionType)
+	ready := apiMeta.FindStatusCondition(work.Status.Conditions, "Ready")
+	if scheduleSucceeded == nil || scheduleSucceeded.Status != metav1.ConditionFalse ||
+		ready == nil || ready.Reason != "WorkplacementsFailing" {
+		return false
 	}
-	return nil
+	readyCond := unscheduledReadyCondition(work.GetGeneration())
+	if scheduleSucceeded.Reason == scheduleSucceededConditionMismatchReason {
+		readyCond = misplacedReadyCondition(work.GetGeneration())
+	}
+	return apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
+}
+
+// setWorkPlacementWriteState skips WorkPlacements being deleted
+func setWorkPlacementWriteState(work *v1alpha1.Work, workplacements []v1alpha1.WorkPlacement) bool {
+	var live []v1alpha1.WorkPlacement
+	statuses := []v1alpha1.WorkPlacementWriteStatus{}
+	for _, wp := range workplacements {
+		if !wp.GetDeletionTimestamp().IsZero() {
+			continue
+		}
+		live = append(live, wp)
+		status := v1alpha1.WorkPlacementWriteStatus{
+			Name:        wp.GetName(),
+			Destination: wp.Spec.TargetDestinationName,
+			DeliveryURL: wp.Status.DeliveryURL,
+		}
+		if write := apiMeta.FindStatusCondition(wp.Status.Conditions, v1alpha1.WriteSucceededConditionType); write != nil {
+			status.Status = string(write.Status)
+			status.Reason = write.Reason
+			status.Message = resourceutil.CutToRunes(write.Message, writeMessageMaxRunes)
+		}
+		statuses = append(statuses, status)
+	}
+	slices.SortFunc(statuses, func(a, b v1alpha1.WorkPlacementWriteStatus) int { return strings.Compare(a.Name, b.Name) })
+
+	listChanged := !slices.Equal(work.Status.WorkPlacementStatuses, statuses)
+	if listChanged {
+		work.Status.WorkPlacementStatuses = statuses
+	}
+	conditionChanged := apiMeta.SetStatusCondition(&work.Status.Conditions, workWriteSucceededCondition(work, live, statuses))
+	return listChanged || conditionChanged
+}
+
+func workWriteSucceededCondition(work *v1alpha1.Work, live []v1alpha1.WorkPlacement, statuses []v1alpha1.WorkPlacementWriteStatus) metav1.Condition {
+	matching := func(match func(v1alpha1.WorkPlacementWriteStatus) bool) []v1alpha1.WorkPlacementWriteStatus {
+		return slices.DeleteFunc(slices.Clone(statuses), func(s v1alpha1.WorkPlacementWriteStatus) bool { return !match(s) })
+	}
+	condition := func(status metav1.ConditionStatus, reason, message string) metav1.Condition {
+		return metav1.Condition{
+			Type:               v1alpha1.WriteSucceededConditionType,
+			Status:             status,
+			Reason:             reason,
+			Message:            message,
+			ObservedGeneration: work.GetGeneration(),
+		}
+	}
+
+	failing := matching(func(s v1alpha1.WorkPlacementWriteStatus) bool {
+		return s.Status == string(metav1.ConditionFalse) && s.Reason != v1alpha1.WorkloadsRejectedReason
+	})
+	rejected := matching(func(s v1alpha1.WorkPlacementWriteStatus) bool { return s.Reason == v1alpha1.WorkloadsRejectedReason })
+	awaiting := matching(func(s v1alpha1.WorkPlacementWriteStatus) bool {
+		return s.Reason == v1alpha1.WorkloadsAwaitingDeliveryReason
+	})
+
+	switch {
+	case len(failing) > 0:
+		return condition(metav1.ConditionFalse, v1alpha1.WorkplacementsFailingReason, writeStateMessage(failing))
+	case len(rejected) > 0:
+		return condition(metav1.ConditionFalse, v1alpha1.WorkplacementsRejectedReason, writeStateMessage(rejected))
+	case len(awaiting) > 0:
+		return condition(metav1.ConditionUnknown, v1alpha1.WorkplacementsAwaitingDeliveryReason, writeStateMessage(awaiting))
+	case allWorkloadGroupsWrittenAtCurrentGeneration(work, live):
+		return condition(metav1.ConditionTrue, v1alpha1.WorkplacementsWrittenReason, "All workloads written")
+	default:
+		return condition(metav1.ConditionUnknown, v1alpha1.WaitingForWorkplacementsToBeReconciledReason, "Waiting for WorkPlacements to be reconciled")
+	}
+}
+
+func writeStateMessage(statuses []v1alpha1.WorkPlacementWriteStatus) string {
+	parts := make([]string, 0, len(statuses))
+	for _, s := range statuses {
+		parts = append(parts, s.Destination+": "+s.Message)
+	}
+	return resourceutil.CutToRunes(strings.Join(parts, "; "), workWriteSucceededMessageMaxRunes)
 }
 
 func allWorkloadGroupsWrittenAtCurrentGeneration(work *v1alpha1.Work, workplacements []v1alpha1.WorkPlacement) bool {
@@ -391,6 +517,7 @@ type workPlacementConditionSnapshot struct {
 	writeObservedGeneration int64
 	scheduleStatus          metav1.ConditionStatus
 	scheduleReason          string
+	deliveryURL             string
 }
 
 func summarizeWorkPlacementConditions(wp *v1alpha1.WorkPlacement) workPlacementConditionSnapshot {
@@ -412,6 +539,7 @@ func summarizeWorkPlacementConditions(wp *v1alpha1.WorkPlacement) workPlacementC
 		writeObservedGeneration: writeObservedGeneration,
 		scheduleStatus:          conditionStatus(schedule),
 		scheduleReason:          conditionSummary(schedule),
+		deliveryURL:             wp.Status.DeliveryURL,
 	}
 }
 

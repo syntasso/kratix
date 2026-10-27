@@ -41,8 +41,10 @@ type Result struct {
 	Receipt string
 	// CheckAfter is how long to wait before checking a Pending delivery. Zero uses the default.
 	CheckAfter time.Duration
-	// Reason says why, for Rejected. It reaches the resource request.
+	// Reason explains a Pending or Rejected result
 	Reason string
+	// URL links to the delivery, such as a pull request
+	URL string
 }
 
 // Target is the WorkPlacement a delivery carries. A writer that asks a person to approve
