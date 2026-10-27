@@ -41,9 +41,7 @@ type Result struct {
 	Receipt string
 	// CheckAfter is how long to wait before checking a Pending delivery. Zero uses the default.
 	CheckAfter time.Duration
-	// Reason is shown to people while Pending or once Rejected, cut to 1024 characters: on the
-	// WorkPlacement and the resource request's WorksSucceeded condition, and cut to 120 on its
-	// Reconciled condition.
+	// Reason is shown to people while Pending or once Rejected. Kratix keeps the first 1024 characters.
 	Reason string
 	// URL is where a person can follow this delivery, such as a pull request. Kratix stores it
 	// on the WorkPlacement as deliveryURL without reading it.

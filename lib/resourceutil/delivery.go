@@ -52,8 +52,8 @@ func DeliveryEntries(works []v1alpha1.Work) []DeliveryEntry {
 	return entries
 }
 
-// IsOrdinaryWorksFailure reports whether some Work's WriteSucceeded condition says a WorkPlacement failed to write.
-// Ready is ignored: it can still say Failing from an earlier write error after the WorkPlacement moved on.
+// IsOrdinaryWorksFailure ignores Ready, which can still say Failing from an earlier write error
+// after the WorkPlacement moved on.
 func IsOrdinaryWorksFailure(works []v1alpha1.Work) bool {
 	return slices.ContainsFunc(works, func(work v1alpha1.Work) bool {
 		write := apimeta.FindStatusCondition(work.Status.Conditions, v1alpha1.WriteSucceededConditionType)
