@@ -58,8 +58,6 @@ var (
 
 	// Lets a spec reorder List results, which a real cache does not guarantee.
 	reorderListResults func(client.ObjectList)
-	// Lets a spec make chosen List calls fail.
-	failList func(client.ObjectList) error
 )
 
 var _ = BeforeSuite(func(_ SpecContext) {
@@ -94,11 +92,6 @@ var _ = BeforeEach(func() {
 		return client.Status().Update(ctx, obj, opts...)
 	}
 	interceptorsFuncs.List = func(ctx context.Context, cli client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-		if failList != nil {
-			if err := failList(list); err != nil {
-				return err
-			}
-		}
 		if err := cli.List(ctx, list, opts...); err != nil {
 			return err
 		}
@@ -143,7 +136,6 @@ var _ = BeforeEach(func() {
 var _ = AfterEach(func() {
 	errSubResourceUpdate = nil
 	reorderListResults = nil
-	failList = nil
 })
 
 func TestControllers(t *testing.T) {

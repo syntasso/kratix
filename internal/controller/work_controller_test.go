@@ -19,7 +19,9 @@ package controller_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
+	"unicode/utf8"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -153,7 +155,7 @@ var _ = Describe("WorkReconciler", func() {
 
 		It("sets the right status condition", func() {
 			Expect(fakeK8sClient.Get(context.TODO(), client.ObjectKeyFromObject(work), work)).To(Succeed())
-			Expect(work.Status.Conditions).To(HaveLen(2))
+			Expect(work.Status.Conditions).To(HaveLen(3))
 			readyCond := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
 			Expect(readyCond).ToNot(BeNil())
 			Expect(readyCond.Status).To(Equal(v1.ConditionFalse))
@@ -172,7 +174,7 @@ var _ = Describe("WorkReconciler", func() {
 
 		It("sends the right events", func() {
 			Expect(fakeK8sClient.Get(context.TODO(), client.ObjectKeyFromObject(work), work)).To(Succeed())
-			Expect(work.Status.Conditions).To(HaveLen(2))
+			Expect(work.Status.Conditions).To(HaveLen(3))
 			Eventually(fakeEventRecorder.Events).Should(
 				Receive(ContainSubstring("Workplacements failed to write: [test]")))
 		})
@@ -377,6 +379,207 @@ var _ = Describe("WorkReconciler", func() {
 		})
 	})
 
+	Describe("WorkPlacement write state on the Work", func() {
+		writeSucceeded := func() *v1.Condition {
+			GinkgoHelper()
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			condition := apimeta.FindStatusCondition(work.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+			Expect(condition).NotTo(BeNil())
+			return condition
+		}
+
+		reconcile := func() {
+			GinkgoHelper()
+			_, err := t.reconcileUntilCompletion(reconciler, work)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		BeforeEach(func() {
+			markWorkAsScheduled(work)
+		})
+
+		When("a WorkPlacement is waiting for its delivery", func() {
+			BeforeEach(func() {
+				createWorkPlacementWithStatus(work, "b", "dev", work.Spec.WorkloadGroups[1].ID, func(wp *v1alpha1.WorkPlacement) {
+					wp.SetWriteSucceededCondition()
+				})
+				createWorkPlacementWithStatus(work, "a", "prod", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
+					wp.SetWriteDeferredCondition("Waiting for approval: u")
+					wp.Status.DeliveryURL = "https://github.com/org/repo/pull/7"
+				})
+				reconcile()
+			})
+
+			It("lists every WorkPlacement by name with its write state", func() {
+				Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+				Expect(work.Status.WorkPlacementStatuses).To(Equal([]v1alpha1.WorkPlacementWriteStatus{
+					{
+						Name:        work.Name + "-a",
+						Destination: "prod",
+						Status:      "Unknown",
+						Reason:      v1alpha1.WorkloadsAwaitingDeliveryReason,
+						Message:     "Waiting for approval: u",
+						DeliveryURL: "https://github.com/org/repo/pull/7",
+					},
+					{
+						Name:        work.Name + "-b",
+						Destination: "dev",
+						Status:      "True",
+						Reason:      "WorkloadsWrittenToStateStore",
+						Message:     "Workloads written to State Store",
+					},
+				}))
+			})
+
+			It("sets WriteSucceeded to Unknown with the Destination and the delivery text", func() {
+				condition := writeSucceeded()
+				Expect(condition.Status).To(Equal(v1.ConditionUnknown))
+				Expect(condition.Reason).To(Equal("WorkplacementsAwaitingDelivery"))
+				Expect(condition.Message).To(Equal("prod: Waiting for approval: u"))
+				Expect(condition.ObservedGeneration).To(Equal(work.GetGeneration()))
+			})
+
+			It("leaves Ready as it was", func() {
+				Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+				ready := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+				Expect(ready.Reason).To(Equal("WaitingForWorkplacementsToBeWritten"))
+				Expect(ready.Message).To(Equal("Pending"))
+			})
+		})
+
+		It("keeps the list in name order when the WorkPlacements are listed in reverse", func() {
+			reorderListResults = func(list client.ObjectList) {
+				if placements, ok := list.(*v1alpha1.WorkPlacementList); ok {
+					slices.Reverse(placements.Items)
+				}
+			}
+			for _, name := range []string{"c", "b", "a"} {
+				createWorkPlacementWithStatus(work, name, "dev", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
+					wp.SetWriteSucceededCondition()
+				})
+			}
+			reconcile()
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			var names []string
+			for _, placement := range work.Status.WorkPlacementStatuses {
+				names = append(names, placement.Name)
+			}
+			Expect(names).To(Equal([]string{work.Name + "-a", work.Name + "-b", work.Name + "-c"}))
+		})
+
+		It("does not list a WorkPlacement that is being deleted", func() {
+			createWorkPlacementWithStatus(work, "a", "dev", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
+				wp.SetWriteDeferredCondition("Waiting for approval: u")
+			})
+			deleting := &v1alpha1.WorkPlacement{}
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: work.Name + "-a", Namespace: work.Namespace}, deleting)).To(Succeed())
+			deleting.Finalizers = []string{"kratix.io/test"}
+			Expect(fakeK8sClient.Update(ctx, deleting)).To(Succeed())
+			Expect(fakeK8sClient.Delete(ctx, deleting)).To(Succeed())
+			reconcile()
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			Expect(work.Status.WorkPlacementStatuses).To(BeEmpty())
+			Expect(writeSucceeded().Reason).NotTo(Equal("WorkplacementsAwaitingDelivery"))
+		})
+
+		When("one WorkPlacement was rejected and another failed to write", func() {
+			BeforeEach(func() {
+				createWorkPlacementWithStatus(work, "a", "prod", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
+					wp.SetWriteRejectedCondition("Rejected in https://github.com/org/repo/pull/7 with no comment")
+				})
+				createWorkPlacementWithStatus(work, "b", "dev", work.Spec.WorkloadGroups[1].ID, func(wp *v1alpha1.WorkPlacement) {
+					wp.SetWriteFailedCondition(errors.New("authentication required"))
+				})
+				reconcile()
+			})
+
+			It("reports the write failure, not the rejection", func() {
+				condition := writeSucceeded()
+				Expect(condition.Status).To(Equal(v1.ConditionFalse))
+				Expect(condition.Reason).To(Equal("WorkplacementsFailing"))
+				Expect(condition.Message).To(Equal("dev: authentication required"))
+			})
+
+			It("still marks the Work as Failing", func() {
+				Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+				Expect(apimeta.FindStatusCondition(work.Status.Conditions, "Ready").Message).To(Equal("Failing"))
+				Expect(work.Status.WorkPlacementStatuses).To(HaveLen(2))
+			})
+		})
+
+		It("reports a rejection when it is the only problem", func() {
+			createWorkPlacementWithStatus(work, "a", "prod", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
+				wp.SetWriteRejectedCondition("Rejected in https://github.com/org/repo/pull/7 with no comment")
+			})
+			createWorkPlacementWithStatus(work, "b", "dev", work.Spec.WorkloadGroups[1].ID, func(wp *v1alpha1.WorkPlacement) {
+				wp.SetWriteDeferredCondition("Waiting for approval: u")
+			})
+			reconcile()
+
+			condition := writeSucceeded()
+			Expect(condition.Status).To(Equal(v1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("WorkplacementsRejected"))
+			Expect(condition.Message).To(Equal("prod: Rejected in https://github.com/org/repo/pull/7 with no comment"))
+		})
+
+		It("joins the text of every matching WorkPlacement and cuts it to 4096 characters", func() {
+			createWorkPlacementWithStatus(work, "a", "prod", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
+				wp.SetWriteDeferredCondition("Waiting for approval: a")
+			})
+			createWorkPlacementWithStatus(work, "b", "dev", work.Spec.WorkloadGroups[1].ID, func(wp *v1alpha1.WorkPlacement) {
+				wp.SetWriteDeferredCondition("Waiting for approval: " + strings.Repeat("é", 5000))
+			})
+			reconcile()
+
+			message := writeSucceeded().Message
+			Expect(message).To(HavePrefix("prod: Waiting for approval: a; dev: Waiting for approval: é"))
+			Expect(utf8.ValidString(message)).To(BeTrue())
+			Expect(utf8.RuneCountInString(message)).To(Equal(4096))
+			Expect(message).To(HaveSuffix("…"))
+		})
+
+		It("sets WriteSucceeded to True once every WorkPlacement has written the current generation", func() {
+			createWrittenWorkPlacement(work, "first-group", work.Spec.WorkloadGroups[0].ID, work.GetGeneration())
+			createWrittenWorkPlacement(work, "second-group", work.Spec.WorkloadGroups[1].ID, work.GetGeneration())
+			reconcile()
+
+			condition := writeSucceeded()
+			Expect(condition.Status).To(Equal(v1.ConditionTrue))
+			Expect(condition.Reason).To(Equal("WorkplacementsWritten"))
+			Expect(condition.Message).To(Equal("All workloads written"))
+		})
+
+		It("keeps WriteSucceeded Unknown while a WorkPlacement holds an older generation", func() {
+			createWrittenWorkPlacement(work, "first-group", work.Spec.WorkloadGroups[0].ID, work.GetGeneration())
+			createWrittenWorkPlacement(work, "second-group", work.Spec.WorkloadGroups[1].ID, work.GetGeneration()-1)
+			reconcile()
+
+			condition := writeSucceeded()
+			Expect(condition.Status).To(Equal(v1.ConditionUnknown))
+			Expect(condition.Reason).To(Equal("WaitingForWorkplacementsToBeWritten"))
+		})
+
+		It("records the write state even while the scheduler owns Ready", func() {
+			apimeta.SetStatusCondition(&work.Status.Conditions, v1.Condition{
+				Type: "ScheduleSucceeded", Status: v1.ConditionFalse, Reason: "UnscheduledWorkloads", Message: "No matching destination found",
+			})
+			apimeta.SetStatusCondition(&work.Status.Conditions, v1.Condition{
+				Type: "Ready", Status: v1.ConditionFalse, Reason: "Misplaced", Message: "Misplaced",
+			})
+			Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+			createWorkPlacementWithStatus(work, "a", "prod", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
+				wp.SetWriteDeferredCondition("Waiting for approval: u")
+			})
+			reconcile()
+
+			Expect(writeSucceeded().Reason).To(Equal("WorkplacementsAwaitingDelivery"))
+			Expect(work.Status.WorkPlacementStatuses).To(HaveLen(1))
+			Expect(apimeta.FindStatusCondition(work.Status.Conditions, "Ready").Message).To(Equal("Misplaced"))
+		})
+	})
+
 	When("a WorkPlacement writes a new version of the Work", func() {
 		It("reconciles the Work again", func() {
 			oldWorkPlacement := &v1alpha1.WorkPlacement{ObjectMeta: v1.ObjectMeta{Generation: 1}}
@@ -391,6 +594,44 @@ var _ = Describe("WorkReconciler", func() {
 			})
 
 			Expect(shouldReconcile).To(BeTrue())
+		})
+	})
+
+	Describe("which WorkPlacement changes reconcile the Work", func() {
+		var oldWorkPlacement *v1alpha1.WorkPlacement
+
+		shouldReconcile := func(newWorkPlacement *v1alpha1.WorkPlacement) bool {
+			return controller.WorkPlacementStatusUpdatePredicate().Update(event.UpdateEvent{
+				ObjectOld: oldWorkPlacement,
+				ObjectNew: newWorkPlacement,
+			})
+		}
+
+		BeforeEach(func() {
+			oldWorkPlacement = &v1alpha1.WorkPlacement{ObjectMeta: v1.ObjectMeta{Generation: 1}}
+			oldWorkPlacement.SetWriteDeferredCondition("Waiting for approval: https://github.com/org/repo/pull/7")
+			oldWorkPlacement.Status.DeliveryURL = "https://github.com/org/repo/pull/7"
+		})
+
+		It("reconciles when only the write message changes", func() {
+			newWorkPlacement := oldWorkPlacement.DeepCopy()
+			newWorkPlacement.SetWriteDeferredCondition("Waiting for approval: https://github.com/org/repo/pull/8")
+
+			Expect(shouldReconcile(newWorkPlacement)).To(BeTrue())
+		})
+
+		It("reconciles when only the delivery URL changes", func() {
+			newWorkPlacement := oldWorkPlacement.DeepCopy()
+			newWorkPlacement.Status.DeliveryURL = "https://github.com/org/repo/pull/8"
+
+			Expect(shouldReconcile(newWorkPlacement)).To(BeTrue())
+		})
+
+		It("does not reconcile when nothing it reads changes", func() {
+			newWorkPlacement := oldWorkPlacement.DeepCopy()
+			newWorkPlacement.Status.VersionID = "abc123"
+
+			Expect(shouldReconcile(newWorkPlacement)).To(BeFalse())
 		})
 	})
 })
@@ -423,5 +664,25 @@ func createWrittenWorkPlacement(work *v1alpha1.Work, name, workloadGroupID strin
 	Expect(fakeK8sClient.Create(context.TODO(), workPlacement)).To(Succeed())
 	Expect(fakeK8sClient.Get(context.TODO(), client.ObjectKeyFromObject(workPlacement), workPlacement)).To(Succeed())
 	workPlacement.SetWriteSucceededCondition()
+	Expect(fakeK8sClient.Status().Update(context.TODO(), workPlacement)).To(Succeed())
+}
+
+func createWorkPlacementWithStatus(work *v1alpha1.Work, name, destination, workloadGroupID string, setStatus func(*v1alpha1.WorkPlacement)) {
+	GinkgoHelper()
+	workPlacement := &v1alpha1.WorkPlacement{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      work.Name + "-" + name,
+			Namespace: work.Namespace,
+			Labels:    map[string]string{"kratix.io/work": work.Name},
+		},
+		Spec: v1alpha1.WorkPlacementSpec{
+			ID:                    workloadGroupID,
+			TargetDestinationName: destination,
+			WorkGeneration:        work.GetGeneration(),
+		},
+	}
+	Expect(fakeK8sClient.Create(context.TODO(), workPlacement)).To(Succeed())
+	Expect(fakeK8sClient.Get(context.TODO(), client.ObjectKeyFromObject(workPlacement), workPlacement)).To(Succeed())
+	setStatus(workPlacement)
 	Expect(fakeK8sClient.Status().Update(context.TODO(), workPlacement)).To(Succeed())
 }

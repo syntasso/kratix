@@ -885,13 +885,12 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 		return false, err
 	}
 	var deliveries []resourceutil.DeliveryEntry
-	if len(works.failed) > 0 || len(works.pending) > 0 {
-		if deliveries, err = resourceutil.ListDeliveryEntries(ctx, r.Client, works.items); err != nil {
-			return false, err
-		}
+	if len(works.failed) > 0 || len(works.pending) > 0 || len(works.misplaced) > 0 {
+		deliveries = resourceutil.DeliveryEntries(works.items)
 	}
+	ordinaryFailure := resourceutil.IsOrdinaryWorksFailure(works.items, len(works.failed) > 0, deliveries)
 	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, works, deliveries)
-	reconciledUpdate := r.updateReconciledCondition(rr, deliveries)
+	reconciledUpdate := r.updateReconciledCondition(rr, deliveries, ordinaryFailure)
 	promiseVersionUpdate := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevision)
 	healthUpdate, err := r.updateExpectedHealth(ctx, logger, promise, rr)
 	if err != nil {
@@ -924,7 +923,7 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 	case len(works.pending) > 0:
 		return resourceutil.MarkResourceRequestAsWorksPending(rr, works.pending, deliveries)
 	case len(works.misplaced) > 0:
-		if !resourceutil.MarkResourceRequestAsWorksMisplaced(rr, works.misplaced) {
+		if !resourceutil.MarkResourceRequestAsWorksMisplaced(rr, works.misplaced, deliveries) {
 			return false
 		}
 		r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksMisplaced", "WorksMisplaced", "%s", fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(works.misplaced, ",")))
@@ -1092,7 +1091,7 @@ func (r *DynamicResourceRequestController) ensureDryRunSummary(
 	return nil
 }
 
-func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured, deliveries []resourceutil.DeliveryEntry) bool {
+func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured, deliveries []resourceutil.DeliveryEntry, ordinaryFailure bool) bool {
 	worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 
@@ -1119,7 +1118,7 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 	case worksPending:
 		return resourceutil.MarkReconciledWorksPending(rr, deliveries)
 	case worksFailed:
-		return resourceutil.MarkReconciledWorksFailing(rr, deliveries)
+		return resourceutil.MarkReconciledWorksFailing(rr, deliveries, ordinaryFailure)
 	case workflowDone && worksReady:
 		return r.markReconciledSucceeded(rr)
 	}

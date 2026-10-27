@@ -1,8 +1,8 @@
 package resourceutil
 
 import (
-	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -13,7 +13,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -32,36 +31,40 @@ type DeliveryEntry struct {
 	Message       string
 }
 
-// ListDeliveryEntries returns the WorkPlacements of the given Works that are awaiting
-// delivery or were rejected, and are not being deleted, sorted by WorkPlacement name.
-func ListDeliveryEntries(ctx context.Context, c client.Client, works []v1alpha1.Work) ([]DeliveryEntry, error) {
+// DeliveryEntries returns the WorkPlacements recorded on the given Works' status that are
+// awaiting delivery or were rejected, sorted by WorkPlacement name.
+func DeliveryEntries(works []v1alpha1.Work) []DeliveryEntry {
 	var entries []DeliveryEntry
 	for _, work := range works {
-		var placements v1alpha1.WorkPlacementList
-		if err := c.List(ctx, &placements,
-			client.InNamespace(work.GetNamespace()),
-			client.MatchingLabels{v1alpha1.WorkLabel: work.GetName()},
-		); err != nil {
-			return nil, fmt.Errorf("listing WorkPlacements of Work %s/%s: %w", work.GetNamespace(), work.GetName(), err)
-		}
-		for _, placement := range placements.Items {
-			if !placement.GetDeletionTimestamp().IsZero() {
-				continue
-			}
-			write := apimeta.FindStatusCondition(placement.Status.Conditions, v1alpha1.WriteSucceededConditionType)
-			if write == nil || (write.Reason != v1alpha1.WorkloadsAwaitingDeliveryReason && write.Reason != v1alpha1.WorkloadsRejectedReason) {
+		for _, placement := range work.Status.WorkPlacementStatuses {
+			if placement.Reason != v1alpha1.WorkloadsAwaitingDeliveryReason && placement.Reason != v1alpha1.WorkloadsRejectedReason {
 				continue
 			}
 			entries = append(entries, DeliveryEntry{
-				WorkPlacement: placement.GetName(),
-				Destination:   placement.Spec.TargetDestinationName,
-				Reason:        write.Reason,
-				Message:       write.Message,
+				WorkPlacement: placement.Name,
+				Destination:   placement.Destination,
+				Reason:        placement.Reason,
+				Message:       placement.Message,
 			})
 		}
 	}
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].WorkPlacement < entries[j].WorkPlacement })
-	return entries, nil
+	return entries
+}
+
+// IsOrdinaryWorksFailure reports whether failing Works are failing for a reason a delivery entry does not explain.
+func IsOrdinaryWorksFailure(works []v1alpha1.Work, worksFailing bool, entries []DeliveryEntry) bool {
+	if worksFailing && !slices.ContainsFunc(entries, func(entry DeliveryEntry) bool {
+		return entry.Reason == v1alpha1.WorkloadsRejectedReason
+	}) {
+		return true
+	}
+	return slices.ContainsFunc(works, func(work v1alpha1.Work) bool {
+		ready := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+		write := apimeta.FindStatusCondition(work.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+		return ready != nil && ready.Message == "Failing" &&
+			write != nil && write.Status == metav1.ConditionFalse && write.Reason == v1alpha1.WorkplacementsFailingReason
+	})
 }
 
 func MarkReconciledWorksPending(obj *unstructured.Unstructured, entries []DeliveryEntry) bool {
@@ -71,9 +74,16 @@ func MarkReconciledWorksPending(obj *unstructured.Unstructured, entries []Delive
 	return MarkReconciledPending(obj, "WorksPending")
 }
 
-func MarkReconciledWorksFailing(obj *unstructured.Unstructured, entries []DeliveryEntry) bool {
-	if message, found := reconciledDeliveryMessage(entries, v1alpha1.WorkloadsRejectedReason); found {
-		return markReconciled(obj, v1.ConditionFalse, WorksRejectedReason, message)
+// MarkReconciledWorksFailing shows a delivery text only when ordinaryFailure is false, so a
+// rejection or a pending approval elsewhere never hides a Work that failed to write.
+func MarkReconciledWorksFailing(obj *unstructured.Unstructured, entries []DeliveryEntry, ordinaryFailure bool) bool {
+	if !ordinaryFailure {
+		if message, found := reconciledDeliveryMessage(entries, v1alpha1.WorkloadsRejectedReason); found {
+			return markReconciled(obj, v1.ConditionFalse, WorksRejectedReason, message)
+		}
+		if message, found := reconciledDeliveryMessage(entries, v1alpha1.WorkloadsAwaitingDeliveryReason); found {
+			return markReconciled(obj, v1.ConditionUnknown, WorksAwaitingDeliveryReason, message)
+		}
 	}
 	return MarkReconciledFailing(obj, "WorksFailing")
 }
@@ -102,10 +112,11 @@ func reconciledDeliveryMessage(entries []DeliveryEntry, workPlacementReason stri
 	if len(matching) > 1 {
 		suffix = fmt.Sprintf(" (+%d more)", len(matching)-1)
 	}
-	return cutToRunes(matching[0].Message, reconciledDeliveryMessageMaxRunes-len([]rune(suffix))) + suffix, true
+	return CutToRunes(matching[0].Message, reconciledDeliveryMessageMaxRunes-len([]rune(suffix))) + suffix, true
 }
 
-func cutToRunes(text string, maxRunes int) string {
+// CutToRunes cuts text to maxRunes characters, ending in "…", without splitting a multi-byte character.
+func CutToRunes(text string, maxRunes int) string {
 	runes := []rune(text)
 	if len(runes) <= maxRunes {
 		return text
@@ -119,5 +130,5 @@ func worksMessage(summary string, works []string, entries []DeliveryEntry) strin
 	for _, entry := range entries {
 		fmt.Fprintf(&message, ". Destination %s: %s", entry.Destination, entry.Message)
 	}
-	return cutToRunes(message.String(), worksSucceededMessageMaxRunes)
+	return CutToRunes(message.String(), worksSucceededMessageMaxRunes)
 }

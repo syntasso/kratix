@@ -878,27 +878,40 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				if reason == v1alpha1.WorkloadsAwaitingDeliveryReason {
 					status = metav1.ConditionUnknown
 				}
-				placement := &v1alpha1.WorkPlacement{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      name,
-						Namespace: work.GetNamespace(),
-						Labels:    map[string]string{v1alpha1.WorkLabel: work.GetName()},
-					},
-					Spec: v1alpha1.WorkPlacementSpec{
-						TargetDestinationName: destination,
-						PromiseName:           promise.GetName(),
-						ResourceName:          resReq.GetName(),
-					},
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(work), work)).To(Succeed())
+				work.Status.WorkPlacementStatuses = append(work.Status.WorkPlacementStatuses, v1alpha1.WorkPlacementWriteStatus{
+					Name:        name,
+					Destination: destination,
+					Status:      string(status),
+					Reason:      reason,
+					Message:     message,
+				})
+				Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+			}
+
+			createOtherWork := func(name, readyMessage, writeReason string, placements ...v1alpha1.WorkPlacementWriteStatus) {
+				GinkgoHelper()
+				other := work.DeepCopy()
+				other.Name = name
+				other.ResourceVersion = ""
+				other.Status = v1alpha1.WorkStatus{
+					Conditions:            []metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse, Message: readyMessage, Reason: "Test", LastTransitionTime: metav1.Now()}},
+					WorkPlacementStatuses: placements,
 				}
-				Expect(fakeK8sClient.Create(ctx, placement)).To(Succeed())
-				placement.Status.Conditions = []metav1.Condition{{
-					Type:               v1alpha1.WriteSucceededConditionType,
-					Status:             status,
-					Reason:             reason,
-					Message:            message,
-					LastTransitionTime: metav1.Now(),
-				}}
-				Expect(fakeK8sClient.Status().Update(ctx, placement)).To(Succeed())
+				if writeReason != "" {
+					other.Status.Conditions = append(other.Status.Conditions, metav1.Condition{
+						Type: v1alpha1.WriteSucceededConditionType, Status: metav1.ConditionFalse, Reason: writeReason, LastTransitionTime: metav1.Now(),
+					})
+				}
+				Expect(fakeK8sClient.Create(ctx, other)).To(Succeed())
+				Expect(fakeK8sClient.Status().Update(ctx, other)).To(Succeed())
+			}
+
+			awaiting := func(name, destination, message string) v1alpha1.WorkPlacementWriteStatus {
+				return v1alpha1.WorkPlacementWriteStatus{
+					Name: name, Destination: destination, Status: "Unknown",
+					Reason: v1alpha1.WorkloadsAwaitingDeliveryReason, Message: message,
+				}
 			}
 
 			createWorkWithReadyMessage := func(message string) {
@@ -919,19 +932,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(condition).NotTo(BeNil())
 				return condition
 			}
-
-			It("returns the error when the WorkPlacements cannot be listed", func() {
-				failList = func(list client.ObjectList) error {
-					if _, ok := list.(*v1alpha1.WorkPlacementList); ok {
-						return fmt.Errorf("cannot list WorkPlacements")
-					}
-					return nil
-				}
-				createWorkWithReadyMessage("Pending")
-
-				_, err := t.reconcileUntilCompletion(reconciler, resReq)
-				Expect(err).To(MatchError(ContainSubstring("cannot list WorkPlacements")))
-			})
 
 			Context("WorksSucceeded", func() {
 				When("a WorkPlacement is waiting for its delivery", func() {
@@ -1175,11 +1175,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					})
 
 					It("shows the first WorkPlacement's text by name and counts the others", func() {
-						reorderListResults = func(list client.ObjectList) {
-							if placements, ok := list.(*v1alpha1.WorkPlacementList); ok {
-								slices.Reverse(placements.Items)
-							}
-						}
 						createWorkWithReadyMessage("Pending")
 						createPlacement("test-z", "dev", v1alpha1.WorkloadsAwaitingDeliveryReason, "Waiting for approval: z")
 						createPlacement("test-a", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason, strings.Repeat("a", 200))
@@ -1201,6 +1196,82 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Expect(string(condition.Status)).To(Equal("False"))
 						Expect(condition.Reason).To(Equal("WorksRejected"))
 						Expect(condition.Message).To(Equal("Rejected in https://github.com/org/repo/pull/7 with no comment"))
+					})
+				})
+
+				It("reads the delivery text from the Work's status, without WorkPlacement objects", func() {
+					createWorkWithReadyMessage("Pending")
+					createPlacement("test-prod", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason, "Waiting for approval: url")
+					var placements v1alpha1.WorkPlacementList
+					Expect(fakeK8sClient.List(ctx, &placements)).To(Succeed())
+					Expect(placements.Items).To(BeEmpty())
+
+					condition := reconcileAndGetCondition(resourceutil.ReconciledCondition)
+					Expect(condition.Message).To(Equal("Waiting for approval: url"))
+				})
+
+				When("a misplaced Work's WorkPlacement is waiting for its delivery", func() {
+					BeforeEach(func() {
+						setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+						createWorkWithReadyMessage("Misplaced")
+						createPlacement("test-prod", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason, "Waiting for approval: url")
+					})
+
+					It("shows the delivery text instead of Failing", func() {
+						condition := reconcileAndGetCondition(resourceutil.ReconciledCondition)
+						Expect(string(condition.Status)).To(Equal("Unknown"))
+						Expect(condition.Reason).To(Equal("WorksAwaitingDelivery"))
+						Expect(condition.Message).To(Equal("Waiting for approval: url"))
+					})
+
+					It("adds the delivery text to WorksSucceeded", func() {
+						condition := reconcileAndGetCondition(resourceutil.WorksSucceededCondition)
+						Expect(condition.Reason).To(Equal("WorksMisplaced"))
+						Expect(condition.Message).To(Equal("Some works associated with this resource are misplaced: [test]. " +
+							"Destination prod: Waiting for approval: url"))
+					})
+				})
+
+				When("one Work failed to write and another Work waits for its delivery", func() {
+					It("shows Failing", func() {
+						setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+						createWorkWithReadyMessage("Misplaced")
+						createPlacement("test-prod", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason, "Waiting for approval: url")
+						createOtherWork("test-broken", "Failing", v1alpha1.WorkplacementsFailingReason, v1alpha1.WorkPlacementWriteStatus{
+							Name: "test-broken-dev", Destination: "dev", Status: "False", Reason: "WorkloadsFailedWrite", Message: "authentication required",
+						})
+
+						condition := reconcileAndGetCondition(resourceutil.ReconciledCondition)
+						Expect(string(condition.Status)).To(Equal("False"))
+						Expect(condition.Reason).To(Equal("WorksFailing"))
+						Expect(condition.Message).To(Equal("Failing"))
+					})
+				})
+
+				When("a failing Work has no write state and another Work waits for its delivery", func() {
+					It("shows Failing", func() {
+						setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+						createWorkWithReadyMessage("Misplaced")
+						createPlacement("test-prod", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason, "Waiting for approval: url")
+						createOtherWork("test-older", "Failing", "")
+
+						condition := reconcileAndGetCondition(resourceutil.ReconciledCondition)
+						Expect(condition.Reason).To(Equal("WorksFailing"))
+						Expect(condition.Message).To(Equal("Failing"))
+					})
+				})
+
+				When("one Work was rejected and another Work waits for its delivery", func() {
+					It("shows the rejection", func() {
+						setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+						createWorkWithReadyMessage("Failing")
+						createPlacement("test-prod", "prod", v1alpha1.WorkloadsRejectedReason, "Rejected with no comment")
+						createOtherWork("test-a", "Misplaced", "", awaiting("test-a-dev", "dev", "Waiting for approval: a"))
+
+						condition := reconcileAndGetCondition(resourceutil.ReconciledCondition)
+						Expect(string(condition.Status)).To(Equal("False"))
+						Expect(condition.Reason).To(Equal("WorksRejected"))
+						Expect(condition.Message).To(Equal("Rejected with no comment"))
 					})
 				})
 

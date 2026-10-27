@@ -1,7 +1,6 @@
 package resourceutil_test
 
 import (
-	"context"
 	"strings"
 	"unicode/utf8"
 
@@ -10,73 +9,70 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/syntasso/kratix/lib/resourceutil"
 )
 
-var _ = Describe("ListDeliveryEntries", func() {
-	var (
-		ctx       context.Context
-		k8sClient client.Client
-		work      v1alpha1.Work
-	)
-
-	placement := func(namespace, name, workName, destination, reason, message string) *v1alpha1.WorkPlacement {
-		return &v1alpha1.WorkPlacement{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-				Labels:    map[string]string{v1alpha1.WorkLabel: workName},
-			},
-			Spec: v1alpha1.WorkPlacementSpec{TargetDestinationName: destination},
-			Status: v1alpha1.WorkPlacementStatus{Conditions: []metav1.Condition{{
-				Type:    v1alpha1.WriteSucceededConditionType,
-				Status:  metav1.ConditionFalse,
-				Reason:  reason,
-				Message: message,
-			}}},
-		}
+var _ = Describe("DeliveryEntries", func() {
+	placement := func(name, destination, reason, message string) v1alpha1.WorkPlacementWriteStatus {
+		return v1alpha1.WorkPlacementWriteStatus{Name: name, Destination: destination, Reason: reason, Message: message}
 	}
 
-	BeforeEach(func() {
-		ctx = context.Background()
-		scheme := runtime.NewScheme()
-		Expect(v1alpha1.AddToScheme(scheme)).To(Succeed())
-		work = v1alpha1.Work{ObjectMeta: metav1.ObjectMeta{Name: "my-work", Namespace: "pipelines"}}
+	It("returns the delivery WorkPlacements recorded on the Works, by WorkPlacement name", func() {
+		works := []v1alpha1.Work{
+			{Status: v1alpha1.WorkStatus{WorkPlacementStatuses: []v1alpha1.WorkPlacementWriteStatus{
+				placement("work-b-z", "dev", v1alpha1.WorkloadsRejectedReason, "rejected"),
+				placement("work-b-failed", "test", "WorkloadsFailedWrite", "authentication required"),
+				placement("work-b-written", "test", "WorkloadsWrittenToStateStore", "Workloads written to State Store"),
+			}}},
+			{Status: v1alpha1.WorkStatus{WorkPlacementStatuses: []v1alpha1.WorkPlacementWriteStatus{
+				placement("work-a-a", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason, "waiting"),
+			}}},
+		}
 
-		k8sClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-			placement("pipelines", "my-work-z", "my-work", "dev", v1alpha1.WorkloadsRejectedReason, "rejected"),
-			placement("pipelines", "my-work-a", "my-work", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason, "waiting"),
-			placement("pipelines", "my-work-failed", "my-work", "test", "WorkloadsFailedWrite", "authentication required"),
-			placement("pipelines", "other-work-a", "other-work", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason, "other work"),
-			placement("default", "my-work-elsewhere", "my-work", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason, "wrong namespace"),
-		).Build()
-	})
-
-	It("returns the delivery WorkPlacements of the Works, in their own namespace, by name", func() {
-		entries, err := resourceutil.ListDeliveryEntries(ctx, k8sClient, []v1alpha1.Work{work})
-		Expect(err).NotTo(HaveOccurred())
-		Expect(entries).To(Equal([]resourceutil.DeliveryEntry{
-			{WorkPlacement: "my-work-a", Destination: "prod", Reason: v1alpha1.WorkloadsAwaitingDeliveryReason, Message: "waiting"},
-			{WorkPlacement: "my-work-z", Destination: "dev", Reason: v1alpha1.WorkloadsRejectedReason, Message: "rejected"},
+		Expect(resourceutil.DeliveryEntries(works)).To(Equal([]resourceutil.DeliveryEntry{
+			{WorkPlacement: "work-a-a", Destination: "prod", Reason: v1alpha1.WorkloadsAwaitingDeliveryReason, Message: "waiting"},
+			{WorkPlacement: "work-b-z", Destination: "dev", Reason: v1alpha1.WorkloadsRejectedReason, Message: "rejected"},
 		}))
 	})
 
-	It("skips a WorkPlacement that is being deleted", func() {
-		deleting := placement("pipelines", "my-work-deleting", "my-work", "dev", v1alpha1.WorkloadsRejectedReason, "rejected")
-		deleting.Finalizers = []string{"kratix.io/test"}
-		deleting.DeletionTimestamp = &metav1.Time{Time: metav1.Now().Time}
-		scheme := runtime.NewScheme()
-		Expect(v1alpha1.AddToScheme(scheme)).To(Succeed())
-		k8sClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(deleting).Build()
+	It("returns nothing for a Work with no recorded write state", func() {
+		Expect(resourceutil.DeliveryEntries([]v1alpha1.Work{{}})).To(BeEmpty())
+	})
+})
 
-		entries, err := resourceutil.ListDeliveryEntries(ctx, k8sClient, []v1alpha1.Work{work})
-		Expect(err).NotTo(HaveOccurred())
-		Expect(entries).To(BeEmpty())
+var _ = Describe("IsOrdinaryWorksFailure", func() {
+	work := func(readyMessage, writeReason string) v1alpha1.Work {
+		w := v1alpha1.Work{Status: v1alpha1.WorkStatus{Conditions: []metav1.Condition{
+			{Type: "Ready", Status: metav1.ConditionFalse, Message: readyMessage},
+		}}}
+		if writeReason != "" {
+			w.Status.Conditions = append(w.Status.Conditions, metav1.Condition{
+				Type: v1alpha1.WriteSucceededConditionType, Status: metav1.ConditionFalse, Reason: writeReason,
+			})
+		}
+		return w
+	}
+	rejected := []resourceutil.DeliveryEntry{{Reason: v1alpha1.WorkloadsRejectedReason}}
+	awaiting := []resourceutil.DeliveryEntry{{Reason: v1alpha1.WorkloadsAwaitingDeliveryReason}}
+
+	It("is true when a failing Work failed to write, even with a rejection elsewhere", func() {
+		works := []v1alpha1.Work{work("Failing", v1alpha1.WorkplacementsFailingReason), work("Failing", v1alpha1.WorkplacementsRejectedReason)}
+		Expect(resourceutil.IsOrdinaryWorksFailure(works, true, rejected)).To(BeTrue())
+	})
+
+	It("is true when Works are failing and nothing was rejected", func() {
+		Expect(resourceutil.IsOrdinaryWorksFailure([]v1alpha1.Work{work("Failing", "")}, true, awaiting)).To(BeTrue())
+	})
+
+	It("is false when the only failing Work was rejected", func() {
+		works := []v1alpha1.Work{work("Failing", v1alpha1.WorkplacementsRejectedReason), work("Misplaced", "")}
+		Expect(resourceutil.IsOrdinaryWorksFailure(works, true, rejected)).To(BeFalse())
+	})
+
+	It("is false when no Work is failing", func() {
+		Expect(resourceutil.IsOrdinaryWorksFailure([]v1alpha1.Work{work("Misplaced", "")}, false, awaiting)).To(BeFalse())
 	})
 })
 
@@ -134,14 +130,40 @@ var _ = Describe("delivery text on the resource request's conditions", func() {
 			Expect(reconciled().Message).To(Equal(text))
 		})
 
-		It("shows the rejection, not a WorkPlacement still waiting that sorts first", func() {
-			resourceutil.MarkReconciledWorksFailing(rr, []resourceutil.DeliveryEntry{
+		Describe("when Works are failing", func() {
+			entries := []resourceutil.DeliveryEntry{
 				{WorkPlacement: "a-waiting", Reason: v1alpha1.WorkloadsAwaitingDeliveryReason, Message: "Waiting for approval: a"},
 				{WorkPlacement: "b-rejected", Reason: v1alpha1.WorkloadsRejectedReason, Message: "Rejected in b with no comment"},
+			}
+
+			It("shows the rejection, not a WorkPlacement still waiting that sorts first", func() {
+				resourceutil.MarkReconciledWorksFailing(rr, entries, false)
+
+				Expect(string(reconciled().Status)).To(Equal("False"))
+				Expect(reconciled().Reason).To(Equal("WorksRejected"))
+				Expect(reconciled().Message).To(Equal("Rejected in b with no comment"))
 			})
 
-			Expect(reconciled().Reason).To(Equal("WorksRejected"))
-			Expect(reconciled().Message).To(Equal("Rejected in b with no comment"))
+			It("shows Failing over any delivery text when the failure is ordinary", func() {
+				resourceutil.MarkReconciledWorksFailing(rr, entries, true)
+
+				Expect(reconciled().Reason).To(Equal("WorksFailing"))
+				Expect(reconciled().Message).To(Equal("Failing"))
+			})
+
+			It("shows the waiting text when nothing was rejected", func() {
+				resourceutil.MarkReconciledWorksFailing(rr, entries[:1], false)
+
+				Expect(string(reconciled().Status)).To(Equal("Unknown"))
+				Expect(reconciled().Reason).To(Equal("WorksAwaitingDelivery"))
+				Expect(reconciled().Message).To(Equal("Waiting for approval: a"))
+			})
+
+			It("shows Failing when there is no delivery text", func() {
+				resourceutil.MarkReconciledWorksFailing(rr, nil, false)
+
+				Expect(reconciled().Reason).To(Equal("WorksFailing"))
+			})
 		})
 	})
 })

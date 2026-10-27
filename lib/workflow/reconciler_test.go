@@ -1052,21 +1052,6 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 			})
 
-			It("returns the error when the Work's WorkPlacements cannot be listed", func() {
-				failingClient := interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
-					List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-						if _, ok := list.(*v1alpha1.WorkPlacementList); ok {
-							return fmt.Errorf("cannot list WorkPlacements")
-						}
-						return c.List(ctx, list, opts...)
-					},
-				})
-				failingOpts := workflow.NewOpts(ctx, failingClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
-
-				_, err := workflow.ReconcileConfigure(failingOpts)
-				Expect(err).To(MatchError(ContainSubstring("cannot list WorkPlacements")))
-			})
-
 			When("the Work's WorkPlacement delivery was rejected", func() {
 				It("shows the rejection text on the Reconciled condition", func() {
 					markWorkFailing(firstPipelineWork)
@@ -1082,6 +1067,30 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(reconciled.Status).To(Equal(metav1.ConditionFalse))
 					Expect(reconciled.Reason).To(Equal("WorksRejected"))
 					Expect(reconciled.Message).To(Equal("Rejected in https://github.com/org/repo/pull/7 with no comment"))
+				})
+			})
+
+			When("the Work has a rejected WorkPlacement and another that failed to write", func() {
+				It("marks the Promise as failing, not rejected", func() {
+					markWorkFailing(firstPipelineWork)
+					createDeliveryPlacement(firstPipelineWork, v1alpha1.WorkloadsRejectedReason,
+						"Rejected in https://github.com/org/repo/pull/7 with no comment")
+					apimeta.SetStatusCondition(&firstPipelineWork.Status.Conditions, metav1.Condition{
+						Type:    v1alpha1.WriteSucceededConditionType,
+						Status:  metav1.ConditionFalse,
+						Reason:  v1alpha1.WorkplacementsFailingReason,
+						Message: "dev: authentication required",
+					})
+					Expect(fakeK8sClient.Update(ctx, firstPipelineWork)).To(Succeed())
+
+					_, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+
+					updatedPromise := &v1alpha1.Promise{}
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), updatedPromise)).To(Succeed())
+					reconciled := updatedPromise.GetCondition(string(resourceutil.ReconciledCondition))
+					Expect(reconciled.Reason).To(Equal("WorksFailing"))
+					Expect(reconciled.Message).To(Equal("Failing"))
 				})
 			})
 
@@ -3210,22 +3219,14 @@ func createPipelineWork(promiseName, pipelineName string) *v1alpha1.Work {
 
 func createDeliveryPlacement(work *v1alpha1.Work, reason, message string) {
 	GinkgoHelper()
-	placement := &v1alpha1.WorkPlacement{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      work.GetName() + "-prod",
-			Namespace: work.GetNamespace(),
-			Labels:    map[string]string{v1alpha1.WorkLabel: work.GetName()},
-		},
-		Spec: v1alpha1.WorkPlacementSpec{TargetDestinationName: "prod"},
-		Status: v1alpha1.WorkPlacementStatus{Conditions: []metav1.Condition{{
-			Type:               v1alpha1.WriteSucceededConditionType,
-			Status:             metav1.ConditionFalse,
-			Reason:             reason,
-			Message:            message,
-			LastTransitionTime: metav1.Now(),
-		}}},
-	}
-	Expect(fakeK8sClient.Create(ctx, placement)).To(Succeed())
+	work.Status.WorkPlacementStatuses = append(work.Status.WorkPlacementStatuses, v1alpha1.WorkPlacementWriteStatus{
+		Name:        work.GetName() + "-prod",
+		Destination: "prod",
+		Status:      string(metav1.ConditionFalse),
+		Reason:      reason,
+		Message:     message,
+	})
+	Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
 }
 
 func markWorkReady(work *v1alpha1.Work) {

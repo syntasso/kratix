@@ -3,7 +3,6 @@ package resourceutil
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -100,11 +99,11 @@ func MarkResourceRequestAsWorksFailed(obj *unstructured.Unstructured, works []st
 	})
 }
 
-func MarkResourceRequestAsWorksMisplaced(obj *unstructured.Unstructured, works []string) bool {
+func MarkResourceRequestAsWorksMisplaced(obj *unstructured.Unstructured, works []string, entries []DeliveryEntry) bool {
 	return SetConditionIfChanged(obj, &clusterv1.Condition{
 		Type:               WorksSucceededCondition,
 		Status:             v1.ConditionFalse,
-		Message:            fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(works, ",")),
+		Message:            worksMessage("Some works associated with this resource are misplaced", works, entries),
 		Reason:             "WorksMisplaced",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})

@@ -402,10 +402,7 @@ func waitForPreviousPipelineOutput(opts Opts, decision Decision) error {
 		decision.PreviousPipelineName, workName)
 	patch := client.MergeFromWithOptions(opts.parentObject.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	conditionChanged := resourceutil.MarkConfigureWorkflowAsWaitingForPipelineOutput(opts.parentObject, message)
-	reconciledChanged, err := setReconciledFromPipelineWork(opts, decision.PreviousPipelineWork)
-	if err != nil {
-		return err
-	}
+	reconciledChanged := setReconciledFromPipelineWork(opts, decision.PreviousPipelineWork)
 	messageChanged, err := resourceutil.SetPipelineMessage(opts.parentObject, decision.Pipeline.Name, message, opts.workflowKey())
 	if err != nil {
 		return err
@@ -422,18 +419,17 @@ func waitForPreviousPipelineOutput(opts Opts, decision Decision) error {
 	return nil
 }
 
-func setReconciledFromPipelineWork(opts Opts, previousPipelineWork *v1alpha1.Work) (bool, error) {
-	deliveries, err := resourceutil.ListDeliveryEntries(opts.ctx, opts.client, []v1alpha1.Work{*previousPipelineWork})
-	if err != nil {
-		return false, err
-	}
+func setReconciledFromPipelineWork(opts Opts, previousPipelineWork *v1alpha1.Work) bool {
+	works := []v1alpha1.Work{*previousPipelineWork}
+	deliveries := resourceutil.DeliveryEntries(works)
 	ready := apimeta.FindStatusCondition(previousPipelineWork.Status.Conditions, "Ready")
 	previousPipelineOutputFailing := ready != nil && ready.Reason == "WorkplacementsFailing" &&
 		ready.ObservedGeneration == previousPipelineWork.GetGeneration()
 	if previousPipelineOutputFailing {
-		return resourceutil.MarkReconciledWorksFailing(opts.parentObject, deliveries), nil
+		ordinaryFailure := resourceutil.IsOrdinaryWorksFailure(works, true, deliveries)
+		return resourceutil.MarkReconciledWorksFailing(opts.parentObject, deliveries, ordinaryFailure)
 	}
-	return resourceutil.MarkReconciledWorksPending(opts.parentObject, deliveries), nil
+	return resourceutil.MarkReconciledWorksPending(opts.parentObject, deliveries)
 }
 
 func labelsForJobs(opts Opts) map[string]string {
