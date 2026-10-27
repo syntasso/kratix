@@ -560,7 +560,7 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 	return w.recordDeliveryResult(result)
 }
 
-// clearSupersededFailure marks the WorkPlacement deferred before a new delivery starts: the Work
+// clearSupersededFailure marks the write as waiting before a new delivery starts: the Work
 // reports a failed write without comparing generations, so an older failure would fail the request
 // for as long as the new delivery takes.
 func (w *workPlacementReconcileContext) clearSupersededFailure() error {
