@@ -198,12 +198,25 @@ func (w *WorkPlacement) SetWriteDeferredCondition(message string) bool {
 	return writeSucceededUpdated || readyUpdated
 }
 
+// WorkloadsRejectedReason marks a failure that a later generation's delivery must clear
+// before it starts, or the Work reports the old failure for the whole delivery.
+const WorkloadsRejectedReason = "WorkloadsRejected"
+
 func (w *WorkPlacement) SetWriteFailedCondition(err error) bool {
+	return w.setWriteFailed("WorkloadsFailedWrite", err.Error())
+}
+
+// SetWriteRejectedCondition marks a write the writer accepted and then rejected.
+func (w *WorkPlacement) SetWriteRejectedCondition(message string) bool {
+	return w.setWriteFailed(WorkloadsRejectedReason, message)
+}
+
+func (w *WorkPlacement) setWriteFailed(reason, message string) bool {
 	writeSucceededUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
 		Type:               WriteSucceededConditionType,
 		Status:             metav1.ConditionFalse,
-		Reason:             "WorkloadsFailedWrite",
-		Message:            err.Error(),
+		Reason:             reason,
+		Message:            message,
 		ObservedGeneration: w.GetGeneration(),
 	})
 	readyUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{

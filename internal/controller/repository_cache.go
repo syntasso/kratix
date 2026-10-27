@@ -19,7 +19,7 @@ type Repository struct {
 	Path          string
 	Branch        string
 	SecretVersion string
-	Writer        writers.StateStoreWriter
+	Writer        delivery.Writer
 }
 
 //counterfeiter:generate . RepositoryCache
@@ -161,23 +161,20 @@ func (c *repositoryCache) initGitRepository(logger logr.Logger, store StateStore
 
 // writerForDelivery wraps the writer the state store built for itself, which every write path uses.
 func writerForDelivery(store StateStore, base writers.StateStoreWriter,
-	creds map[string][]byte) (writers.StateStoreWriter, *StateStoreError) {
-	deliverySpec := store.GetDelivery()
-	if deliverySpec == nil {
-		return base, nil
+	creds map[string][]byte) (delivery.Writer, *StateStoreError) {
+	mode, config := delivery.BuiltIn, map[string]string(nil)
+	if deliverySpec := store.GetDelivery(); deliverySpec != nil {
+		mode, config = deliverySpec.Mode, deliverySpec.Config
 	}
 
-	factory, err := delivery.For(deliverySpec.Mode)
+	factory, err := delivery.For(mode)
 	if err != nil {
 		return nil, NewInitialiseWriterError(err)
 	}
-	if factory == nil {
-		return base, nil
-	}
 
-	writer, err := factory(base, deliverySpec.Config, creds)
+	writer, err := factory(base, config, creds)
 	if err != nil {
-		return nil, NewInitialiseWriterError(fmt.Errorf("delivery mode %q: %w", deliverySpec.Mode, err))
+		return nil, NewInitialiseWriterError(fmt.Errorf("delivery mode %q: %w", mode, err))
 	}
 	return writer, nil
 }

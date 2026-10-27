@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/syntasso/kratix/lib/delivery"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -173,12 +172,6 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 		return d.handleDeletion(repo)
 	}
 
-	// If the writer defers the check, no canary is written, so the destination is ready
-	if _, deferred := delivery.Deferred(repo.Writer); deferred {
-		d.logAndRecordEvent(nil, "Destination is Ready")
-		return ctrl.Result{}, d.setReadyStatus(v1alpha1.DestinationReadyReason, "Destination is ready")
-	}
-
 	if !d.destination.Spec.InitWorkloads.Enabled {
 		if err := d.deleteCanaryFiles(repo); err != nil {
 			return ctrl.Result{}, err
@@ -190,18 +183,18 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 
 	d.logger = d.logger.WithValues("path", d.destination.Spec.Path)
 
-	var writeErr error
-	if writeErr = d.writeTestFiles(repo); writeErr != nil {
-		d.logAndRecordEvent(writeErr, "Failed to write test documents to State Store")
-	}
-
+	written, writeErr := d.writeTestFiles(repo)
 	if writeErr != nil {
+		d.logAndRecordEvent(writeErr, "Failed to write test documents to State Store")
 		if err := d.setNotReadyStatus("StateStoreWriteFailed", fmt.Sprintf("Failed to write test documents to State Store: %s", writeErr.Error())); err != nil {
 			return ctrl.Result{}, err
 		}
 		return defaultRequeue, nil
 	}
 	d.logAndRecordEvent(nil, "Destination is Ready")
+	if !written {
+		return ctrl.Result{}, d.setReadyStatus(v1alpha1.DestinationReadyReason, "Destination is ready")
+	}
 	return ctrl.Result{}, d.setReadyStatus("TestDocumentsWritten", "Test documents written to State Store")
 }
 
@@ -240,13 +233,8 @@ func (d *destinationReconcileContext) needsFinalizerUpdate() bool {
 	return false
 }
 
-func (d *destinationReconcileContext) writeTestFiles(repo *Repository) error {
-	workloads := d.getCanaryWorkloads()
-	_, err := repo.Writer.UpdateFiles("", canaryWorkload, workloads, nil)
-	if err != nil {
-		return err
-	}
-	return nil
+func (d *destinationReconcileContext) writeTestFiles(repo *Repository) (bool, error) {
+	return repo.Writer.WriteCanary(d.ctx, canaryWorkload, d.getCanaryWorkloads())
 }
 
 func (r *DestinationReconciler) findDestinationsForStateStore(stateStoreType string) handler.MapFunc {
@@ -310,11 +298,9 @@ func (d *destinationReconcileContext) handleDeletion(repo *Repository) (ctrl.Res
 		}
 
 		if repo != nil {
-			if _, deferred := delivery.Deferred(repo.Writer); !deferred {
-				if err := d.deleteCanaryFiles(repo); err != nil {
-					logging.Error(d.logger, err, "error deleting state store contents")
-					return defaultRequeue, nil
-				}
+			if err := d.deleteCanaryFiles(repo); err != nil {
+				logging.Error(d.logger, err, "error deleting state store contents")
+				return defaultRequeue, nil
 			}
 		}
 
@@ -363,7 +349,7 @@ func (d *destinationReconcileContext) deleteCanaryFiles(repo *Repository) error 
 		filePaths = append(filePaths, w.Filepath)
 	}
 
-	return repo.Writer.DeleteFiles(canaryWorkload, filePaths)
+	return repo.Writer.RemoveCanary(d.ctx, canaryWorkload, filePaths)
 }
 
 func (d *destinationReconcileContext) getCanaryWorkloads() []v1alpha1.Workload {
