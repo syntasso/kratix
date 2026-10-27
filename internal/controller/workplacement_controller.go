@@ -31,6 +31,7 @@ import (
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/delivery"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
@@ -585,17 +586,6 @@ func (w *workPlacementReconcileContext) persistDeliveryStatus(apply func()) erro
 	})
 }
 
-// maxReasonLength keeps a writer's text under the condition message limit
-const maxReasonLength = 1024
-
-func boundReason(reason string) string {
-	runes := []rune(reason)
-	if len(runes) <= maxReasonLength {
-		return reason
-	}
-	return string(runes[:maxReasonLength])
-}
-
 func checkInterval(result delivery.Result) time.Duration {
 	if result.CheckAfter <= 0 {
 		return defaultDeliveryCheckInterval
@@ -610,7 +600,7 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 			w.workPlacement.Status.DeliveryReceipt = result.Receipt
 			w.workPlacement.Status.DeliveryGeneration = w.workPlacement.GetGeneration()
 			w.workPlacement.Status.DeliveryURL = result.URL
-			w.workPlacement.SetWriteDeferredCondition(boundReason(result.Reason))
+			w.workPlacement.SetWriteDeferredCondition(resourceutil.CutToRunes(result.Reason, writeMessageMaxRunes))
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -620,7 +610,7 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 		if err := w.persistDeliveryStatus(func() {
 			w.clearOutstandingDelivery()
 			w.workPlacement.Status.DeliveryURL = result.URL
-			w.workPlacement.SetWriteRejectedCondition(boundReason(result.Reason))
+			w.workPlacement.SetWriteRejectedCondition(resourceutil.CutToRunes(result.Reason, writeMessageMaxRunes))
 		}); err != nil {
 			return ctrl.Result{}, err
 		}

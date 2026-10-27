@@ -1328,6 +1328,7 @@ files:
 				message := readCondition(v1alpha1.WriteSucceededConditionType).Message
 				Expect(utf8.RuneCountInString(message)).To(Equal(1024))
 				Expect(utf8.ValidString(message)).To(BeTrue())
+				Expect(message).To(HaveSuffix("…"))
 			})
 
 			It("cuts a long rejection reason too", func() {

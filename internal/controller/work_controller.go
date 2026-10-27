@@ -50,9 +50,11 @@ import (
 )
 
 const (
-	workCleanUpFinalizer               = v1alpha1.KratixPrefix + "work-cleanup"
-	workWriteSucceededMessageMaxRunes  = 4096
-	workPlacementStatusMessageMaxRunes = 1024
+	workCleanUpFinalizer              = v1alpha1.KratixPrefix + "work-cleanup"
+	workWriteSucceededMessageMaxRunes = 4096
+	// writeMessageMaxRunes keeps a WorkPlacement's write message readable, and
+	// leaves room for several in the Work's WriteSucceeded message
+	writeMessageMaxRunes = 1024
 )
 
 // WorkReconciler reconciles a Work object.
@@ -283,7 +285,7 @@ func setWorkPlacementWriteState(work *v1alpha1.Work, workplacements []v1alpha1.W
 		if write := apiMeta.FindStatusCondition(wp.Status.Conditions, v1alpha1.WriteSucceededConditionType); write != nil {
 			status.Status = string(write.Status)
 			status.Reason = write.Reason
-			status.Message = resourceutil.CutToRunes(write.Message, workPlacementStatusMessageMaxRunes)
+			status.Message = resourceutil.CutToRunes(write.Message, writeMessageMaxRunes)
 		}
 		statuses = append(statuses, status)
 	}
