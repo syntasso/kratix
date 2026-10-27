@@ -1240,7 +1240,7 @@ files:
 				Expect(workPlacement.Status.DeliveryURL).To(BeEmpty())
 			})
 
-			It("clears the URL when a state store without a delivery writer writes them", func() {
+			It("clears the URL on a direct write", func() {
 				fakeWriter.UpdateFilesReturns("sha-1", nil)
 				repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{Writer: delivery.Direct(fakeWriter)}, nil)
 
@@ -1275,7 +1275,7 @@ files:
 				Expect(result.RequeueAfter).To(Equal(5 * time.Second))
 			})
 
-			It("records a rejection with its own reason and the URL the writer returned", func() {
+			It("records a rejection with its reason and URL", func() {
 				deferredWriter.checkResult = delivery.Result{
 					Outcome: delivery.Rejected,
 					Reason:  `Rejected in https://h/pr/8: "not this quarter"`,
@@ -1294,7 +1294,7 @@ files:
 				Expect(workPlacement.Status.DeliveryURL).To(Equal("https://h/pr/8"))
 			})
 
-			It("keeps the rejection's URL when a concurrent write conflicts", func() {
+			It("keeps the rejection's URL on a conflict", func() {
 				deferredWriter.checkResult = delivery.Result{
 					Outcome: delivery.Rejected, Reason: "closed without merging", URL: "https://h/pr/8",
 				}
@@ -1309,7 +1309,7 @@ files:
 				Expect(workPlacement.Status.DeliveryURL).To(Equal("https://h/pr/8"))
 			})
 
-			It("records a new URL from a pending check even when nothing else changed", func() {
+			It("records a new URL from a pending check", func() {
 				deferredWriter.checkResult = deferredWriter.deliverResult
 				deferredWriter.checkResult.URL = "https://h/pr/9"
 
@@ -1319,7 +1319,7 @@ files:
 				Expect(workPlacement.Status.DeliveryURL).To(Equal("https://h/pr/9"))
 			})
 
-			It("cuts a long reason to 1024 characters without splitting one", func() {
+			It("cuts a long reason to 1024 characters", func() {
 				deferredWriter.checkResult = deferredWriter.deliverResult
 				deferredWriter.checkResult.Reason = strings.Repeat("é", 2000)
 
@@ -1338,7 +1338,7 @@ files:
 				Expect(utf8.RuneCountInString(readCondition(v1alpha1.WriteSucceededConditionType).Message)).To(Equal(1024))
 			})
 
-			It("forgets the URL when the delivery mode is taken off the state store", func() {
+			It("forgets the URL when the delivery mode is removed", func() {
 				repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{Writer: delivery.Direct(fakeWriter)}, nil)
 
 				reconcileTimes(1)

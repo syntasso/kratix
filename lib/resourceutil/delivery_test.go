@@ -19,7 +19,7 @@ var _ = Describe("DeliveryEntries", func() {
 		return v1alpha1.WorkPlacementWriteStatus{Name: name, Destination: destination, Reason: reason, Message: message}
 	}
 
-	It("returns the delivery WorkPlacements recorded on the Works, by WorkPlacement name", func() {
+	It("returns the delivery WorkPlacements by name", func() {
 		works := []v1alpha1.Work{
 			{Status: v1alpha1.WorkStatus{WorkPlacementStatuses: []v1alpha1.WorkPlacementWriteStatus{
 				placement("work-b-z", "dev", v1alpha1.WorkloadsRejectedReason, "rejected"),
@@ -60,7 +60,7 @@ var _ = Describe("IsOrdinaryWorksFailure", func() {
 	rejected := v1alpha1.WorkPlacementWriteStatus{Name: "wp-r", Destination: "prod", Status: "False",
 		Reason: v1alpha1.WorkloadsRejectedReason, Message: "Rejected"}
 
-	It("is true when a Work failed to write, even with a rejection elsewhere", func() {
+	It("is true when a Work failed to write", func() {
 		works := []v1alpha1.Work{
 			work("WorkplacementsFailing", "Failing", metav1.ConditionFalse, v1alpha1.WorkplacementsFailingReason),
 			work("WorkplacementsFailing", "Failing", metav1.ConditionFalse, v1alpha1.WorkplacementsRejectedReason, rejected),
@@ -68,12 +68,12 @@ var _ = Describe("IsOrdinaryWorksFailure", func() {
 		Expect(resourceutil.IsOrdinaryWorksFailure(works)).To(BeTrue())
 	})
 
-	It("is true when a Work failed to write while its Ready says something else", func() {
+	It("ignores Ready", func() {
 		works := []v1alpha1.Work{work("Misplaced", "Misplaced", metav1.ConditionFalse, v1alpha1.WorkplacementsFailingReason)}
 		Expect(resourceutil.IsOrdinaryWorksFailure(works)).To(BeTrue())
 	})
 
-	It("is false when Ready is still Failing from an earlier write error but the Work now waits for delivery", func() {
+	It("is false when only a stale Ready says Failing", func() {
 		works := []v1alpha1.Work{work("WorkplacementsFailing", "Failing", metav1.ConditionUnknown, v1alpha1.WorkplacementsAwaitingDeliveryReason, awaiting)}
 		Expect(resourceutil.IsOrdinaryWorksFailure(works)).To(BeFalse())
 	})
@@ -104,7 +104,7 @@ var _ = Describe("delivery text on the resource request's conditions", func() {
 	}
 
 	Describe("WorksSucceeded", func() {
-		It("cuts the whole message to 4096 characters, keeping the Work names", func() {
+		It("cuts the message to 4096 characters", func() {
 			var entries []resourceutil.DeliveryEntry
 			for range 6 {
 				entries = append(entries, resourceutil.DeliveryEntry{
@@ -133,7 +133,7 @@ var _ = Describe("delivery text on the resource request's conditions", func() {
 			Expect(reconciled().Message).To(Equal(text))
 		})
 
-		It("counts characters, not bytes, so a short text of wide characters stays whole", func() {
+		It("counts characters, not bytes", func() {
 			text := strings.Repeat("€", 60)
 			Expect(len(text)).To(BeNumerically(">", 120))
 			resourceutil.MarkReconciledWorksPending(rr, []resourceutil.DeliveryEntry{
@@ -149,7 +149,7 @@ var _ = Describe("delivery text on the resource request's conditions", func() {
 				{WorkPlacement: "b-rejected", Reason: v1alpha1.WorkloadsRejectedReason, Message: "Rejected in b with no comment"},
 			}
 
-			It("shows the rejection, not a WorkPlacement still waiting that sorts first", func() {
+			It("prefers the rejection over a waiting WorkPlacement", func() {
 				resourceutil.MarkReconciledWorksFailing(rr, entries, false)
 
 				Expect(string(reconciled().Status)).To(Equal("False"))
@@ -157,7 +157,7 @@ var _ = Describe("delivery text on the resource request's conditions", func() {
 				Expect(reconciled().Message).To(Equal("Rejected in b with no comment"))
 			})
 
-			It("shows Failing over any delivery text when the failure is ordinary", func() {
+			It("shows Failing for an ordinary failure", func() {
 				resourceutil.MarkReconciledWorksFailing(rr, entries, true)
 
 				Expect(reconciled().Reason).To(Equal("WorksFailing"))

@@ -1036,7 +1036,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 
 			When("the Work's WorkPlacement is waiting for its delivery", func() {
-				It("shows the delivery text on the Reconciled condition", func() {
+				It("shows the delivery text", func() {
 					createDeliveryPlacement(firstPipelineWork, v1alpha1.WorkloadsAwaitingDeliveryReason,
 						"Waiting for approval: https://github.com/org/repo/pull/7")
 
@@ -1053,7 +1053,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 
 			When("the Work's WorkPlacement delivery was rejected", func() {
-				It("shows the rejection text on the Reconciled condition", func() {
+				It("shows the rejection text", func() {
 					markWorkFailing(firstPipelineWork)
 					createDeliveryPlacement(firstPipelineWork, v1alpha1.WorkloadsRejectedReason,
 						"Rejected in https://github.com/org/repo/pull/7 with no comment")
@@ -1070,8 +1070,8 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 			})
 
-			When("the Work's Ready is still Failing from an earlier write error but its WorkPlacement now waits for delivery", func() {
-				It("shows the delivery text on the Reconciled condition", func() {
+			When("the Work's Ready is stale but its WorkPlacement waits for delivery", func() {
+				It("shows the delivery text", func() {
 					markWorkFailing(firstPipelineWork)
 					createDeliveryPlacement(firstPipelineWork, v1alpha1.WorkloadsAwaitingDeliveryReason,
 						"Waiting for approval: https://github.com/org/repo/pull/7")

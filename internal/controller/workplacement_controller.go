@@ -585,8 +585,7 @@ func (w *workPlacementReconcileContext) persistDeliveryStatus(apply func()) erro
 	})
 }
 
-// maxReasonLength keeps a writer's text well under the 32768 the condition message allows, past
-// which every status write for the WorkPlacement is refused.
+// maxReasonLength keeps a writer's text under the condition message limit
 const maxReasonLength = 1024
 
 func boundReason(reason string) string {

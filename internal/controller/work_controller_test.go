@@ -350,7 +350,7 @@ var _ = Describe("WorkReconciler", func() {
 			reconcileOnce()
 		})
 
-		It("records the WorkPlacement's write state when it changes, and still waits for a Destination", func() {
+		It("records the write state while waiting for a Destination", func() {
 			placement := &v1alpha1.WorkPlacement{}
 			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: work.Name + "-b", Namespace: work.Namespace}, placement)).To(Succeed())
 			placement.SetWriteSucceededCondition()
@@ -505,7 +505,7 @@ var _ = Describe("WorkReconciler", func() {
 				reconcile()
 			})
 
-			It("lists every WorkPlacement by name with its write state", func() {
+			It("lists every WorkPlacement with its write state", func() {
 				Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
 				Expect(work.Status.WorkPlacementStatuses).To(Equal([]v1alpha1.WorkPlacementWriteStatus{
 					{
@@ -542,7 +542,7 @@ var _ = Describe("WorkReconciler", func() {
 			})
 		})
 
-		It("keeps the list in name order when the WorkPlacements are listed in reverse", func() {
+		It("keeps the list in name order", func() {
 			reorderListResults = func(list client.ObjectList) {
 				if placements, ok := list.(*v1alpha1.WorkPlacementList); ok {
 					slices.Reverse(placements.Items)
@@ -604,7 +604,7 @@ var _ = Describe("WorkReconciler", func() {
 			})
 		})
 
-		It("reports a rejection when it is the only problem", func() {
+		It("reports a rejection", func() {
 			createWorkPlacementWithStatus(work, "a", "prod", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
 				wp.SetWriteRejectedCondition("Rejected in https://github.com/org/repo/pull/7 with no comment")
 			})
@@ -619,7 +619,7 @@ var _ = Describe("WorkReconciler", func() {
 			Expect(condition.Message).To(Equal("prod: Rejected in https://github.com/org/repo/pull/7 with no comment"))
 		})
 
-		It("joins the text of every matching WorkPlacement and cuts it to 4096 characters", func() {
+		It("cuts the joined text to 4096 characters", func() {
 			createWorkPlacementWithStatus(work, "a", "prod", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
 				wp.SetWriteDeferredCondition("Waiting for approval: a")
 			})
@@ -637,7 +637,7 @@ var _ = Describe("WorkReconciler", func() {
 			Expect(message).To(HaveSuffix("…"))
 		})
 
-		It("cuts each WorkPlacement's message in the list to 1024 characters", func() {
+		It("cuts each listed message to 1024 characters", func() {
 			createWorkPlacementWithStatus(work, "a", "prod", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
 				wp.SetWriteFailedCondition(errors.New(strings.Repeat("é", 5000)))
 			})
@@ -651,7 +651,7 @@ var _ = Describe("WorkReconciler", func() {
 			Expect(message).To(Equal(strings.Repeat("é", 1023) + "…"))
 		})
 
-		It("sets WriteSucceeded to True once every WorkPlacement has written the current generation", func() {
+		It("sets WriteSucceeded to True once all are written", func() {
 			createWrittenWorkPlacement(work, "first-group", work.Spec.WorkloadGroups[0].ID, work.GetGeneration())
 			createWrittenWorkPlacement(work, "second-group", work.Spec.WorkloadGroups[1].ID, work.GetGeneration())
 			reconcile()
@@ -662,7 +662,7 @@ var _ = Describe("WorkReconciler", func() {
 			Expect(condition.Message).To(Equal("All workloads written"))
 		})
 
-		It("keeps WriteSucceeded Unknown while a WorkPlacement holds an older generation", func() {
+		It("keeps WriteSucceeded Unknown while a WorkPlacement is behind", func() {
 			createWrittenWorkPlacement(work, "first-group", work.Spec.WorkloadGroups[0].ID, work.GetGeneration())
 			createWrittenWorkPlacement(work, "second-group", work.Spec.WorkloadGroups[1].ID, work.GetGeneration()-1)
 			reconcile()
@@ -672,7 +672,7 @@ var _ = Describe("WorkReconciler", func() {
 			Expect(condition.Reason).To(Equal("WaitingForWorkplacementsToBeWritten"))
 		})
 
-		It("records the write state even while the scheduler owns Ready", func() {
+		It("records the write state while the scheduler owns Ready", func() {
 			apimeta.SetStatusCondition(&work.Status.Conditions, v1.Condition{
 				Type: "ScheduleSucceeded", Status: v1.ConditionFalse, Reason: "UnscheduledWorkloads", Message: "No matching destination found",
 			})

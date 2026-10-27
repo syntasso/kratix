@@ -31,8 +31,7 @@ type DeliveryEntry struct {
 	Message       string
 }
 
-// DeliveryEntries returns the WorkPlacements recorded on the given Works' status that are
-// awaiting delivery or were rejected, sorted by WorkPlacement name.
+// DeliveryEntries returns the Works' WorkPlacements awaiting delivery or rejected, sorted by name
 func DeliveryEntries(works []v1alpha1.Work) []DeliveryEntry {
 	var entries []DeliveryEntry
 	for _, work := range works {
@@ -52,8 +51,7 @@ func DeliveryEntries(works []v1alpha1.Work) []DeliveryEntry {
 	return entries
 }
 
-// IsOrdinaryWorksFailure ignores Ready, which can still say Failing from an earlier write error
-// after the WorkPlacement moved on.
+// IsOrdinaryWorksFailure reports whether any Work's WriteSucceeded is WorkplacementsFailing
 func IsOrdinaryWorksFailure(works []v1alpha1.Work) bool {
 	return slices.ContainsFunc(works, func(work v1alpha1.Work) bool {
 		write := apimeta.FindStatusCondition(work.Status.Conditions, v1alpha1.WriteSucceededConditionType)
@@ -68,8 +66,7 @@ func MarkReconciledWorksPending(obj *unstructured.Unstructured, entries []Delive
 	return MarkReconciledPending(obj, "WorksPending")
 }
 
-// MarkReconciledWorksFailing shows a delivery text only when ordinaryFailure is false, so a
-// rejection or a pending approval elsewhere never hides a Work that failed to write.
+// MarkReconciledWorksFailing shows delivery text unless a Work failed to write
 func MarkReconciledWorksFailing(obj *unstructured.Unstructured, entries []DeliveryEntry, ordinaryFailure bool) bool {
 	if !ordinaryFailure {
 		if message, found := reconciledDeliveryMessage(entries, v1alpha1.WorkloadsRejectedReason); found {
@@ -109,7 +106,7 @@ func reconciledDeliveryMessage(entries []DeliveryEntry, workPlacementReason stri
 	return CutToRunes(matching[0].Message, reconciledDeliveryMessageMaxRunes-len([]rune(suffix))) + suffix, true
 }
 
-// CutToRunes cuts text to maxRunes characters, ending in "…", without splitting a multi-byte character.
+// CutToRunes cuts text to maxRunes characters, ending in "…"
 func CutToRunes(text string, maxRunes int) string {
 	runes := []rune(text)
 	if len(runes) <= maxRunes {

@@ -251,8 +251,7 @@ func (r *WorkReconciler) setReadyCondition(work *v1alpha1.Work, workplacements [
 	return apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
 }
 
-// restoreSchedulerReadyCondition puts back the Ready the scheduler set when a write failure replaced it,
-// because the scheduler only sets Ready when ScheduleSucceeded changes and would leave Failing forever.
+// restoreSchedulerReadyCondition puts back the scheduler's Ready once no WorkPlacement is failing
 func restoreSchedulerReadyCondition(work *v1alpha1.Work) bool {
 	scheduleSucceeded := apiMeta.FindStatusCondition(work.Status.Conditions, v1alpha1.ScheduleSucceededConditionType)
 	ready := apiMeta.FindStatusCondition(work.Status.Conditions, "Ready")
@@ -267,8 +266,7 @@ func restoreSchedulerReadyCondition(work *v1alpha1.Work) bool {
 	return apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
 }
 
-// setWorkPlacementWriteState skips WorkPlacements being deleted, so a resource request never
-// shows the delivery text of a WorkPlacement that is going away.
+// setWorkPlacementWriteState skips WorkPlacements being deleted
 func setWorkPlacementWriteState(work *v1alpha1.Work, workplacements []v1alpha1.WorkPlacement) bool {
 	var live []v1alpha1.WorkPlacement
 	statuses := []v1alpha1.WorkPlacementWriteStatus{}

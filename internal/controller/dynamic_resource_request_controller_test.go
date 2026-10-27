@@ -1163,7 +1163,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Expect(condition.Message).To(Equal("Waiting for approval: https://github.com/org/repo/pull/7"))
 					})
 
-					It("cuts a long delivery text to 120 characters without splitting a character", func() {
+					It("cuts a long delivery text to 120 characters", func() {
 						createWorkWithReadyMessage("Pending")
 						longText := strings.Repeat("a", 118) + "éé" + strings.Repeat("b", 180)
 						createPlacement("test-prod", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason, longText)
@@ -1174,7 +1174,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Expect(condition.Message).To(Equal(strings.Repeat("a", 118) + "é…"))
 					})
 
-					It("shows the first WorkPlacement's text by name and counts the others", func() {
+					It("shows the first text and counts the others", func() {
 						createWorkWithReadyMessage("Pending")
 						createPlacement("test-z", "dev", v1alpha1.WorkloadsAwaitingDeliveryReason, "Waiting for approval: z")
 						createPlacement("test-a", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason, strings.Repeat("a", 200))
@@ -1199,7 +1199,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					})
 				})
 
-				It("reads the delivery text from the Work's status, without WorkPlacement objects", func() {
+				It("reads the delivery text from the Work's status", func() {
 					createWorkWithReadyMessage("Pending")
 					createPlacement("test-prod", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason, "Waiting for approval: url")
 					var placements v1alpha1.WorkPlacementList
@@ -1261,7 +1261,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					})
 				})
 
-				When("a Work's Ready is still Failing from an earlier write error but its WorkPlacement now waits for delivery", func() {
+				When("a Work's Ready is stale but its WorkPlacement waits for delivery", func() {
 					It("shows the delivery text, not Failing", func() {
 						setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
 						work.Status = v1alpha1.WorkStatus{
