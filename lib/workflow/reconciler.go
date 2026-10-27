@@ -415,7 +415,9 @@ func waitForPreviousPipelineOutput(opts Opts, decision Decision) error {
 	if err := opts.client.Status().Patch(opts.ctx, opts.parentObject, patch); err != nil {
 		return err
 	}
-	opts.eventRecorder.Eventf(opts.parentObject, nil, v1.EventTypeNormal, resourceutil.WaitingForPipelineOutputReason, resourceutil.WaitingForPipelineOutputReason, "%s", message)
+	if conditionChanged {
+		opts.eventRecorder.Eventf(opts.parentObject, nil, v1.EventTypeNormal, resourceutil.WaitingForPipelineOutputReason, resourceutil.WaitingForPipelineOutputReason, "%s", message)
+	}
 	return nil
 }
 

@@ -960,6 +960,23 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Expect(condition.Reason).To(Equal("WorksFailing"))
 						Expect(condition.Message).To(ContainSubstring(`Rejected in https://github.com/org/repo/pull/7: "not this week"`))
 					})
+
+					It("sends no new WorksFailing event when only the delivery text changes", func() {
+						setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+						createWorkWithReadyMessage("Failing")
+						createPlacement("test-prod", "prod", v1alpha1.WorkloadsRejectedReason,
+							"Rejected in https://github.com/org/repo/pull/7 with no comment")
+						reconcileAndGetCondition(resourceutil.WorksSucceededCondition)
+						Expect(strings.Count(aggregateEvents(eventRecorder.Events), "Warning WorksFailing")).To(Equal(1))
+
+						Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(work), work)).To(Succeed())
+						work.Status.WorkPlacementStatuses[0].Message = `Rejected in https://github.com/org/repo/pull/7: "not this week"`
+						Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+						condition := reconcileAndGetCondition(resourceutil.WorksSucceededCondition)
+
+						Expect(condition.Message).To(ContainSubstring("not this week"))
+						Expect(aggregateEvents(eventRecorder.Events)).NotTo(ContainSubstring("Warning WorksFailing"))
+					})
 				})
 
 				When("a WorkPlacement failed to write for another reason", func() {

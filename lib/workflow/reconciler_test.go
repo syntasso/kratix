@@ -1050,6 +1050,17 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(reconciled.Reason).To(Equal("WorksAwaitingDelivery"))
 					Expect(reconciled.Message).To(Equal("Waiting for approval: https://github.com/org/repo/pull/7"))
 				})
+
+				It("sends no new wait event when only the delivery text changes", func() {
+					Expect(countEvents(eventRecorder, "Normal WaitingForPipelineOutput")).To(Equal(1))
+					createDeliveryPlacement(firstPipelineWork, v1alpha1.WorkloadsAwaitingDeliveryReason,
+						"Waiting for approval: https://github.com/org/repo/pull/7")
+
+					_, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(countEvents(eventRecorder, "Normal WaitingForPipelineOutput")).To(Equal(0))
+				})
 			})
 
 			When("the Work's WorkPlacement delivery was rejected", func() {

@@ -914,19 +914,26 @@ func (r *DynamicResourceRequestController) updateExpectedHealth(
 }
 
 func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *unstructured.Unstructured, works worksStatus, deliveries []resourceutil.DeliveryEntry) bool {
+	previous := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 	switch {
 	case len(works.failed) > 0:
 		if !resourceutil.MarkResourceRequestAsWorksFailed(rr, works.failed, deliveries) {
 			return false
 		}
-		r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksFailing", "WorksFailing", "%s", fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(works.failed, ",")))
+		message := fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(works.failed, ","))
+		if worksEventChanged(previous, "WorksFailing", message) {
+			r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksFailing", "WorksFailing", "%s", message)
+		}
 	case len(works.pending) > 0:
 		return resourceutil.MarkResourceRequestAsWorksPending(rr, works.pending, deliveries)
 	case len(works.misplaced) > 0:
 		if !resourceutil.MarkResourceRequestAsWorksMisplaced(rr, works.misplaced, deliveries) {
 			return false
 		}
-		r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksMisplaced", "WorksMisplaced", "%s", fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(works.misplaced, ",")))
+		message := fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(works.misplaced, ","))
+		if worksEventChanged(previous, "WorksMisplaced", message) {
+			r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksMisplaced", "WorksMisplaced", "%s", message)
+		}
 	default:
 		if !resourceutil.MarkResourceRequestAsWorksSucceeded(rr) {
 			return false
@@ -934,6 +941,11 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 		r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "WorksSucceeded", "WorksSucceeded", "%s", "All works associated with this resource are ready")
 	}
 	return true
+}
+
+// worksEventChanged ignores the delivery text appended after the Work names
+func worksEventChanged(previous *clusterv1.Condition, reason, message string) bool {
+	return previous == nil || string(previous.Reason) != reason || !strings.HasPrefix(previous.Message, message)
 }
 
 // isDryRun reports whether this resource request is a dry run. Always false
