@@ -560,12 +560,12 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 	return w.recordDeliveryResult(result)
 }
 
-// clearSupersededFailure marks the WorkPlacement deferred before a new delivery starts, since the
-// Work reports a failed write without comparing generations. Only a rejected delivery is cleared:
-// other failures are overwritten by the write that follows in the same reconcile.
+// clearSupersededFailure marks the WorkPlacement deferred before a new delivery starts: the Work
+// reports a failed write without comparing generations, so an older failure would fail the request
+// for as long as the new delivery takes.
 func (w *workPlacementReconcileContext) clearSupersededFailure() error {
 	written := apiMeta.FindStatusCondition(w.workPlacement.Status.Conditions, v1alpha1.WriteSucceededConditionType)
-	if written == nil || written.Reason != v1alpha1.WorkloadsRejectedReason ||
+	if written == nil || written.Status != metav1.ConditionFalse ||
 		written.ObservedGeneration == w.workPlacement.GetGeneration() {
 		return nil
 	}

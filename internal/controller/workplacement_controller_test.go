@@ -1047,7 +1047,7 @@ files:
 			Expect(workPlacement.Status.VersionID).To(Equal("version-1"))
 		})
 
-		It("makes no status write before writing over an earlier generation's failure", func() {
+		It("stops reporting an earlier generation's failure while the new write runs", func() {
 			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
 			workPlacement.SetWriteFailedCondition(fmt.Errorf("push rejected"))
 			Expect(fakeK8sClient.Status().Update(ctx, &workPlacement)).To(Succeed())
@@ -1063,8 +1063,9 @@ files:
 			_, err := reconcileOnce()
 
 			Expect(err).NotTo(HaveOccurred())
-			Expect(duringWrite.Status).To(Equal(metav1.ConditionFalse))
-			Expect(duringWrite.Reason).To(Equal("WorkloadsFailedWrite"))
+			Expect(duringWrite.Status).To(Equal(metav1.ConditionUnknown))
+			Expect(duringWrite.Reason).To(Equal("WorkloadsAwaitingDelivery"))
+			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
 		})
 
 		It("writes directly once the delivery mode is removed while a delivery was outstanding", func() {
