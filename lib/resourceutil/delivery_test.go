@@ -43,36 +43,49 @@ var _ = Describe("DeliveryEntries", func() {
 })
 
 var _ = Describe("IsOrdinaryWorksFailure", func() {
-	work := func(readyMessage, writeReason string) v1alpha1.Work {
-		w := v1alpha1.Work{Status: v1alpha1.WorkStatus{Conditions: []metav1.Condition{
-			{Type: "Ready", Status: metav1.ConditionFalse, Message: readyMessage},
-		}}}
+	work := func(readyReason, readyMessage string, writeStatus metav1.ConditionStatus, writeReason string, placements ...v1alpha1.WorkPlacementWriteStatus) v1alpha1.Work {
+		w := v1alpha1.Work{Status: v1alpha1.WorkStatus{
+			Conditions:            []metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse, Reason: readyReason, Message: readyMessage}},
+			WorkPlacementStatuses: placements,
+		}}
 		if writeReason != "" {
 			w.Status.Conditions = append(w.Status.Conditions, metav1.Condition{
-				Type: v1alpha1.WriteSucceededConditionType, Status: metav1.ConditionFalse, Reason: writeReason,
+				Type: v1alpha1.WriteSucceededConditionType, Status: writeStatus, Reason: writeReason,
 			})
 		}
 		return w
 	}
-	rejected := []resourceutil.DeliveryEntry{{Reason: v1alpha1.WorkloadsRejectedReason}}
-	awaiting := []resourceutil.DeliveryEntry{{Reason: v1alpha1.WorkloadsAwaitingDeliveryReason}}
+	awaiting := v1alpha1.WorkPlacementWriteStatus{Name: "wp-a", Destination: "prod", Status: "Unknown",
+		Reason: v1alpha1.WorkloadsAwaitingDeliveryReason, Message: "Waiting for approval: url"}
+	rejected := v1alpha1.WorkPlacementWriteStatus{Name: "wp-r", Destination: "prod", Status: "False",
+		Reason: v1alpha1.WorkloadsRejectedReason, Message: "Rejected"}
 
-	It("is true when a failing Work failed to write, even with a rejection elsewhere", func() {
-		works := []v1alpha1.Work{work("Failing", v1alpha1.WorkplacementsFailingReason), work("Failing", v1alpha1.WorkplacementsRejectedReason)}
-		Expect(resourceutil.IsOrdinaryWorksFailure(works, true, rejected)).To(BeTrue())
+	It("is true when a Work failed to write, even with a rejection elsewhere", func() {
+		works := []v1alpha1.Work{
+			work("WorkplacementsFailing", "Failing", metav1.ConditionFalse, v1alpha1.WorkplacementsFailingReason),
+			work("WorkplacementsFailing", "Failing", metav1.ConditionFalse, v1alpha1.WorkplacementsRejectedReason, rejected),
+		}
+		Expect(resourceutil.IsOrdinaryWorksFailure(works)).To(BeTrue())
 	})
 
-	It("is true when Works are failing and nothing was rejected", func() {
-		Expect(resourceutil.IsOrdinaryWorksFailure([]v1alpha1.Work{work("Failing", "")}, true, awaiting)).To(BeTrue())
+	It("is true when a Work failed to write while its Ready says something else", func() {
+		works := []v1alpha1.Work{work("Misplaced", "Misplaced", metav1.ConditionFalse, v1alpha1.WorkplacementsFailingReason)}
+		Expect(resourceutil.IsOrdinaryWorksFailure(works)).To(BeTrue())
+	})
+
+	It("is false when Ready is still Failing from an earlier write error but the Work now waits for delivery", func() {
+		works := []v1alpha1.Work{work("WorkplacementsFailing", "Failing", metav1.ConditionUnknown, v1alpha1.WorkplacementsAwaitingDeliveryReason, awaiting)}
+		Expect(resourceutil.IsOrdinaryWorksFailure(works)).To(BeFalse())
+	})
+
+	It("is false when a failing Work has no write state", func() {
+		works := []v1alpha1.Work{work("WorkplacementsFailing", "Failing", "", "")}
+		Expect(resourceutil.IsOrdinaryWorksFailure(works)).To(BeFalse())
 	})
 
 	It("is false when the only failing Work was rejected", func() {
-		works := []v1alpha1.Work{work("Failing", v1alpha1.WorkplacementsRejectedReason), work("Misplaced", "")}
-		Expect(resourceutil.IsOrdinaryWorksFailure(works, true, rejected)).To(BeFalse())
-	})
-
-	It("is false when no Work is failing", func() {
-		Expect(resourceutil.IsOrdinaryWorksFailure([]v1alpha1.Work{work("Misplaced", "")}, false, awaiting)).To(BeFalse())
+		works := []v1alpha1.Work{work("WorkplacementsFailing", "Failing", metav1.ConditionFalse, v1alpha1.WorkplacementsRejectedReason, rejected)}
+		Expect(resourceutil.IsOrdinaryWorksFailure(works)).To(BeFalse())
 	})
 })
 

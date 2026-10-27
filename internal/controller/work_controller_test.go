@@ -21,6 +21,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -281,6 +282,100 @@ var _ = Describe("WorkReconciler", func() {
 		})
 	})
 
+	When("a misplaced Work's Ready still says Failing from an earlier write error", func() {
+		BeforeEach(func() {
+			apimeta.SetStatusCondition(&work.Status.Conditions, v1.Condition{
+				Type: "ScheduleSucceeded", Status: v1.ConditionFalse, Reason: "DestinationSelectorMismatch",
+				Message: "Target destination no longer matches destinationSelectors for workloadGroups: [x]",
+			})
+			apimeta.SetStatusCondition(&work.Status.Conditions, v1.Condition{
+				Type: "Ready", Status: v1.ConditionFalse, Reason: "WorkplacementsFailing", Message: "Failing",
+			})
+			Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+		})
+
+		It("sets Ready back to Misplaced once no WorkPlacement is failing", func() {
+			createWorkPlacementWithStatus(work, "a", "prod", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
+				wp.SetWriteDeferredCondition("Waiting for approval: u")
+			})
+
+			_, err := t.reconcileUntilCompletion(reconciler, work)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			ready := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+			Expect(ready.Status).To(Equal(v1.ConditionFalse))
+			Expect(ready.Reason).To(Equal("Misplaced"))
+			Expect(ready.Message).To(Equal("Misplaced"))
+		})
+
+		It("keeps Ready Failing while a WorkPlacement is still failing", func() {
+			createWorkPlacementWithStatus(work, "a", "prod", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
+				wp.SetWriteFailedCondition(errors.New("authentication required"))
+			})
+
+			_, err := t.reconcileUntilCompletion(reconciler, work)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			ready := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+			Expect(ready.Reason).To(Equal("WorkplacementsFailing"))
+			Expect(ready.Message).To(Equal("Failing"))
+		})
+	})
+
+	When("a resource Work has an unscheduled workload group and a scheduled one", func() {
+		reconcileOnce := func() ctrl.Result {
+			GinkgoHelper()
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: workName})
+			Expect(err).NotTo(HaveOccurred())
+			return result
+		}
+
+		BeforeEach(func() {
+			fakeScheduler.ReconcileWorkReturns([]string{work.Spec.WorkloadGroups[0].ID}, nil)
+			apimeta.SetStatusCondition(&work.Status.Conditions, v1.Condition{
+				Type: "ScheduleSucceeded", Status: v1.ConditionFalse, Reason: "UnscheduledWorkloads", Message: "No matching destination found",
+			})
+			apimeta.SetStatusCondition(&work.Status.Conditions, v1.Condition{
+				Type: "Ready", Status: v1.ConditionFalse, Reason: "UnscheduledWorkloads", Message: "Pending",
+			})
+			Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			createWorkPlacementWithStatus(work, "b", "dev", work.Spec.WorkloadGroups[1].ID, func(wp *v1alpha1.WorkPlacement) {
+				wp.SetWriteDeferredCondition("Waiting for approval: u")
+			})
+			reconcileOnce()
+			reconcileOnce()
+		})
+
+		It("records the WorkPlacement's write state when it changes, and still waits for a Destination", func() {
+			placement := &v1alpha1.WorkPlacement{}
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: work.Name + "-b", Namespace: work.Namespace}, placement)).To(Succeed())
+			placement.SetWriteSucceededCondition()
+			Expect(fakeK8sClient.Status().Update(ctx, placement)).To(Succeed())
+
+			Expect(reconcileOnce()).To(Equal(ctrl.Result{RequeueAfter: 60 * time.Second}))
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			Expect(work.Status.WorkPlacementStatuses).To(Equal([]v1alpha1.WorkPlacementWriteStatus{{
+				Name:        work.Name + "-b",
+				Destination: "dev",
+				Status:      "True",
+				Reason:      "WorkloadsWrittenToStateStore",
+				Message:     "Workloads written to State Store",
+			}}))
+			write := apimeta.FindStatusCondition(work.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+			Expect(write).NotTo(BeNil())
+			Expect(write.Status).To(Equal(v1.ConditionUnknown))
+			Expect(write.Reason).To(Equal("WaitingForWorkplacementsToBeWritten"))
+			ready := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+			Expect(ready.Reason).To(Equal("UnscheduledWorkloads"))
+			Expect(ready.Message).To(Equal("Pending"))
+		})
+	})
+
 	When("the scheduler returns an error reconciling the work", func() {
 		var schedulingErrorString = "scheduling error"
 
@@ -528,9 +623,11 @@ var _ = Describe("WorkReconciler", func() {
 			createWorkPlacementWithStatus(work, "a", "prod", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
 				wp.SetWriteDeferredCondition("Waiting for approval: a")
 			})
-			createWorkPlacementWithStatus(work, "b", "dev", work.Spec.WorkloadGroups[1].ID, func(wp *v1alpha1.WorkPlacement) {
-				wp.SetWriteDeferredCondition("Waiting for approval: " + strings.Repeat("é", 5000))
-			})
+			for _, name := range []string{"b", "c", "d", "e"} {
+				createWorkPlacementWithStatus(work, name, "dev", work.Spec.WorkloadGroups[1].ID, func(wp *v1alpha1.WorkPlacement) {
+					wp.SetWriteDeferredCondition("Waiting for approval: " + strings.Repeat("é", 1000))
+				})
+			}
 			reconcile()
 
 			message := writeSucceeded().Message
@@ -538,6 +635,20 @@ var _ = Describe("WorkReconciler", func() {
 			Expect(utf8.ValidString(message)).To(BeTrue())
 			Expect(utf8.RuneCountInString(message)).To(Equal(4096))
 			Expect(message).To(HaveSuffix("…"))
+		})
+
+		It("cuts each WorkPlacement's message in the list to 1024 characters", func() {
+			createWorkPlacementWithStatus(work, "a", "prod", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
+				wp.SetWriteFailedCondition(errors.New(strings.Repeat("é", 5000)))
+			})
+			reconcile()
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			Expect(work.Status.WorkPlacementStatuses).To(HaveLen(1))
+			message := work.Status.WorkPlacementStatuses[0].Message
+			Expect(utf8.ValidString(message)).To(BeTrue())
+			Expect(utf8.RuneCountInString(message)).To(Equal(1024))
+			Expect(message).To(Equal(strings.Repeat("é", 1023) + "…"))
 		})
 
 		It("sets WriteSucceeded to True once every WorkPlacement has written the current generation", func() {

@@ -888,7 +888,7 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	if len(works.failed) > 0 || len(works.pending) > 0 || len(works.misplaced) > 0 {
 		deliveries = resourceutil.DeliveryEntries(works.items)
 	}
-	ordinaryFailure := resourceutil.IsOrdinaryWorksFailure(works.items, len(works.failed) > 0, deliveries)
+	ordinaryFailure := resourceutil.IsOrdinaryWorksFailure(works.items)
 	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, works, deliveries)
 	reconciledUpdate := r.updateReconciledCondition(rr, deliveries, ordinaryFailure)
 	promiseVersionUpdate := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevision)

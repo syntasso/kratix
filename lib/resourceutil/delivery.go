@@ -52,18 +52,12 @@ func DeliveryEntries(works []v1alpha1.Work) []DeliveryEntry {
 	return entries
 }
 
-// IsOrdinaryWorksFailure reports whether failing Works are failing for a reason a delivery entry does not explain.
-func IsOrdinaryWorksFailure(works []v1alpha1.Work, worksFailing bool, entries []DeliveryEntry) bool {
-	if worksFailing && !slices.ContainsFunc(entries, func(entry DeliveryEntry) bool {
-		return entry.Reason == v1alpha1.WorkloadsRejectedReason
-	}) {
-		return true
-	}
+// IsOrdinaryWorksFailure reports whether some Work's WriteSucceeded condition says a WorkPlacement failed to write.
+// Ready is ignored: it can still say Failing from an earlier write error after the WorkPlacement moved on.
+func IsOrdinaryWorksFailure(works []v1alpha1.Work) bool {
 	return slices.ContainsFunc(works, func(work v1alpha1.Work) bool {
-		ready := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
 		write := apimeta.FindStatusCondition(work.Status.Conditions, v1alpha1.WriteSucceededConditionType)
-		return ready != nil && ready.Message == "Failing" &&
-			write != nil && write.Status == metav1.ConditionFalse && write.Reason == v1alpha1.WorkplacementsFailingReason
+		return write != nil && write.Status == metav1.ConditionFalse && write.Reason == v1alpha1.WorkplacementsFailingReason
 	})
 }
 

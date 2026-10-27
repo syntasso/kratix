@@ -1249,15 +1249,38 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				})
 
 				When("a failing Work has no write state and another Work waits for its delivery", func() {
-					It("shows Failing", func() {
+					It("shows the delivery text", func() {
 						setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
 						createWorkWithReadyMessage("Misplaced")
 						createPlacement("test-prod", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason, "Waiting for approval: url")
 						createOtherWork("test-older", "Failing", "")
 
 						condition := reconcileAndGetCondition(resourceutil.ReconciledCondition)
-						Expect(condition.Reason).To(Equal("WorksFailing"))
-						Expect(condition.Message).To(Equal("Failing"))
+						Expect(condition.Reason).To(Equal("WorksAwaitingDelivery"))
+						Expect(condition.Message).To(Equal("Waiting for approval: url"))
+					})
+				})
+
+				When("a Work's Ready is still Failing from an earlier write error but its WorkPlacement now waits for delivery", func() {
+					It("shows the delivery text, not Failing", func() {
+						setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+						work.Status = v1alpha1.WorkStatus{
+							Conditions: []metav1.Condition{
+								{Type: "Ready", Status: metav1.ConditionFalse, Reason: "WorkplacementsFailing", Message: "Failing", LastTransitionTime: metav1.Now()},
+								{Type: v1alpha1.WriteSucceededConditionType, Status: metav1.ConditionUnknown,
+									Reason: v1alpha1.WorkplacementsAwaitingDeliveryReason, Message: "prod: Waiting for approval: https://github.com/org/repo/pull/7", LastTransitionTime: metav1.Now()},
+							},
+							WorkPlacementStatuses: []v1alpha1.WorkPlacementWriteStatus{
+								awaiting("test-prod", "prod", "Waiting for approval: https://github.com/org/repo/pull/7"),
+							},
+						}
+						Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+						Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+						condition := reconcileAndGetCondition(resourceutil.ReconciledCondition)
+						Expect(string(condition.Status)).To(Equal("Unknown"))
+						Expect(condition.Reason).To(Equal("WorksAwaitingDelivery"))
+						Expect(condition.Message).To(Equal("Waiting for approval: https://github.com/org/repo/pull/7"))
 					})
 				})
 

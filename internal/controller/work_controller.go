@@ -50,8 +50,9 @@ import (
 )
 
 const (
-	workCleanUpFinalizer              = v1alpha1.KratixPrefix + "work-cleanup"
-	workWriteSucceededMessageMaxRunes = 4096
+	workCleanUpFinalizer               = v1alpha1.KratixPrefix + "work-cleanup"
+	workWriteSucceededMessageMaxRunes  = 4096
+	workPlacementStatusMessageMaxRunes = 1024
 )
 
 // WorkReconciler reconciles a Work object.
@@ -154,6 +155,9 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 		r.EventRecorder.Eventf(work, nil, v1.EventTypeNormal, "WaitingDestination", "WaitingDestination", "waiting for destination for workload group: [%s]",
 			strings.Join(unscheduledWorkloadGroupIDs, ","),
 		)
+		if err := r.updateWriteState(ctx, logger, work); err != nil {
+			return ctrl.Result{}, err
+		}
 		return slowRequeue, nil
 	}
 
@@ -164,11 +168,8 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 }
 
 func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) error {
-	workplacements, err := listWorkplacementWithLabels(ctx, r.Client, logger, work.GetNamespace(), map[string]string{
-		workLabelKey: work.Name,
-	})
+	workplacements, err := r.listWorkPlacements(ctx, logger, work)
 	if err != nil {
-		logging.Error(logger, err, "failed to list associated WorkPlacements")
 		return err
 	}
 
@@ -178,6 +179,28 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 		return r.Client.Status().Update(ctx, work)
 	}
 	return nil
+}
+
+func (r *WorkReconciler) updateWriteState(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) error {
+	workplacements, err := r.listWorkPlacements(ctx, logger, work)
+	if err != nil {
+		return err
+	}
+
+	if setWorkPlacementWriteState(work, workplacements) {
+		return r.Client.Status().Update(ctx, work)
+	}
+	return nil
+}
+
+func (r *WorkReconciler) listWorkPlacements(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) ([]v1alpha1.WorkPlacement, error) {
+	workplacements, err := listWorkplacementWithLabels(ctx, r.Client, logger, work.GetNamespace(), map[string]string{
+		workLabelKey: work.Name,
+	})
+	if err != nil {
+		logging.Error(logger, err, "failed to list associated WorkPlacements")
+	}
+	return workplacements, err
 }
 
 func (r *WorkReconciler) setReadyCondition(work *v1alpha1.Work, workplacements []v1alpha1.WorkPlacement) bool {
@@ -206,7 +229,7 @@ func (r *WorkReconciler) setReadyCondition(work *v1alpha1.Work, workplacements [
 
 	schedulerHasAlreadySetReady := !apiMeta.IsStatusConditionTrue(work.Status.Conditions, v1alpha1.ScheduleSucceededConditionType)
 	if schedulerHasAlreadySetReady {
-		return false
+		return restoreSchedulerReadyCondition(work)
 	}
 
 	readyCond := metav1.Condition{
@@ -224,6 +247,22 @@ func (r *WorkReconciler) setReadyCondition(work *v1alpha1.Work, workplacements [
 			Message:            "Pending",
 			ObservedGeneration: work.GetGeneration(),
 		}
+	}
+	return apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
+}
+
+// restoreSchedulerReadyCondition puts back the Ready the scheduler set when a write failure replaced it,
+// because the scheduler only sets Ready when ScheduleSucceeded changes and would leave Failing forever.
+func restoreSchedulerReadyCondition(work *v1alpha1.Work) bool {
+	scheduleSucceeded := apiMeta.FindStatusCondition(work.Status.Conditions, v1alpha1.ScheduleSucceededConditionType)
+	ready := apiMeta.FindStatusCondition(work.Status.Conditions, "Ready")
+	if scheduleSucceeded == nil || scheduleSucceeded.Status != metav1.ConditionFalse ||
+		ready == nil || ready.Reason != "WorkplacementsFailing" {
+		return false
+	}
+	readyCond := unscheduledReadyCondition(work.GetGeneration())
+	if scheduleSucceeded.Reason == scheduleSucceededConditionMismatchReason {
+		readyCond = misplacedReadyCondition(work.GetGeneration())
 	}
 	return apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
 }
@@ -246,7 +285,7 @@ func setWorkPlacementWriteState(work *v1alpha1.Work, workplacements []v1alpha1.W
 		if write := apiMeta.FindStatusCondition(wp.Status.Conditions, v1alpha1.WriteSucceededConditionType); write != nil {
 			status.Status = string(write.Status)
 			status.Reason = write.Reason
-			status.Message = write.Message
+			status.Message = resourceutil.CutToRunes(write.Message, workPlacementStatusMessageMaxRunes)
 		}
 		statuses = append(statuses, status)
 	}
