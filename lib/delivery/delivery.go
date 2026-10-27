@@ -1,6 +1,5 @@
 // Package delivery holds the writer every state store is written through. A state store with no
-// delivery mode uses Direct; a build can register other modes that decide where a change goes and
-// when it is delivered.
+// delivery mode uses Direct
 package delivery
 
 import (
@@ -60,26 +59,22 @@ type Target struct {
 	Destination string
 }
 
-// Writer is how every state store is written to. The built-in mode's writer finishes each write
-// before returning; a registered writer may return Pending and finish it later.
+// Writer is the interface to write to the state store
 type Writer interface {
 	writers.StateStoreWriter
 
 	Deliver(ctx context.Context, target Target,
 		create []v1alpha1.Workload, remove []string) (Result, error)
 
-	// Check returns ErrUnknownReceipt for a receipt this writer did not issue.
 	Check(ctx context.Context, receipt string) (Result, error)
 
-	// WriteCanary reports false when the writer writes no canary; the Destination is then Ready
-	// without one.
+	// WriteCanary returns true when a canary file was written
 	WriteCanary(ctx context.Context, name string, workloads []v1alpha1.Workload) (bool, error)
 	RemoveCanary(ctx context.Context, name string, files []string) error
 }
 
-// ErrUnknownReceipt means the receipt came from another writer, such as one for a delivery mode
-// since removed from the state store.
-var ErrUnknownReceipt = errors.New("receipt not issued by this writer")
+// ErrUnknownReceipt means that the Writer cannot parse the provided delivery receipt
+var ErrUnknownReceipt = errors.New("delivery receipt not recognised by this delivery mode")
 
 type direct struct {
 	writers.StateStoreWriter

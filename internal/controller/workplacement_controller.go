@@ -560,9 +560,7 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 	return w.recordDeliveryResult(result)
 }
 
-// clearSupersededFailure marks the write as waiting before a new delivery starts: the Work
-// reports a failed write without comparing generations, so an older failure would fail the request
-// for as long as the new delivery takes.
+// clearSupersededFailure marks the WorkPlacement as Pending before a new delivery starts when the generation has changed
 func (w *workPlacementReconcileContext) clearSupersededFailure() error {
 	written := apiMeta.FindStatusCondition(w.workPlacement.Status.Conditions, v1alpha1.WriteSucceededConditionType)
 	if written == nil || written.Status != metav1.ConditionFalse ||
@@ -626,7 +624,6 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 			}
 			return defaultRequeue, nil
 		}
-		// Without this requeue, drift in the state store is never corrected while nothing changes.
 		return ctrl.Result{RequeueAfter: w.stateStoreReconciliationInterval}, nil
 
 	default:

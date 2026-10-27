@@ -59,7 +59,7 @@ var _ = Describe("the built-in writer", func() {
 		Expect(err).To(MatchError(ContainSubstring("receipt-1")))
 	})
 
-	It("writes the canary files under the name it is given", func() {
+	It("writes the canary files", func() {
 		canary := []v1alpha1.Workload{{Filepath: "canary.yaml", Content: "c: 1"}}
 
 		written, err := writer.WriteCanary(context.Background(), "kratix-canary", canary)
@@ -82,7 +82,7 @@ var _ = Describe("the built-in writer", func() {
 		Expect(err).To(MatchError("no access"))
 	})
 
-	It("removes the canary files under the name it is given", func() {
+	It("removes the canary files", func() {
 		base.DeleteFilesReturns(errors.New("delete failed"))
 
 		err := writer.RemoveCanary(context.Background(), "kratix-canary", []string{"canary.yaml"})

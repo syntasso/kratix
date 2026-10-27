@@ -158,7 +158,7 @@ var _ = Describe("DestinationReconciler", func() {
 			)))
 		})
 
-		It("removes no canary files when the Destination is deleted", func() {
+		It("removes no canary files directly when the Destination is deleted", func() {
 			Expect(fakeK8sClient.Get(ctx, testDestinationName, testDestination)).To(Succeed())
 			testDestination.Spec.Cleanup = v1alpha1.DestinationCleanupAll
 			Expect(fakeK8sClient.Update(ctx, testDestination)).To(Succeed())
