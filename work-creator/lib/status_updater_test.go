@@ -153,7 +153,9 @@ var _ = Describe("StatusUpdater", func() {
 			existing := map[string]any{"iam": map[string]any{"user": "admin"}}
 			incoming := map[string]any{"iam": "none"}
 
-			Expect(lib.MergeStatuses(existing, incoming)).To(HaveKeyWithValue("iam", "none"))
+			result, err := lib.MergeStatuses(existing, incoming)
+            Expect(err).NotTo(HaveOccurred())
+            Expect(result).To(HaveKeyWithValue("iam", "none"))
 		})
 	})
 
