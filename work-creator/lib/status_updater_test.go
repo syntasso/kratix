@@ -154,8 +154,35 @@ var _ = Describe("StatusUpdater", func() {
 			incoming := map[string]any{"iam": "none"}
 
 			result, err := lib.MergeStatuses(existing, incoming)
-            Expect(err).NotTo(HaveOccurred())
-            Expect(result).To(HaveKeyWithValue("iam", "none"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(HaveKeyWithValue("iam", "none"))
+		})
+
+		It("keeps existing conditions the incoming conditions do not mention", func() {
+			existing := map[string]any{"conditions": []any{
+				map[string]any{"type": "Ready", "status": "True"},
+			}}
+			incoming := map[string]any{"conditions": []any{
+				map[string]any{"type": "Other", "status": "True"},
+			}}
+
+			result, err := lib.MergeStatuses(existing, incoming)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result["conditions"]).To(ConsistOf(
+				HaveKeyWithValue("type", "Ready"),
+				HaveKeyWithValue("type", "Other"),
+			))
+		})
+
+		It("removes all conditions when the incoming conditions are null", func() {
+			existing := map[string]any{"conditions": []any{
+				map[string]any{"type": "Ready", "status": "True"},
+			}}
+			incoming := map[string]any{"conditions": nil}
+
+			result, err := lib.MergeStatuses(existing, incoming)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).NotTo(HaveKey("conditions"))
 		})
 	})
 

@@ -23,7 +23,8 @@ import (
 //
 // `conditions` are the exception. Like Kubernetes does, they are treated as a
 // list keyed by `type`: the incoming conditions are merged with the existing
-// ones, so a Pipeline cannot drop conditions it did not write.
+// ones, so a Pipeline cannot drop individual conditions it did not write.
+// Setting `conditions` to null still removes them all.
 func MergeStatuses(existing map[string]any, incoming map[string]any) (map[string]any, error) {
 	existing, incoming = maps.Clone(existing), maps.Clone(incoming)
 
