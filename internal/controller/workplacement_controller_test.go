@@ -1394,6 +1394,196 @@ files:
 					Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
 				})
 			})
+
+			When("a pipeline run produces the same workloads before the check", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					workPlacement.SetGeneration(workPlacement.GetGeneration() + 1)
+					Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+				})
+
+				It("still records the rejection instead of delivering again", func() {
+					deferredWriter.checkResult = delivery.Result{Outcome: delivery.Rejected, Reason: "closed without merging"}
+
+					reconcileTimes(2)
+
+					Expect(deferredWriter.checkReceipts).To(ConsistOf("receipt-1"))
+					Expect(deferredWriter.deliverCalls).To(Equal(1))
+					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).To(Equal("WorkloadsRejected"))
+				})
+			})
+
+			When("the workloads move to a newer generation during the check", func() {
+				var deliveredGeneration int64
+
+				moveToNewerGeneration := func(workloads []v1alpha1.Workload) {
+					deferredWriter.onCheck = func() {
+						latest := &v1alpha1.WorkPlacement{}
+						Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), latest)).To(Succeed())
+						if workloads != nil {
+							latest.Spec.Workloads = workloads
+						}
+						latest.SetGeneration(latest.GetGeneration() + 1)
+						Expect(fakeK8sClient.Update(ctx, latest)).To(Succeed())
+					}
+				}
+
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					deliveredGeneration = workPlacement.GetGeneration()
+				})
+
+				It("records a pending write against the generation it delivered", func() {
+					moveToNewerGeneration(nil)
+					deferredWriter.checkResult = delivery.Result{Outcome: delivery.Pending, Receipt: "receipt-1"}
+
+					reconcileTimes(1)
+
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					Expect(workPlacement.Status.DeliveryReceipt).To(Equal("receipt-1"))
+					Expect(workPlacement.Status.DeliveryGeneration).To(Equal(deliveredGeneration))
+				})
+
+				It("drops a rejection when the newer workloads differ", func() {
+					moveToNewerGeneration([]v1alpha1.Workload{{Filepath: "new.yaml", Content: "new: true"}})
+					deferredWriter.checkResult = delivery.Result{Outcome: delivery.Rejected, Reason: "closed without merging"}
+
+					reconcileTimes(1)
+
+					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).NotTo(Equal("WorkloadsRejected"))
+				})
+
+				It("keeps a rejection when the newer workloads are the same", func() {
+					moveToNewerGeneration(nil)
+					deferredWriter.checkResult = delivery.Result{Outcome: delivery.Rejected, Reason: "closed without merging"}
+
+					reconcileTimes(1)
+
+					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).To(Equal("WorkloadsRejected"))
+				})
+			})
+		})
+
+		When("a delivery was rejected", func() {
+			BeforeEach(func() {
+				reconcileTimes(2)
+				deferredWriter.checkResult = delivery.Result{Outcome: delivery.Rejected, Reason: "closed without merging"}
+				reconcileTimes(1)
+				Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).To(Equal("WorkloadsRejected"))
+				Expect(deferredWriter.deliverCalls).To(Equal(1))
+			})
+
+			bumpGeneration := func() {
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+				workPlacement.SetGeneration(workPlacement.GetGeneration() + 1)
+				Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+			}
+
+			It("does not deliver the same workloads again after a restart", func() {
+				result := reconcileTimes(1)
+
+				Expect(deferredWriter.deliverCalls).To(Equal(1))
+				Expect(result).To(Equal(ctrl.Result{}))
+			})
+
+			It("keeps the rejection when a pipeline run produces the same workloads", func() {
+				bumpGeneration()
+
+				reconcileTimes(1)
+
+				Expect(deferredWriter.deliverCalls).To(Equal(1))
+				written := readCondition(v1alpha1.WriteSucceededConditionType)
+				Expect(written.Reason).To(Equal("WorkloadsRejected"))
+				Expect(written.Message).To(Equal("closed without merging"))
+				Expect(written.ObservedGeneration).To(Equal(workPlacement.GetGeneration()))
+			})
+
+			It("keeps the rejection while the Destination is not ready", func() {
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&destination), &destination)).To(Succeed())
+				destination.SetNotReadyStatus("StateStoreNotReady", "permission denied")
+				Expect(fakeK8sClient.Status().Update(ctx, &destination)).To(Succeed())
+
+				reconcileTimes(1)
+
+				Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).To(Equal("WorkloadsRejected"))
+				Expect(deferredWriter.deliverCalls).To(Equal(1))
+			})
+
+			changeFirstFileContent := func() {
+				updated, err := compression.CompressContent([]byte("{someApi: foo, someValue: changed}"))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+				workPlacement.Spec.Workloads[0].Content = string(updated)
+				workPlacement.SetGeneration(workPlacement.GetGeneration() + 1)
+				Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+			}
+
+			It("delivers again when a file's content changes", func() {
+				changeFirstFileContent()
+
+				reconcileTimes(1)
+
+				Expect(deferredWriter.deliverCalls).To(Equal(2))
+				Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).NotTo(Equal("WorkloadsRejected"))
+			})
+
+			It("delivers again when a file is renamed", func() {
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+				workPlacement.Spec.Workloads[0].Filepath = "renamed.yaml"
+				workPlacement.SetGeneration(workPlacement.GetGeneration() + 1)
+				Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+
+				reconcileTimes(1)
+
+				Expect(deferredWriter.deliverCalls).To(Equal(2))
+			})
+
+			When("the rejection was recorded before Kratix stored the workloads hash", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					workPlacement.Status.DeliveryWorkloadsHash = ""
+					Expect(fakeK8sClient.Status().Update(ctx, &workPlacement)).To(Succeed())
+				})
+
+				It("keeps the rejection for the workloads at that generation", func() {
+					reconcileTimes(1)
+
+					Expect(deferredWriter.deliverCalls).To(Equal(1))
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					Expect(workPlacement.Status.DeliveryWorkloadsHash).NotTo(BeEmpty())
+
+					bumpGeneration()
+					reconcileTimes(1)
+					Expect(deferredWriter.deliverCalls).To(Equal(1))
+				})
+
+				It("delivers when the rejection is for an older generation", func() {
+					bumpGeneration()
+
+					reconcileTimes(1)
+
+					Expect(deferredWriter.deliverCalls).To(Equal(2))
+				})
+			})
+
+			It("forgets the rejection once the changed workloads are delivered", func() {
+				changeFirstFileContent()
+				deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "v2"}
+
+				reconcileTimes(1)
+
+				Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
+				Expect(workPlacement.Status.DeliveryWorkloadsHash).To(BeEmpty())
+			})
+
+			It("still removes the files when the WorkPlacement is deleted", func() {
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+				Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+
+				reconcileTimes(1)
+
+				Expect(deferredWriter.DeleteFilesCallCount()).To(Equal(1))
+			})
 		})
 	})
 })
@@ -1409,6 +1599,7 @@ type fakeDeferredWriter struct {
 	onDeliver     func()
 	checkResult   delivery.Result
 	checkReceipts []string
+	onCheck       func()
 }
 
 func (f *fakeDeferredWriter) Deliver(_ context.Context, target delivery.Target, _ []v1alpha1.Workload, _ []string) (delivery.Result, error) {
@@ -1422,6 +1613,9 @@ func (f *fakeDeferredWriter) Deliver(_ context.Context, target delivery.Target, 
 
 func (f *fakeDeferredWriter) Check(_ context.Context, receipt string) (delivery.Result, error) {
 	f.checkReceipts = append(f.checkReceipts, receipt)
+	if f.onCheck != nil {
+		f.onCheck()
+	}
 	if f.checkResult.Outcome == "" {
 		return f.deliverResult, nil
 	}

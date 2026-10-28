@@ -153,8 +153,8 @@ spec:
                 type: array
               deliveryGeneration:
                 description: |-
-                  DeliveryGeneration is the generation the outstanding delivery carries. An older one cannot
-                  satisfy the current generation, however it resolves.
+                  DeliveryGeneration is the generation the outstanding delivery carries. An older one with
+                  different workloads cannot satisfy the current generation, however it resolves.
                 format: int64
                 type: integer
               deliveryReceipt:
@@ -166,6 +166,11 @@ spec:
                 description: |-
                   DeliveryURL links to the latest delivery of these workloads, such as a pull request.
                   Empty when the StateStore has no delivery mode.
+                type: string
+              deliveryWorkloadsHash:
+                description: |-
+                  DeliveryWorkloadsHash identifies the workloads the outstanding or rejected delivery carries.
+                  Rejected workloads are not delivered again until they change.
                 type: string
               versionID:
                 description: |-
