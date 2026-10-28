@@ -95,6 +95,8 @@ type workPlacementReconcileContext struct {
 
 	versionCache map[string]string
 
+	cachedWorkloadsHash string
+
 	stateStoreReconciliationInterval time.Duration
 }
 
@@ -190,7 +192,7 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 	}
 
 	if w.workPlacement.DeletionTimestamp.IsZero() && w.rejectedWorkloadsUnchanged() {
-		return w.keepRejection()
+		return w.updateRejectedGeneration()
 	}
 
 	destinationReady := apiMeta.FindStatusCondition(w.destination.Status.Conditions, "Ready")
@@ -252,20 +254,22 @@ func (w *workPlacementReconcileContext) rejectedWorkloadsUnchanged() bool {
 		return false
 	}
 	if w.workPlacement.Status.DeliveryWorkloadsHash == "" {
-		// A rejection recorded before the hash existed was for the workloads at its generation.
 		return written.ObservedGeneration == w.workPlacement.GetGeneration()
 	}
-	return w.workPlacement.Status.DeliveryWorkloadsHash == workloadsHash(w.workPlacement.Spec.Workloads)
+	return w.workPlacement.Status.DeliveryWorkloadsHash == w.currentWorkloadsHash()
 }
 
-// keepRejection moves the rejection to the current generation without delivering again
-func (w *workPlacementReconcileContext) keepRejection() (ctrl.Result, error) {
+func (w *workPlacementReconcileContext) updateRejectedGeneration() (ctrl.Result, error) {
 	written := apiMeta.FindStatusCondition(w.workPlacement.Status.Conditions, v1alpha1.WriteSucceededConditionType)
-	currentHash := workloadsHash(w.workPlacement.Spec.Workloads)
-	hashAdopted := w.workPlacement.Status.DeliveryWorkloadsHash != currentHash
-	w.workPlacement.Status.DeliveryWorkloadsHash = currentHash
-	if !w.workPlacement.SetWriteRejectedCondition(written.Message) && !hashAdopted {
+	generationChanged := written.ObservedGeneration != w.workPlacement.GetGeneration()
+	hashMissing := w.workPlacement.Status.DeliveryWorkloadsHash == ""
+	if !generationChanged && !hashMissing {
 		return ctrl.Result{}, nil
+	}
+
+	w.workPlacement.SetWriteRejectedCondition(written.Message)
+	if hashMissing {
+		w.workPlacement.Status.DeliveryWorkloadsHash = w.currentWorkloadsHash()
 	}
 	if err := w.client.Status().Update(w.ctx, w.workPlacement); err != nil {
 		if apierrors.IsConflict(err) {
@@ -276,17 +280,21 @@ func (w *workPlacementReconcileContext) keepRejection() (ctrl.Result, error) {
 	return ctrl.Result{}, nil
 }
 
-// workloadsHash hashes each file's path and decompressed content
-func workloadsHash(workloads []v1alpha1.Workload) string {
+// currentWorkloadsHash hashes each file's path and decompressed content, once per spec read
+func (w *workPlacementReconcileContext) currentWorkloadsHash() string {
+	if w.cachedWorkloadsHash != "" {
+		return w.cachedWorkloadsHash
+	}
 	var sb strings.Builder
-	for _, workload := range workloads {
+	for _, workload := range w.workPlacement.Spec.Workloads {
 		content := []byte(workload.Content)
 		if decompressed, err := compression.DecompressContent(content); err == nil {
 			content = decompressed
 		}
 		fmt.Fprintf(&sb, "%s\x00%s\x00", workload.Filepath, content)
 	}
-	return hash.ComputeHash(sb.String())
+	w.cachedWorkloadsHash = hash.ComputeHash(sb.String())
+	return w.cachedWorkloadsHash
 }
 
 func (w *workPlacementReconcileContext) markDestinationNotReady(destinationMessage string) (ctrl.Result, error) {
@@ -591,7 +599,7 @@ const defaultDeliveryCheckInterval = 30 * time.Second
 func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Repository, receipt string) (ctrl.Result, error) {
 	// Resolving a delivery the workloads have moved past would mark stale content as written.
 	if w.workPlacement.Status.DeliveryGeneration != w.workPlacement.GetGeneration() &&
-		w.workPlacement.Status.DeliveryWorkloadsHash != workloadsHash(w.workPlacement.Spec.Workloads) {
+		w.workPlacement.Status.DeliveryWorkloadsHash != w.currentWorkloadsHash() {
 		w.clearOutstandingDelivery()
 		return fastRequeue, w.client.Status().Update(w.ctx, w.workPlacement)
 	}
@@ -637,6 +645,7 @@ func (w *workPlacementReconcileContext) persistDeliveryStatus(apply func() bool)
 			if getErr := w.client.Get(w.ctx, client.ObjectKeyFromObject(w.workPlacement), w.workPlacement); getErr != nil {
 				return getErr
 			}
+			w.cachedWorkloadsHash = ""
 		}
 		return err
 	})
@@ -654,7 +663,7 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 	switch result.Outcome {
 	case delivery.Pending:
 		deliveredGeneration := w.workPlacement.GetGeneration()
-		deliveredHash := workloadsHash(w.workPlacement.Spec.Workloads)
+		deliveredHash := w.currentWorkloadsHash()
 		if _, err := w.persistDeliveryStatus(func() bool {
 			w.workPlacement.Status.DeliveryReceipt = result.Receipt
 			w.workPlacement.Status.DeliveryGeneration = deliveredGeneration
@@ -668,9 +677,9 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 		return ctrl.Result{RequeueAfter: checkInterval(result)}, nil
 
 	case delivery.Rejected:
-		rejectedHash := workloadsHash(w.workPlacement.Spec.Workloads)
+		rejectedHash := w.currentWorkloadsHash()
 		applied, err := w.persistDeliveryStatus(func() bool {
-			if workloadsHash(w.workPlacement.Spec.Workloads) != rejectedHash {
+			if w.currentWorkloadsHash() != rejectedHash {
 				return false
 			}
 			w.clearOutstandingDelivery()

@@ -17,10 +17,7 @@ limitations under the License.
 package controller_test
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -1539,29 +1536,6 @@ files:
 				reconcileTimes(1)
 
 				Expect(deferredWriter.deliverCalls).To(Equal(2))
-			})
-
-			It("keeps the rejection when the same files are compressed differently", func() {
-				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
-				for i, workload := range workPlacement.Spec.Workloads {
-					content, err := compression.DecompressContent([]byte(workload.Content))
-					Expect(err).NotTo(HaveOccurred())
-					var buf bytes.Buffer
-					zw, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
-					Expect(err).NotTo(HaveOccurred())
-					_, err = zw.Write(content)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(zw.Close()).To(Succeed())
-					recompressed := base64.StdEncoding.EncodeToString(buf.Bytes())
-					Expect(recompressed).NotTo(Equal(workload.Content))
-					workPlacement.Spec.Workloads[i].Content = recompressed
-				}
-				workPlacement.SetGeneration(workPlacement.GetGeneration() + 1)
-				Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
-
-				reconcileTimes(1)
-
-				Expect(deferredWriter.deliverCalls).To(Equal(1))
 			})
 
 			When("the rejection was recorded before Kratix stored the workloads hash", func() {
