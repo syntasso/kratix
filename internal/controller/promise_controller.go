@@ -1125,6 +1125,21 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 		return false, result, nil
 	}
 
+	if !promise.DeletionTimestamp.IsZero() &&
+		promise.Status.Kratix.Workflows["delete"].SuspendedGeneration == 0 &&
+		promise.Status.Kratix.Workflows["configure"].SuspendedGeneration != 0 {
+		logging.Info(o.logger, "promise is being deleted while its configure workflow is suspended; "+
+			"removing the workflow-suspended label so the delete workflow can run")
+		delete(promise.Labels, v1alpha1.WorkflowSuspendedLabel)
+		if err := r.Client.Update(o.ctx, promise); err != nil {
+			return true, result, err
+		}
+		configureStatus := promise.Status.Kratix.Workflows["configure"]
+		configureStatus.SuspendedGeneration = 0
+		promise.Status.Kratix.Workflows["configure"] = configureStatus
+		return true, result, r.Client.Status().Update(o.ctx, promise)
+	}
+
 	if isManualReconcile(promise) || promiseSpecChanged {
 		promise.Labels[resourceutil.WorkflowRunFromStartLabel] = "true"
 		if promiseSpecChanged {

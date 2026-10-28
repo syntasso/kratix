@@ -1521,6 +1521,52 @@ var _ = Describe("PromiseController", func() {
 					})
 				})
 
+				When("the configure pipeline was suspended when the delete was requested", func() {
+					var deleteWorkflowCalled bool
+
+					BeforeEach(func() {
+						Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+
+						labels := promise.GetLabels()
+						if labels == nil {
+							labels = map[string]string{}
+						}
+						labels[v1alpha1.WorkflowSuspendedLabel] = "true"
+						promise.SetLabels(labels)
+						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+						promise.Status.Kratix.Workflows = v1alpha1.WorkflowStatuses{"configure": {
+							SuspendedGeneration: 1,
+							Pipelines: []v1alpha1.WorkflowPipelineStatus{{
+								Name:        "configure",
+								Phase:       v1alpha1.WorkflowPhaseSuspended,
+								NextRetryAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+							}},
+						}}
+						Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
+
+						deleteWorkflowCalled = false
+						controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+							deleteWorkflowCalled = true
+							return true, nil
+						})
+					})
+
+					It("removes the workflow-suspended label and runs the delete workflow", func() {
+						_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+						Expect(err).NotTo(HaveOccurred())
+
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						Expect(promise.GetLabels()).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+						Expect(promise.Status.Kratix.Workflows["configure"].SuspendedGeneration).To(BeZero())
+
+						_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+						Expect(err).NotTo(HaveOccurred())
+						Expect(deleteWorkflowCalled).To(BeTrue())
+					})
+				})
+
 				When("the delete pipeline is suspended with a retryAfter interval", func() {
 					BeforeEach(func() {
 						Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
