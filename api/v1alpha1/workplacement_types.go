@@ -62,14 +62,19 @@ type WorkPlacementStatus struct {
 	DeliveryReceipt string `json:"deliveryReceipt,omitempty"`
 
 	// +optional
-	// DeliveryGeneration is the generation the outstanding delivery carries. An older one cannot
-	// satisfy the current generation, however it resolves.
+	// DeliveryGeneration is the generation the outstanding delivery carries. An older one with
+	// different workloads cannot satisfy the current generation, however it resolves.
 	DeliveryGeneration int64 `json:"deliveryGeneration,omitempty"`
 
 	// +optional
 	// DeliveryURL links to the latest delivery of these workloads, such as a pull request.
 	// Empty when the StateStore has no delivery mode.
 	DeliveryURL string `json:"deliveryURL,omitempty"`
+
+	// +optional
+	// DeliveryWorkloadsHash identifies the workloads the outstanding or rejected delivery carries.
+	// Rejected workloads are not delivered again until they change.
+	DeliveryWorkloadsHash string `json:"deliveryWorkloadsHash,omitempty"`
 
 	// Status fields set by other controllers, kept so typed status updates do not drop them.
 	Custom map[string]apiextensionsv1.JSON `json:"-"`
