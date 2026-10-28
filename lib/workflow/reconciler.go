@@ -402,7 +402,7 @@ func waitForPreviousPipelineOutput(opts Opts, decision Decision) error {
 		decision.PreviousPipelineName, workName)
 	patch := client.MergeFromWithOptions(opts.parentObject.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	conditionChanged := resourceutil.MarkConfigureWorkflowAsWaitingForPipelineOutput(opts.parentObject, message)
-	reconciledChanged := setReconciledFromPipelineWork(opts.parentObject, decision.PreviousPipelineWork)
+	reconciledChanged := setReconciledFromPipelineWork(opts, decision.PreviousPipelineWork)
 	messageChanged, err := resourceutil.SetPipelineMessage(opts.parentObject, decision.Pipeline.Name, message, opts.workflowKey())
 	if err != nil {
 		return err
@@ -415,18 +415,23 @@ func waitForPreviousPipelineOutput(opts Opts, decision Decision) error {
 	if err := opts.client.Status().Patch(opts.ctx, opts.parentObject, patch); err != nil {
 		return err
 	}
-	opts.eventRecorder.Eventf(opts.parentObject, nil, v1.EventTypeNormal, resourceutil.WaitingForPipelineOutputReason, resourceutil.WaitingForPipelineOutputReason, "%s", message)
+	if conditionChanged {
+		opts.eventRecorder.Eventf(opts.parentObject, nil, v1.EventTypeNormal, resourceutil.WaitingForPipelineOutputReason, resourceutil.WaitingForPipelineOutputReason, "%s", message)
+	}
 	return nil
 }
 
-func setReconciledFromPipelineWork(parentObject *unstructured.Unstructured, previousPipelineWork *v1alpha1.Work) bool {
+func setReconciledFromPipelineWork(opts Opts, previousPipelineWork *v1alpha1.Work) bool {
+	works := []v1alpha1.Work{*previousPipelineWork}
+	deliveries := resourceutil.DeliveryEntries(works)
 	ready := apimeta.FindStatusCondition(previousPipelineWork.Status.Conditions, "Ready")
 	previousPipelineOutputFailing := ready != nil && ready.Reason == "WorkplacementsFailing" &&
 		ready.ObservedGeneration == previousPipelineWork.GetGeneration()
 	if previousPipelineOutputFailing {
-		return resourceutil.MarkReconciledFailing(parentObject, "WorksFailing")
+		ordinaryFailure := resourceutil.IsOrdinaryWorksFailure(works)
+		return resourceutil.MarkReconciledWorksFailing(opts.parentObject, deliveries, ordinaryFailure)
 	}
-	return resourceutil.MarkReconciledPending(parentObject, "WorksPending")
+	return resourceutil.MarkReconciledWorksPending(opts.parentObject, deliveries)
 }
 
 func labelsForJobs(opts Opts) map[string]string {

@@ -19,7 +19,9 @@ package controller_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
@@ -137,7 +139,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 		}
 
 		repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{
-			Writer: fakeWriter,
+			Writer: delivery.Direct(fakeWriter),
 		}, nil)
 	})
 
@@ -451,7 +453,7 @@ files:
 				destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
 				setupGitDestination(&gitStateStore, &destination)
 				repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{
-					Writer: fakeWriter,
+					Writer: delivery.Direct(fakeWriter),
 				}, nil)
 			})
 
@@ -502,7 +504,7 @@ files:
 			BeforeEach(func() {
 				setupGitDestination(&gitStateStore, &destination)
 				repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{
-					Writer: fakeWriter,
+					Writer: delivery.Direct(fakeWriter),
 				}, nil)
 			})
 
@@ -990,6 +992,104 @@ files:
 		})
 	})
 
+	When("the state store has no delivery mode", func() {
+		reconcileOnce := func() (ctrl.Result, error) {
+			return reconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: client.ObjectKeyFromObject(&workPlacement),
+			})
+		}
+
+		writeEvents := func() []string {
+			var written []string
+			for {
+				select {
+				case event := <-workplacementRecorder.Events:
+					if strings.Contains(event, "WorkloadsWrittenToStateStore") {
+						written = append(written, event)
+					}
+				default:
+					return written
+				}
+			}
+		}
+
+		readCondition := func(conditionType string) *metav1.Condition {
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			return apiMeta.FindStatusCondition(workPlacement.Status.Conditions, conditionType)
+		}
+
+		BeforeEach(func() {
+			reconciler.StateStoreReconciliationInterval = 7 * time.Minute
+			destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
+			destination.Spec.StateStoreRef.Kind = "BucketStateStore"
+			destination.Spec.StateStoreRef.Name = "test-state-store"
+			Expect(fakeK8sClient.Create(ctx, &destination)).To(Succeed())
+
+			By("adding the finalizers, which happens before any write")
+			_, err := reconcileOnce()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(0))
+		})
+
+		It("records the write once and requeues after the reconciliation interval", func() {
+			fakeWriter.UpdateFilesReturns("version-1", nil)
+
+			result, err := reconcileOnce()
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 7 * time.Minute}))
+			Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
+			Expect(writeEvents()).To(ConsistOf(ContainSubstring(
+				"successfully written to Destination: test-destination with versionID: version-1")))
+			Expect(collectWorkPlacementWriteMetrics(ctx, metricsReader)).To(Equal(
+				map[string]int64{telemetry.WorkPlacementWriteResultSuccess: 1}))
+			Expect(reconciler.VersionCache).To(BeEmpty())
+			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
+			Expect(workPlacement.Status.VersionID).To(Equal("version-1"))
+		})
+
+		It("stops reporting an earlier generation's failure while the new write runs", func() {
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			workPlacement.SetWriteFailedCondition(fmt.Errorf("push rejected"))
+			Expect(fakeK8sClient.Status().Update(ctx, &workPlacement)).To(Succeed())
+			workPlacement.SetGeneration(workPlacement.GetGeneration() + 1)
+			Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+
+			var duringWrite *metav1.Condition
+			fakeWriter.UpdateFilesStub = func(string, string, []v1alpha1.Workload, []string) (string, error) {
+				duringWrite = readCondition(v1alpha1.WriteSucceededConditionType)
+				return "", nil
+			}
+
+			_, err := reconcileOnce()
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(duringWrite.Status).To(Equal(metav1.ConditionUnknown))
+			Expect(duringWrite.Reason).To(Equal("WorkloadsAwaitingDelivery"))
+			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("writes directly once the delivery mode is removed while a delivery was outstanding", func() {
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			workPlacement.Status.DeliveryReceipt = "receipt-from-a-removed-mode"
+			workPlacement.Status.DeliveryGeneration = workPlacement.GetGeneration()
+			Expect(fakeK8sClient.Status().Update(ctx, &workPlacement)).To(Succeed())
+
+			_, err := reconcileOnce()
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
+			Expect(workPlacement.Status.DeliveryGeneration).To(BeZero())
+
+			By("writing through the state store's own writer on the next reconcile")
+			_, err = reconcileOnce()
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
+		})
+	})
+
 	When("the state store writer defers its writes", func() {
 		var deferredWriter *fakeDeferredWriter
 
@@ -1019,6 +1119,7 @@ files:
 				Outcome: delivery.Pending,
 				Receipt: "receipt-1",
 				Reason:  "waiting for the write to be accepted",
+				URL:     "https://h/pr/7",
 			}
 			repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{Writer: deferredWriter}, nil)
 
@@ -1073,6 +1174,7 @@ files:
 
 			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
 			Expect(workPlacement.Status.DeliveryReceipt).To(Equal("receipt-1"))
+			Expect(workPlacement.Status.DeliveryURL).To(Equal("https://h/pr/7"))
 		})
 
 		It("names the WorkPlacement the delivery is for, so a writer can explain it", func() {
@@ -1098,9 +1200,11 @@ files:
 			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
 			Expect(workPlacement.Status.DeliveryReceipt).To(Equal("receipt-1"))
 			Expect(workPlacement.Status.VersionID).To(BeEmpty())
+			Expect(workPlacement.Status.DeliveryURL).To(Equal("https://h/pr/7"))
 
 			By("leaving the write unresolved rather than failed, so the Work stays pending")
 			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionUnknown))
+			Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).To(Equal("WorkloadsAwaitingDelivery"))
 			Expect(readCondition("Ready").Status).To(Equal(metav1.ConditionFalse))
 			Expect(readCondition("Ready").Message).To(Equal("Pending"))
 
@@ -1114,6 +1218,37 @@ files:
 			result := reconcileTimes(2)
 
 			Expect(result.RequeueAfter).To(Equal(5 * time.Second))
+		})
+
+		When("the workloads were already written with a delivery URL", func() {
+			BeforeEach(func() {
+				deferredWriter.deliverResult = delivery.Result{
+					Outcome: delivery.Delivered, VersionID: "sha-1", URL: "https://old",
+				}
+				reconcileTimes(2)
+				Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
+				Expect(workPlacement.Status.VersionID).To(Equal("sha-1"))
+				Expect(workPlacement.Status.DeliveryURL).To(Equal("https://old"))
+			})
+
+			It("clears the URL when the writer delivers again without one", func() {
+				deferredWriter.deliverResult.URL = ""
+
+				reconcileTimes(1)
+
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+				Expect(workPlacement.Status.DeliveryURL).To(BeEmpty())
+			})
+
+			It("clears the URL on a direct write", func() {
+				fakeWriter.UpdateFilesReturns("sha-1", nil)
+				repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{Writer: delivery.Direct(fakeWriter)}, nil)
+
+				reconcileTimes(1)
+
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+				Expect(workPlacement.Status.DeliveryURL).To(BeEmpty())
+			})
 		})
 
 		When("a write is already pending", func() {
@@ -1140,6 +1275,80 @@ files:
 				Expect(result.RequeueAfter).To(Equal(5 * time.Second))
 			})
 
+			It("records a rejection with its reason and URL", func() {
+				deferredWriter.checkResult = delivery.Result{
+					Outcome: delivery.Rejected,
+					Reason:  `Rejected in https://h/pr/8: "not this quarter"`,
+					URL:     "https://h/pr/8",
+				}
+
+				reconcileTimes(1)
+
+				written := readCondition(v1alpha1.WriteSucceededConditionType)
+				Expect(written.Status).To(Equal(metav1.ConditionFalse))
+				Expect(written.Reason).To(Equal("WorkloadsRejected"))
+				Expect(written.Message).To(Equal(`Rejected in https://h/pr/8: "not this quarter"`))
+				Expect(readCondition("Ready").Reason).To(Equal("WorkloadsRejected"))
+				Expect(readCondition("Ready").Message).To(Equal("Failing"))
+				Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
+				Expect(workPlacement.Status.DeliveryURL).To(Equal("https://h/pr/8"))
+			})
+
+			It("keeps the rejection's URL on a conflict", func() {
+				deferredWriter.checkResult = delivery.Result{
+					Outcome: delivery.Rejected, Reason: "closed without merging", URL: "https://h/pr/8",
+				}
+				errSubResourceUpdateOnce = errors.NewConflict(
+					schema.GroupResource{Group: "platform.kratix.io", Resource: "workplacements"},
+					workPlacement.GetName(), fmt.Errorf("the object has been modified"))
+				DeferCleanup(func() { errSubResourceUpdateOnce = nil })
+
+				reconcileTimes(1)
+
+				Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).To(Equal("WorkloadsRejected"))
+				Expect(workPlacement.Status.DeliveryURL).To(Equal("https://h/pr/8"))
+			})
+
+			It("records a new URL from a pending check", func() {
+				deferredWriter.checkResult = deferredWriter.deliverResult
+				deferredWriter.checkResult.URL = "https://h/pr/9"
+
+				reconcileTimes(1)
+
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+				Expect(workPlacement.Status.DeliveryURL).To(Equal("https://h/pr/9"))
+			})
+
+			It("cuts a long reason to 1024 characters", func() {
+				deferredWriter.checkResult = deferredWriter.deliverResult
+				deferredWriter.checkResult.Reason = strings.Repeat("é", 2000)
+
+				reconcileTimes(1)
+
+				message := readCondition(v1alpha1.WriteSucceededConditionType).Message
+				Expect(utf8.RuneCountInString(message)).To(Equal(1024))
+				Expect(utf8.ValidString(message)).To(BeTrue())
+				Expect(message).To(HaveSuffix("…"))
+			})
+
+			It("cuts a long rejection reason too", func() {
+				deferredWriter.checkResult = delivery.Result{Outcome: delivery.Rejected, Reason: strings.Repeat("x", 40000)}
+
+				reconcileTimes(1)
+
+				Expect(utf8.RuneCountInString(readCondition(v1alpha1.WriteSucceededConditionType).Message)).To(Equal(1024))
+			})
+
+			It("forgets the URL when the delivery mode is removed", func() {
+				repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{Writer: delivery.Direct(fakeWriter)}, nil)
+
+				reconcileTimes(1)
+
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+				Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
+				Expect(workPlacement.Status.DeliveryURL).To(BeEmpty())
+			})
+
 			It("fails the work placement when the writer rejects the write", func() {
 				deferredWriter.checkResult = delivery.Result{Outcome: delivery.Rejected, Reason: "closed without merging"}
 
@@ -1153,12 +1362,15 @@ files:
 
 			When("the writer reports 'Delivered' for a previously pending request", func() {
 				It("records the version the writer reports", func() {
-					deferredWriter.checkResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "merge-sha"}
+					deferredWriter.checkResult = delivery.Result{
+						Outcome: delivery.Delivered, VersionID: "merge-sha", URL: "https://h/pr/7/merged",
+					}
 
 					reconcileTimes(1)
 
 					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
 					Expect(workPlacement.Status.VersionID).To(Equal("merge-sha"))
+					Expect(workPlacement.Status.DeliveryURL).To(Equal("https://h/pr/7/merged"))
 					Expect(workPlacement.Status.DeliveryReceipt).To(BeEmpty())
 					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
 				})
@@ -1186,7 +1398,7 @@ files:
 	})
 })
 
-// fakeDeferredWriter is a StateStoreWriter that also reports deliveries.
+// fakeDeferredWriter is a delivery writer that returns Pending and writes no canary.
 type fakeDeferredWriter struct {
 	*writersfakes.FakeStateStoreWriter
 
@@ -1214,6 +1426,14 @@ func (f *fakeDeferredWriter) Check(_ context.Context, receipt string) (delivery.
 		return f.deliverResult, nil
 	}
 	return f.checkResult, nil
+}
+
+func (f *fakeDeferredWriter) WriteCanary(context.Context, string, []v1alpha1.Workload) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeDeferredWriter) RemoveCanary(context.Context, string, []string) error {
+	return nil
 }
 
 func setupGitDestination(gitStateStore *v1alpha1.GitStateStore, destination *v1alpha1.Destination) {

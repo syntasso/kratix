@@ -1035,6 +1035,101 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(countEvents(eventRecorder, "Normal WaitingForPipelineOutput Waiting for the output of pipeline")).To(Equal(1))
 			})
 
+			When("the Work's WorkPlacement is waiting for its delivery", func() {
+				It("shows the delivery text", func() {
+					createDeliveryPlacement(firstPipelineWork, v1alpha1.WorkloadsAwaitingDeliveryReason,
+						"Waiting for approval: https://github.com/org/repo/pull/7")
+
+					_, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+
+					updatedPromise := &v1alpha1.Promise{}
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), updatedPromise)).To(Succeed())
+					reconciled := updatedPromise.GetCondition(string(resourceutil.ReconciledCondition))
+					Expect(reconciled.Status).To(Equal(metav1.ConditionUnknown))
+					Expect(reconciled.Reason).To(Equal("WorksAwaitingDelivery"))
+					Expect(reconciled.Message).To(Equal("Waiting for approval: https://github.com/org/repo/pull/7"))
+				})
+
+				It("sends no new wait event when only the delivery text changes", func() {
+					Expect(countEvents(eventRecorder, "Normal WaitingForPipelineOutput")).To(Equal(1))
+					createDeliveryPlacement(firstPipelineWork, v1alpha1.WorkloadsAwaitingDeliveryReason,
+						"Waiting for approval: https://github.com/org/repo/pull/7")
+
+					_, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(countEvents(eventRecorder, "Normal WaitingForPipelineOutput")).To(Equal(0))
+				})
+			})
+
+			When("the Work's WorkPlacement delivery was rejected", func() {
+				It("shows the rejection text", func() {
+					markWorkFailing(firstPipelineWork)
+					createDeliveryPlacement(firstPipelineWork, v1alpha1.WorkloadsRejectedReason,
+						"Rejected in https://github.com/org/repo/pull/7 with no comment")
+
+					_, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+
+					updatedPromise := &v1alpha1.Promise{}
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), updatedPromise)).To(Succeed())
+					reconciled := updatedPromise.GetCondition(string(resourceutil.ReconciledCondition))
+					Expect(reconciled.Status).To(Equal(metav1.ConditionFalse))
+					Expect(reconciled.Reason).To(Equal("WorksRejected"))
+					Expect(reconciled.Message).To(Equal("Rejected in https://github.com/org/repo/pull/7 with no comment"))
+				})
+			})
+
+			When("the Work's Ready is stale but its WorkPlacement waits for delivery", func() {
+				It("shows the delivery text", func() {
+					markWorkFailing(firstPipelineWork)
+					createDeliveryPlacement(firstPipelineWork, v1alpha1.WorkloadsAwaitingDeliveryReason,
+						"Waiting for approval: https://github.com/org/repo/pull/7")
+					apimeta.SetStatusCondition(&firstPipelineWork.Status.Conditions, metav1.Condition{
+						Type:    v1alpha1.WriteSucceededConditionType,
+						Status:  metav1.ConditionUnknown,
+						Reason:  v1alpha1.WorkplacementsAwaitingDeliveryReason,
+						Message: "prod: Waiting for approval: https://github.com/org/repo/pull/7",
+					})
+					Expect(fakeK8sClient.Update(ctx, firstPipelineWork)).To(Succeed())
+
+					_, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+
+					updatedPromise := &v1alpha1.Promise{}
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), updatedPromise)).To(Succeed())
+					reconciled := updatedPromise.GetCondition(string(resourceutil.ReconciledCondition))
+					Expect(reconciled.Status).To(Equal(metav1.ConditionUnknown))
+					Expect(reconciled.Reason).To(Equal("WorksAwaitingDelivery"))
+					Expect(reconciled.Message).To(Equal("Waiting for approval: https://github.com/org/repo/pull/7"))
+				})
+			})
+
+			When("the Work has a rejected WorkPlacement and another that failed to write", func() {
+				It("marks the Promise as failing, not rejected", func() {
+					markWorkFailing(firstPipelineWork)
+					createDeliveryPlacement(firstPipelineWork, v1alpha1.WorkloadsRejectedReason,
+						"Rejected in https://github.com/org/repo/pull/7 with no comment")
+					apimeta.SetStatusCondition(&firstPipelineWork.Status.Conditions, metav1.Condition{
+						Type:    v1alpha1.WriteSucceededConditionType,
+						Status:  metav1.ConditionFalse,
+						Reason:  v1alpha1.WorkplacementsFailingReason,
+						Message: "dev: authentication required",
+					})
+					Expect(fakeK8sClient.Update(ctx, firstPipelineWork)).To(Succeed())
+
+					_, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+
+					updatedPromise := &v1alpha1.Promise{}
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(uPromise), updatedPromise)).To(Succeed())
+					reconciled := updatedPromise.GetCondition(string(resourceutil.ReconciledCondition))
+					Expect(reconciled.Reason).To(Equal("WorksFailing"))
+					Expect(reconciled.Message).To(Equal("Failing"))
+				})
+			})
+
 			When("the Work fails to be written", func() {
 				BeforeEach(func() {
 					markWorkFailing(firstPipelineWork)
@@ -3156,6 +3251,18 @@ func createPipelineWork(promiseName, pipelineName string) *v1alpha1.Work {
 	Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
 	Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(work), work)).To(Succeed())
 	return work
+}
+
+func createDeliveryPlacement(work *v1alpha1.Work, reason, message string) {
+	GinkgoHelper()
+	work.Status.WorkPlacementStatuses = append(work.Status.WorkPlacementStatuses, v1alpha1.WorkPlacementWriteStatus{
+		Name:        work.GetName() + "-prod",
+		Destination: "prod",
+		Status:      string(metav1.ConditionFalse),
+		Reason:      reason,
+		Message:     message,
+	})
+	Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
 }
 
 func markWorkReady(work *v1alpha1.Work) {

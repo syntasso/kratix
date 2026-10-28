@@ -1,6 +1,8 @@
 package controller_test
 
 import (
+	"context"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -24,18 +26,27 @@ var _ = Describe("writerForDelivery", func() {
 		return store
 	}
 
-	It("returns the store's default writer when the delivery field is not set", func() {
+	expectWritesThroughBase := func(writer delivery.Writer) {
+		base.UpdateFilesReturns("v1", nil)
+		result, err := writer.Deliver(context.Background(), delivery.Target{Dir: "d/", WorkPlacement: "wp"}, nil, nil)
+
+		Expect(err).ToNot(HaveOccurred())
+		Expect(result).To(Equal(delivery.Result{Outcome: delivery.Delivered, VersionID: "v1"}))
+		Expect(base.UpdateFilesCallCount()).To(Equal(1))
+	}
+
+	It("returns the built-in writer over the store's default writer when the delivery field is not set", func() {
 		writer, err := controller.WriterForDelivery(storeWith(nil), base, nil)
 
 		Expect(err).ToNot(HaveOccurred())
-		Expect(writer).To(BeIdenticalTo(writers.StateStoreWriter(base)))
+		expectWritesThroughBase(writer)
 	})
 
-	It("returns the store's default writer when the delivery field is empty", func() {
+	It("returns the built-in writer over the store's default writer when the delivery field is empty", func() {
 		writer, err := controller.WriterForDelivery(storeWith(&v1alpha1.Delivery{}), base, nil)
 
 		Expect(err).ToNot(HaveOccurred())
-		Expect(writer).To(BeIdenticalTo(writers.StateStoreWriter(base)))
+		expectWritesThroughBase(writer)
 	})
 
 	It("errors when the delivery.mode is unknown", func() {
@@ -46,11 +57,11 @@ var _ = Describe("writerForDelivery", func() {
 	})
 
 	It("returns the custom writer when the delivery.mode is valid", func() {
-		registered := &writersfakes.FakeStateStoreWriter{}
+		registered := &fakeDeferredWriter{FakeStateStoreWriter: &writersfakes.FakeStateStoreWriter{}}
 		var gotBase writers.StateStoreWriter
 		var gotConfig map[string]string
 
-		delivery.Register("cache-registered", func(b writers.StateStoreWriter, c map[string]string, _ map[string][]byte) (writers.StateStoreWriter, error) {
+		delivery.Register("cache-registered", func(b writers.StateStoreWriter, c map[string]string, _ map[string][]byte) (delivery.Writer, error) {
 			gotBase, gotConfig = b, c
 			return registered, nil
 		})
@@ -61,7 +72,7 @@ var _ = Describe("writerForDelivery", func() {
 		}), base, nil)
 
 		Expect(err).ToNot(HaveOccurred())
-		Expect(writer).To(BeIdenticalTo(writers.StateStoreWriter(registered)))
+		Expect(writer).To(BeIdenticalTo(delivery.Writer(registered)))
 		Expect(gotBase).To(BeIdenticalTo(writers.StateStoreWriter(base)))
 		Expect(gotConfig).To(Equal(map[string]string{"provider": "github"}))
 	})

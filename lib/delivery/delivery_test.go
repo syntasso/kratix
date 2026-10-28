@@ -12,17 +12,17 @@ import (
 var _ = Describe("Delivery registry", func() {
 	stubFactory := func(string) delivery.Factory {
 		return func(base writers.StateStoreWriter, _ map[string]string,
-			_ map[string][]byte) (writers.StateStoreWriter, error) {
-			return base, nil
+			_ map[string][]byte) (delivery.Writer, error) {
+			return delivery.Direct(base), nil
 		}
 	}
 
 	Describe("For", func() {
-		It("returns no factory for the built-in mode, so the state store's own writer is used", func() {
+		It("returns a factory for the built-in mode, so every state store gets a delivery writer", func() {
 			factory, err := delivery.For(delivery.BuiltIn)
 
 			Expect(err).NotTo(HaveOccurred())
-			Expect(factory).To(BeNil())
+			Expect(factory).NotTo(BeNil())
 		})
 
 		It("errors when called with an unregistered delivery mode", func() {

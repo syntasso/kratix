@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/delivery"
 	"github.com/syntasso/kratix/lib/workflow"
 	"github.com/syntasso/kratix/lib/writers"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -38,7 +39,7 @@ func SetNewGitWriter(f func(logger logr.Logger, stateStoreSpec v1alpha1.GitState
 	}
 }
 
-func WriterForDelivery(store StateStore, base writers.StateStoreWriter, creds map[string][]byte) (writers.StateStoreWriter, *StateStoreError) {
+func WriterForDelivery(store StateStore, base writers.StateStoreWriter, creds map[string][]byte) (delivery.Writer, *StateStoreError) {
 	return writerForDelivery(store, base, creds)
 }
 
@@ -57,3 +58,7 @@ func PromiseRevisionAnnotationChangedPredicate() predicate.Predicate {
 func WithTrace(logger logr.Logger, reconcileFunc func() (ctrl.Result, error)) (ctrl.Result, error) {
 	return withTrace(logger, reconcileFunc)
 }
+
+var DryRunWorksFailure = worksFailure
+
+const DryRunWorksTimeout = dryRunWorksTimeout

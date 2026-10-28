@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -879,12 +880,17 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise,
 	rr *unstructured.Unstructured, workLabels map[string]string, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision,
 ) (bool, error) {
-	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, logger, rr, workLabels)
+	works, err := r.getWorksStatus(ctx, logger, rr, workLabels)
 	if err != nil {
 		return false, err
 	}
-	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
-	reconciledUpdate := r.updateReconciledCondition(rr)
+	var deliveries []resourceutil.DeliveryEntry
+	if len(works.failed) > 0 || len(works.pending) > 0 || len(works.misplaced) > 0 {
+		deliveries = resourceutil.DeliveryEntries(works.items)
+	}
+	ordinaryFailure := resourceutil.IsOrdinaryWorksFailure(works.items)
+	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, works, deliveries)
+	reconciledUpdate := r.updateReconciledCondition(rr, deliveries, ordinaryFailure)
 	promiseVersionUpdate := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevision)
 	healthUpdate, err := r.updateExpectedHealth(ctx, logger, promise, rr)
 	if err != nil {
@@ -907,20 +913,27 @@ func (r *DynamicResourceRequestController) updateExpectedHealth(
 	return reconcileExpectedHealth(ctx, r.Client, logger, promise, rr, records)
 }
 
-func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, _, misplaced []string) bool {
+func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *unstructured.Unstructured, works worksStatus, deliveries []resourceutil.DeliveryEntry) bool {
+	previous := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 	switch {
-	case len(failed) > 0:
-		if !resourceutil.MarkResourceRequestAsWorksFailed(rr, failed) {
+	case len(works.failed) > 0:
+		if !resourceutil.MarkResourceRequestAsWorksFailed(rr, works.failed, deliveries) {
 			return false
 		}
-		r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksFailing", "WorksFailing", "%s", fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(failed, ",")))
-	case len(pending) > 0:
-		return resourceutil.MarkResourceRequestAsWorksPending(rr, pending)
-	case len(misplaced) > 0:
-		if !resourceutil.MarkResourceRequestAsWorksMisplaced(rr, misplaced) {
+		message := fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(works.failed, ","))
+		if worksEventChanged(previous, "WorksFailing", message) {
+			r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksFailing", "WorksFailing", "%s", message)
+		}
+	case len(works.pending) > 0:
+		return resourceutil.MarkResourceRequestAsWorksPending(rr, works.pending, deliveries)
+	case len(works.misplaced) > 0:
+		if !resourceutil.MarkResourceRequestAsWorksMisplaced(rr, works.misplaced, deliveries) {
 			return false
 		}
-		r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksMisplaced", "WorksMisplaced", "%s", fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(misplaced, ",")))
+		message := fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(works.misplaced, ","))
+		if worksEventChanged(previous, "WorksMisplaced", message) {
+			r.EventRecorder.Eventf(rr, nil, v1.EventTypeWarning, "WorksMisplaced", "WorksMisplaced", "%s", message)
+		}
 	default:
 		if !resourceutil.MarkResourceRequestAsWorksSucceeded(rr) {
 			return false
@@ -928,6 +941,11 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 		r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "WorksSucceeded", "WorksSucceeded", "%s", "All works associated with this resource are ready")
 	}
 	return true
+}
+
+// worksEventChanged ignores the delivery text appended after the Work names
+func worksEventChanged(previous *clusterv1.Condition, reason, message string) bool {
+	return previous == nil || string(previous.Reason) != reason || !strings.HasPrefix(previous.Message, message)
 }
 
 // isDryRun reports whether this resource request is a dry run. Always false
@@ -1085,7 +1103,7 @@ func (r *DynamicResourceRequestController) ensureDryRunSummary(
 	return nil
 }
 
-func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured) bool {
+func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured, deliveries []resourceutil.DeliveryEntry, ordinaryFailure bool) bool {
 	worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 
@@ -1110,9 +1128,9 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 	case workflowFailed:
 		return resourceutil.MarkReconciledFailing(rr, resourceutil.ConfigureWorkflowCompletedFailedReason)
 	case worksPending:
-		return resourceutil.MarkReconciledPending(rr, "WorksPending")
+		return resourceutil.MarkReconciledWorksPending(rr, deliveries)
 	case worksFailed:
-		return resourceutil.MarkReconciledFailing(rr, "WorksFailing")
+		return resourceutil.MarkReconciledWorksFailing(rr, deliveries, ordinaryFailure)
 	case workflowDone && worksReady:
 		return r.markReconciledSucceeded(rr)
 	}
@@ -1193,12 +1211,17 @@ func (r *DynamicResourceRequestController) setDeleteWorkflowSuspendedCondition(c
 	return nil
 }
 
-func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured, workLabels map[string]string) ([]string, []string, []string, []string, error) {
+type worksStatus struct {
+	items                      []v1alpha1.Work
+	failed, misplaced, pending []string
+}
+
+func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured, workLabels map[string]string) (worksStatus, error) {
 	workSelectorLabel := labels.FormatLabels(workLabels)
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
 		logging.Debug(logger, "failed parsing works selector label", "labels", workSelectorLabel)
-		return nil, nil, nil, nil, err
+		return worksStatus{}, err
 	}
 
 	var works v1alpha1.WorkList
@@ -1208,14 +1231,16 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, l
 	})
 	if err != nil {
 		logging.Error(logger, err, "failed listing works", "namespace", rr.GetNamespace(), "labelSelector", workSelectorLabel)
-		return nil, nil, nil, nil, err
+		return worksStatus{}, err
 	}
 
-	var failed, misplaced, ready, pending []string
+	slices.SortFunc(works.Items, func(a, b v1alpha1.Work) int { return strings.Compare(a.Name, b.Name) })
+	var status worksStatus
 	for _, work := range works.Items {
 		if work.GetLabels()[v1alpha1.DryRunSummaryLabel] == "true" {
 			continue
 		}
+		status.items = append(status.items, work)
 		readyCond := apiMeta.FindStatusCondition(work.Status.Conditions, "Ready")
 		message := "Pending"
 		if readyCond != nil && readyCond.Message != "" {
@@ -1223,16 +1248,14 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, l
 		}
 		switch message {
 		case "Failing":
-			failed = append(failed, work.Name)
+			status.failed = append(status.failed, work.Name)
 		case "Misplaced":
-			misplaced = append(misplaced, work.Name)
+			status.misplaced = append(status.misplaced, work.Name)
 		case "Pending":
-			pending = append(pending, work.Name)
-		case "Ready":
-			ready = append(ready, work.Name)
+			status.pending = append(status.pending, work.Name)
 		}
 	}
-	return failed, misplaced, pending, ready, nil
+	return status, nil
 }
 
 // The resource request status schema preserves unknown fields, so the workflow

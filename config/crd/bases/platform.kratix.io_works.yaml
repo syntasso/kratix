@@ -173,6 +173,45 @@ spec:
                   - type
                   type: object
                 type: array
+              workPlacementStatuses:
+                description: |-
+                  Write state of each WorkPlacement of this Work, sorted by WorkPlacement name.
+                  WorkPlacements that are being deleted are not listed.
+                items:
+                  description: WorkPlacementWriteStatus is the write state of one
+                    WorkPlacement of a Work.
+                  properties:
+                    deliveryURL:
+                      description: |-
+                        Link to the latest delivery of the WorkPlacement's workloads, such as a pull request.
+                        Empty when the Destination's StateStore has no delivery mode.
+                      type: string
+                    destination:
+                      description: Name of the Destination the WorkPlacement writes
+                        to
+                      type: string
+                    message:
+                      description: Message of the WorkPlacement's WriteSucceeded condition
+                      type: string
+                    name:
+                      description: Name of the WorkPlacement
+                      type: string
+                    reason:
+                      description: Reason of the WorkPlacement's WriteSucceeded condition
+                      type: string
+                    status:
+                      description: |-
+                        Status of the WorkPlacement's WriteSucceeded condition: True, False or Unknown.
+                        Empty when the WorkPlacement has not been written yet.
+                      type: string
+                  required:
+                  - destination
+                  - message
+                  - name
+                  - reason
+                  - status
+                  type: object
+                type: array
               workPlacements:
                 description: Number of WorkPlacements currently scheduled for this
                   Work

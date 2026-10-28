@@ -31,6 +31,7 @@ import (
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/delivery"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
@@ -229,7 +230,7 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 		return w.resolveOutstandingDelivery(repo, receipt)
 	}
 
-	if err := w.clearSupersededFailure(repo); err != nil {
+	if err := w.clearSupersededFailure(); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -237,22 +238,7 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-
-	if written.Outcome != delivery.Delivered {
-		return w.recordDeliveryResult(written)
-	}
-
-	if err := w.updateResourceStatus(written.VersionID, nil); err != nil {
-		if apierrors.IsConflict(err) {
-			return fastRequeue, nil
-		}
-		return defaultRequeue, nil
-	}
-
-	// Requeue so the files are periodically re-written to the state store, which
-	// corrects any drift even when nothing in the system has changed. When the
-	// interval is zero this behaves as before and does not requeue.
-	return ctrl.Result{RequeueAfter: w.stateStoreReconciliationInterval}, nil
+	return w.recordDeliveryResult(written)
 }
 
 func (w *workPlacementReconcileContext) markDestinationNotReady(destinationMessage string) (ctrl.Result, error) {
@@ -271,37 +257,34 @@ func (w *workPlacementReconcileContext) markDestinationNotReady(destinationMessa
 	return defaultRequeue, nil
 }
 
-func (w *workPlacementReconcileContext) updateResourceStatus(versionID string, err error) error {
-	var updated bool
-	var clearVersionCache bool
-
-	if err != nil {
-		updated = w.workPlacement.SetWriteFailedCondition(err)
-	} else {
-		versionID = w.getCachedVersionID(versionID)
-
-		versionChanged := versionID != "" && w.workPlacement.Status.VersionID != versionID
-		if versionChanged {
-			w.workPlacement.Status.VersionID = versionID
-		}
-		writeSucceededCondChanged := w.workPlacement.SetWriteSucceededCondition()
-		condChanged := w.workPlacement.SetWorkplacementReadyStatus()
-
-		updated = versionChanged || writeSucceededCondChanged || condChanged
-		clearVersionCache = true
+func (w *workPlacementReconcileContext) updateWriteFailedStatus(err error) error {
+	if !w.workPlacement.SetWriteFailedCondition(err) {
+		return nil
 	}
+	logging.Debug(w.logger, "updating workplacement status")
+	return w.client.Status().Update(w.ctx, w.workPlacement)
+}
 
-	if updated {
+func (w *workPlacementReconcileContext) updateWrittenStatus(written delivery.Result) error {
+	versionID := w.getCachedVersionID(written.VersionID)
+
+	versionChanged := versionID != "" && w.workPlacement.Status.VersionID != versionID
+	if versionChanged {
+		w.workPlacement.Status.VersionID = versionID
+	}
+	urlChanged := w.workPlacement.Status.DeliveryURL != written.URL
+	w.workPlacement.Status.DeliveryURL = written.URL
+	writeSucceededCondChanged := w.workPlacement.SetWriteSucceededCondition()
+	condChanged := w.workPlacement.SetWorkplacementReadyStatus()
+
+	if versionChanged || urlChanged || writeSucceededCondChanged || condChanged {
 		logging.Debug(w.logger, "updating workplacement status")
 		if err := w.client.Status().Update(w.ctx, w.workPlacement); err != nil {
 			return err
 		}
 	}
 
-	if clearVersionCache {
-		w.removeVersionIDFromCache()
-	}
-
+	w.removeVersionIDFromCache()
 	return nil
 }
 
@@ -557,33 +540,27 @@ const defaultDeliveryCheckInterval = 30 * time.Second
 
 // resolveOutstandingDelivery verifies if a pending delivery has been completed
 func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Repository, receipt string) (ctrl.Result, error) {
-	deferred, isDeferred := delivery.Deferred(repo.Writer)
-	if !isDeferred {
-		// The delivery mode was taken off the state store while this one was in flight.
-		w.clearOutstandingDelivery()
-		return fastRequeue, w.client.Status().Update(w.ctx, w.workPlacement)
-	}
-
 	// Resolving a delivery the workloads have moved past would mark stale content as written.
 	if w.workPlacement.Status.DeliveryGeneration != w.workPlacement.GetGeneration() {
 		w.clearOutstandingDelivery()
 		return fastRequeue, w.client.Status().Update(w.ctx, w.workPlacement)
 	}
 
-	result, err := deferred.Check(w.ctx, receipt)
+	result, err := repo.Writer.Check(w.ctx, receipt)
+	if errors.Is(err, delivery.ErrUnknownReceipt) {
+		// Keeping a receipt the writer cannot resolve would stop the WorkPlacement being written again.
+		w.clearOutstandingDelivery()
+		w.workPlacement.Status.DeliveryURL = ""
+		return fastRequeue, w.client.Status().Update(w.ctx, w.workPlacement)
+	}
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	return w.recordDeliveryResult(result)
 }
 
-// clearSupersededFailure marks the WorkPlacement deferred before a delivery starts. The Work
-// reports a failed write without comparing generations.
-func (w *workPlacementReconcileContext) clearSupersededFailure(repo *Repository) error {
-	if _, isDeferred := delivery.Deferred(repo.Writer); !isDeferred {
-		return nil
-	}
-
+// clearSupersededFailure marks the WorkPlacement as Pending before a new delivery starts when the generation has changed
+func (w *workPlacementReconcileContext) clearSupersededFailure() error {
 	written := apiMeta.FindStatusCondition(w.workPlacement.Status.Conditions, v1alpha1.WriteSucceededConditionType)
 	if written == nil || written.Status != metav1.ConditionFalse ||
 		written.ObservedGeneration == w.workPlacement.GetGeneration() {
@@ -622,15 +599,19 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 		if err := w.persistDeliveryStatus(func() {
 			w.workPlacement.Status.DeliveryReceipt = result.Receipt
 			w.workPlacement.Status.DeliveryGeneration = w.workPlacement.GetGeneration()
-			w.workPlacement.SetWriteDeferredCondition(result.Reason)
+			w.workPlacement.Status.DeliveryURL = result.URL
+			w.workPlacement.SetWriteDeferredCondition(resourceutil.CutToRunes(result.Reason, writeMessageMaxRunes))
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: checkInterval(result)}, nil
 
 	case delivery.Rejected:
-		w.clearOutstandingDelivery()
-		if err := w.updateResourceStatus("", errors.New(result.Reason)); err != nil {
+		if err := w.persistDeliveryStatus(func() {
+			w.clearOutstandingDelivery()
+			w.workPlacement.Status.DeliveryURL = result.URL
+			w.workPlacement.SetWriteRejectedCondition(resourceutil.CutToRunes(result.Reason, writeMessageMaxRunes))
+		}); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
@@ -639,8 +620,11 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 		w.clearOutstandingDelivery()
 		w.setVersionID(result.VersionID)
 		w.publishWriteEvent("WorkloadsWrittenToStateStore", result.VersionID, nil)
-		if err := w.updateResourceStatus(result.VersionID, nil); err != nil {
-			return ctrl.Result{}, err
+		if err := w.updateWrittenStatus(result); err != nil {
+			if apierrors.IsConflict(err) {
+				return fastRequeue, nil
+			}
+			return defaultRequeue, nil
 		}
 		return ctrl.Result{RequeueAfter: w.stateStoreReconciliationInterval}, nil
 
@@ -662,20 +646,15 @@ func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (del
 	if workloadErr != nil {
 		telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
 		w.logAndRecordError(workloadErr, "FailedWriteToDestination", "error writing to destination; check kubectl get destination for more info")
-		if err := w.updateResourceStatus("", workloadErr); err != nil {
+		if err := w.updateWriteFailedStatus(workloadErr); err != nil {
 			return delivery.Result{}, err
 		}
 		return delivery.Result{}, workloadErr
 	}
 
-	if result.Outcome != delivery.Delivered {
-		return result, nil
+	if result.Outcome == delivery.Delivered {
+		telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultSuccess, metricAttrs...)
 	}
-
-	telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultSuccess, metricAttrs...)
-	w.setVersionID(result.VersionID)
-	w.publishWriteEvent("WorkloadsWrittenToStateStore", result.VersionID, nil)
-
 	return result, nil
 }
 
@@ -732,28 +711,20 @@ func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Reposit
 		return delivery.Result{}, fmt.Errorf("unsupported file path mode: %s", w.destination.GetFilepathMode())
 	}
 
-	if deferred, isDeferred := delivery.Deferred(repo.Writer); isDeferred {
-		result, err := deferred.Deliver(w.ctx, delivery.Target{
-			Dir:           dir,
-			Namespace:     w.workPlacement.GetNamespace(),
-			WorkPlacement: w.workPlacement.GetName(),
-			Promise:       w.workPlacement.Spec.PromiseName,
-			Resource:      w.workPlacement.Spec.ResourceName,
-			Pipeline:      w.workPlacement.PipelineName(),
-			Destination:   w.workPlacement.Spec.TargetDestinationName,
-		}, workloadsToCreate, workloadsToDelete)
-		if err != nil {
-			logging.Error(w.logger, err, "error delivering resources to repository")
-		}
-		return result, err
-	}
-
-	versionID, err := repo.Writer.UpdateFiles(dir, w.workPlacement.Name, workloadsToCreate, workloadsToDelete)
+	result, err := repo.Writer.Deliver(w.ctx, delivery.Target{
+		Dir:           dir,
+		Namespace:     w.workPlacement.GetNamespace(),
+		WorkPlacement: w.workPlacement.GetName(),
+		Promise:       w.workPlacement.Spec.PromiseName,
+		Resource:      w.workPlacement.Spec.ResourceName,
+		Pipeline:      w.workPlacement.PipelineName(),
+		Destination:   w.workPlacement.Spec.TargetDestinationName,
+	}, workloadsToCreate, workloadsToDelete)
 	if err != nil {
 		logging.Error(w.logger, err, "error writing resources to repository")
 		return delivery.Result{}, err
 	}
-	return delivery.Result{Outcome: delivery.Delivered, VersionID: versionID}, nil
+	return result, nil
 }
 
 func (w *workPlacementReconcileContext) deleteWorkPlacement(repo *Repository) (ctrl.Result, error) {
