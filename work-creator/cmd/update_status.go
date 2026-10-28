@@ -94,7 +94,10 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 		}
 	}
 
-	mergedStatus := lib.MergeStatuses(existingStatus, incomingStatus)
+	mergedStatus, err := lib.MergeStatuses(existingStatus, incomingStatus)
+	if err != nil {
+		return err
+	}
 
 	mergedStatus, err = recordExpectedHealth(baseDir, params, mergedStatus)
 	if err != nil {

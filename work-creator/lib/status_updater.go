@@ -1,10 +1,15 @@
 package lib
 
 import (
+	"encoding/json"
 	"fmt"
+	"maps"
+	"sort"
 	"time"
 
+	jsonpatch "github.com/evanphx/json-patch/v5"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sjson "k8s.io/apimachinery/pkg/util/json"
 	"sigs.k8s.io/yaml"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -12,13 +17,34 @@ import (
 )
 
 // MergeStatuses takes two status maps and returns a new status map that is a
-// merge of the two.
+// merge of the two, following JSON merge patch (RFC 7386): nested maps are
+// merged key by key, a null incoming value removes the key, and anything else
+// (including lists) is replaced by the incoming value.
 //
-// If a key exists in both maps, the value from the incoming map will be used.
-// `conditions` are treated differently. The incoming conditions will be merged
-// with the existing conditions.
-func MergeStatuses(existing map[string]any, incoming map[string]any) map[string]any {
-	return mergeRecursive(existing, incoming)
+// `conditions` are the exception. Like Kubernetes does, they are treated as a
+// list keyed by `type`: the incoming conditions are merged with the existing
+// ones, so a Pipeline cannot drop individual conditions it did not write.
+// Setting `conditions` to null still removes them all.
+func MergeStatuses(existing map[string]any, incoming map[string]any) (map[string]any, error) {
+	existing, incoming = maps.Clone(existing), maps.Clone(incoming)
+
+	existingConditions, existingOK := existing["conditions"].([]any)
+	incomingConditions, incomingOK := incoming["conditions"].([]any)
+	mergeConditionsByType := existingOK && incomingOK
+	if mergeConditionsByType {
+		delete(existing, "conditions")
+		delete(incoming, "conditions")
+	}
+
+	merged, err := mergePatch(existing, incoming)
+	if err != nil {
+		return nil, err
+	}
+
+	if mergeConditionsByType {
+		merged["conditions"] = mergeConditions(existingConditions, incomingConditions)
+	}
+	return merged, nil
 }
 
 // SetExpectedHealth sets expectedPromiseVersion and healthDefinitions on
@@ -192,31 +218,29 @@ func updateConditions(conditions []any, newCondition metav1.Condition) []any {
 	return conditions
 }
 
-func mergeRecursive(existing, incoming map[string]any) map[string]any {
-	result := make(map[string]any)
-
-	// First, copy all keys from base
-	for k, v := range existing {
-		result[k] = v
+// mergePatch goes through JSON because that is what the merge patch library
+// operates on. The k8s json package turns whole numbers back into int64, which
+// is the type the rest of the status handling (and the dynamic client) uses.
+func mergePatch(existing, incoming map[string]any) (map[string]any, error) {
+	existingJSON, err := json.Marshal(existing)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal existing status: %w", err)
+	}
+	incomingJSON, err := json.Marshal(incoming)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal incoming status: %w", err)
 	}
 
-	// Then merge or overwrite with overlay
-	for k, v := range incoming {
-		// Special handling for conditions
-		if k == "conditions" {
-			if existingConditions, existingFound := result[k].([]any); existingFound {
-				if incomingConditions, incomingFound := v.([]any); incomingFound {
-					result[k] = mergeConditions(existingConditions, incomingConditions)
-					continue
-				}
-			}
-		}
-
-		// For all other keys, simply overwrite
-		result[k] = v
+	mergedJSON, err := jsonpatch.MergePatch(existingJSON, incomingJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to merge statuses: %w", err)
 	}
 
-	return result
+	merged := map[string]any{}
+	if err := k8sjson.Unmarshal(mergedJSON, &merged); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal merged status: %w", err)
+	}
+	return merged, nil
 }
 
 func mergeConditions(existing, incoming []any) []any {
@@ -241,10 +265,16 @@ func mergeConditions(existing, incoming []any) []any {
 		}
 	}
 
-	// Convert back to slice
+	// Convert back to a slice, sorted by type so the order is stable
+	types := make([]string, 0, len(merged))
+	for condType := range merged {
+		types = append(types, condType)
+	}
+	sort.Strings(types)
+
 	result := make([]any, 0, len(merged))
-	for _, item := range merged {
-		result = append(result, item)
+	for _, condType := range types {
+		result = append(result, merged[condType])
 	}
 
 	return result

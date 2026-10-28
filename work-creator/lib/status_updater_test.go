@@ -46,7 +46,8 @@ var _ = Describe("StatusUpdater", func() {
 					},
 				},
 			}
-			result := lib.MergeStatuses(existing, incoming)
+			result, err := lib.MergeStatuses(existing, incoming)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(SatisfyAll(
 				HaveKeyWithValue("message", "Resource requested"),
 				HaveKeyWithValue("extra", "value"),
@@ -70,6 +71,118 @@ var _ = Describe("StatusUpdater", func() {
 				)),
 			))
 			Expect(result).To(HaveLen(5))
+		})
+
+		It("merges nested maps, keeping keys only present in the existing map", func() {
+			existing := map[string]any{
+				"message": "User created",
+				"iam":     map[string]any{"user": "admin", "roles": map[string]any{"a": "read"}},
+			}
+			incoming := map[string]any{
+				"message": "User created and vault secret created",
+				"iam":     map[string]any{"password": "vault-ref", "roles": map[string]any{"b": "write"}},
+			}
+
+			result, err := lib.MergeStatuses(existing, incoming)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(result).To(Equal(map[string]any{
+				"message": "User created and vault secret created",
+				"iam": map[string]any{
+					"user":     "admin",
+					"password": "vault-ref",
+					"roles":    map[string]any{"a": "read", "b": "write"},
+				},
+			}))
+		})
+
+		It("removes a key when the incoming value is null", func() {
+			existing := map[string]any{
+				"message": "User created",
+				"iam":     map[string]any{"user": "admin", "password": "vault-ref"},
+				"extra":   "value",
+			}
+			incoming := map[string]any{
+				"iam":   map[string]any{"password": nil},
+				"extra": nil,
+			}
+
+			result, err := lib.MergeStatuses(existing, incoming)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(result).To(Equal(map[string]any{
+				"message": "User created",
+				"iam":     map[string]any{"user": "admin"},
+			}))
+		})
+
+		It("keeps whole numbers as int64", func() {
+			existing := map[string]any{"count": int64(1), "nested": map[string]any{"a": int64(2)}}
+			incoming := map[string]any{"nested": map[string]any{"b": int64(3)}}
+
+			result, err := lib.MergeStatuses(existing, incoming)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(result).To(Equal(map[string]any{
+				"count":  int64(1),
+				"nested": map[string]any{"a": int64(2), "b": int64(3)},
+			}))
+		})
+
+		It("returns conditions in a stable order, sorted by type", func() {
+			existing := map[string]any{"conditions": []any{
+				map[string]any{"type": "Zeta", "status": "True"},
+				map[string]any{"type": "Alpha", "status": "True"},
+			}}
+			incoming := map[string]any{"conditions": []any{
+				map[string]any{"type": "Mid", "status": "True"},
+			}}
+
+			for i := 0; i < 20; i++ {
+				result, err := lib.MergeStatuses(existing, incoming)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result["conditions"]).To(HaveExactElements(
+					HaveKeyWithValue("type", "Alpha"),
+					HaveKeyWithValue("type", "Mid"),
+					HaveKeyWithValue("type", "Zeta"),
+				))
+			}
+		})
+
+		It("overwrites when the existing and incoming types differ", func() {
+			existing := map[string]any{"iam": map[string]any{"user": "admin"}}
+			incoming := map[string]any{"iam": "none"}
+
+			result, err := lib.MergeStatuses(existing, incoming)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(HaveKeyWithValue("iam", "none"))
+		})
+
+		It("keeps existing conditions the incoming conditions do not mention", func() {
+			existing := map[string]any{"conditions": []any{
+				map[string]any{"type": "Ready", "status": "True"},
+			}}
+			incoming := map[string]any{"conditions": []any{
+				map[string]any{"type": "Other", "status": "True"},
+			}}
+
+			result, err := lib.MergeStatuses(existing, incoming)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result["conditions"]).To(ConsistOf(
+				HaveKeyWithValue("type", "Ready"),
+				HaveKeyWithValue("type", "Other"),
+			))
+		})
+
+		It("removes all conditions when the incoming conditions are null", func() {
+			existing := map[string]any{"conditions": []any{
+				map[string]any{"type": "Ready", "status": "True"},
+			}}
+			incoming := map[string]any{"conditions": nil}
+
+			result, err := lib.MergeStatuses(existing, incoming)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).NotTo(HaveKey("conditions"))
 		})
 	})
 
