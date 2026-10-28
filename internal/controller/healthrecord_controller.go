@@ -38,6 +38,20 @@ import (
 
 const healthRecordCleanupFinalizer = platformv1alpha1.KratixPrefix + "health-record-cleanup"
 
+// HealthRecordResourceIndex indexes HealthRecords by the resource they report on.
+const HealthRecordResourceIndex = "data.resourceKey"
+
+// HealthRecordResourceKeys is the HealthRecordResourceIndex extractor.
+func HealthRecordResourceKeys(obj client.Object) []string {
+	data := obj.(*platformv1alpha1.HealthRecord).Data
+	return []string{healthRecordResourceKey(data.PromiseRef.Name, data.ResourceRef.Namespace, data.ResourceRef.Name)}
+}
+
+// Looked-up names cannot contain "/", so a record matches only when all three fields are equal.
+func healthRecordResourceKey(promiseName, namespace, resourceName string) string {
+	return promiseName + "/" + namespace + "/" + resourceName
+}
+
 // HealthRecordReconciler reconciles a HealthRecord object.
 type HealthRecordReconciler struct {
 	client.Client
@@ -138,6 +152,12 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *HealthRecordReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	err := mgr.GetFieldIndexer().IndexField(context.Background(), &platformv1alpha1.HealthRecord{},
+		HealthRecordResourceIndex, HealthRecordResourceKeys)
+	if err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1alpha1.HealthRecord{}).
 		Complete(r)
@@ -188,15 +208,15 @@ func resourceHealthRecords(
 	ctx context.Context, c client.Client, promiseName, resourceName, namespace string,
 ) ([]platformv1alpha1.HealthRecord, error) {
 	healthRecords := &platformv1alpha1.HealthRecordList{}
-	if err := c.List(ctx, healthRecords, client.InNamespace(namespace)); err != nil {
+	if err := c.List(ctx, healthRecords, client.InNamespace(namespace), client.MatchingFields{
+		HealthRecordResourceIndex: healthRecordResourceKey(promiseName, namespace, resourceName),
+	}); err != nil {
 		return nil, err
 	}
 
 	var records []platformv1alpha1.HealthRecord
 	for _, record := range healthRecords.Items {
-		ref := record.Data.ResourceRef
-		if record.DeletionTimestamp.IsZero() && record.Data.PromiseRef.Name == promiseName &&
-			ref.Name == resourceName && ref.Namespace == namespace {
+		if record.DeletionTimestamp.IsZero() {
 			records = append(records, record)
 		}
 	}
