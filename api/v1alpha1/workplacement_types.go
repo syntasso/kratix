@@ -76,6 +76,11 @@ type WorkPlacementStatus struct {
 	// Rejected workloads are not delivered again until they change.
 	DeliveryWorkloadsHash string `json:"deliveryWorkloadsHash,omitempty"`
 
+	// +optional
+	// DeliveryMode is the StateStore delivery mode of the latest delivery, including one still outstanding or rejected; empty means the built-in mode.
+	// Kratix delivers the WorkPlacement again when its StateStore's delivery mode differs.
+	DeliveryMode *string `json:"deliveryMode,omitempty"`
+
 	// Status fields set by other controllers, kept so typed status updates do not drop them.
 	Custom map[string]apiextensionsv1.JSON `json:"-"`
 }

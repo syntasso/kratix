@@ -47,7 +47,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -59,6 +61,7 @@ const (
 	kratixFileCleanupWorkPlacementFinalizer  = "finalizers.workplacement.kratix.io/kratix-dot-files-cleanup"
 	scheduleSucceededConditionMismatchReason = "DestinationSelectorMismatch"
 	scheduleSucceededConditionMismatchMsg    = "Target destination no longer matches destinationSelectors"
+	deliveryModeChangedReason                = "DeliveryModeChanged"
 )
 
 type StateFile struct {
@@ -192,7 +195,7 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 	}
 
 	if w.workPlacement.DeletionTimestamp.IsZero() && w.rejectedWorkloadsUnchanged() {
-		return w.updateRejectedGeneration()
+		return w.reconcileUnchangedRejection()
 	}
 
 	destinationReady := apiMeta.FindStatusCondition(w.destination.Status.Conditions, "Ready")
@@ -206,11 +209,7 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 		w.destination.Spec.StateStoreRef.Name,
 	)
 	if err != nil {
-		if errors.Is(err, ErrCacheMiss) {
-			logging.Debug(w.logger, "repository not initialised, requeuing")
-			return defaultRequeue, nil
-		}
-		return ctrl.Result{}, err
+		return w.repositoryUnavailable(err)
 	}
 
 	repo.Lock()
@@ -233,6 +232,10 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 		return fastRequeue, nil
 	}
 
+	if w.deliveryModeChangedTo(repo.DeliveryMode) && w.holdsEarlierDelivery() {
+		return w.deliverAgainWithNewMode(repo.DeliveryMode)
+	}
+
 	if receipt := w.workPlacement.Status.DeliveryReceipt; receipt != "" {
 		return w.resolveOutstandingDelivery(repo, receipt)
 	}
@@ -245,7 +248,30 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	return w.recordDeliveryResult(written)
+	return w.recordDeliveryResult(repo.DeliveryMode, written)
+}
+
+func (w *workPlacementReconcileContext) repositoryUnavailable(err error) (ctrl.Result, error) {
+	if errors.Is(err, ErrCacheMiss) {
+		logging.Debug(w.logger, "repository not initialised, requeuing")
+		return defaultRequeue, nil
+	}
+	return ctrl.Result{}, err
+}
+
+// reconcileUnchangedRejection reads the repository without its lock: it only needs the delivery mode, which never changes.
+func (w *workPlacementReconcileContext) reconcileUnchangedRejection() (ctrl.Result, error) {
+	repo, err := w.repositoryCache.GetRepositoryByTypeAndName(
+		w.destination.Spec.StateStoreRef.Kind,
+		w.destination.Spec.StateStoreRef.Name,
+	)
+	if err != nil {
+		return w.repositoryUnavailable(err)
+	}
+	if w.deliveryModeChangedTo(repo.DeliveryMode) {
+		return w.deliverAgainWithNewMode(repo.DeliveryMode)
+	}
+	return w.updateRejectedGeneration(repo.DeliveryMode)
 }
 
 func (w *workPlacementReconcileContext) rejectedWorkloadsUnchanged() bool {
@@ -259,17 +285,21 @@ func (w *workPlacementReconcileContext) rejectedWorkloadsUnchanged() bool {
 	return w.workPlacement.Status.DeliveryWorkloadsHash == w.currentWorkloadsHash()
 }
 
-func (w *workPlacementReconcileContext) updateRejectedGeneration() (ctrl.Result, error) {
+func (w *workPlacementReconcileContext) updateRejectedGeneration(mode string) (ctrl.Result, error) {
 	written := apiMeta.FindStatusCondition(w.workPlacement.Status.Conditions, v1alpha1.WriteSucceededConditionType)
 	generationChanged := written.ObservedGeneration != w.workPlacement.GetGeneration()
 	hashMissing := w.workPlacement.Status.DeliveryWorkloadsHash == ""
-	if !generationChanged && !hashMissing {
+	modeMissing := w.workPlacement.Status.DeliveryMode == nil
+	if !generationChanged && !hashMissing && !modeMissing {
 		return ctrl.Result{}, nil
 	}
 
 	w.workPlacement.SetWriteRejectedCondition(written.Message)
 	if hashMissing {
 		w.workPlacement.Status.DeliveryWorkloadsHash = w.currentWorkloadsHash()
+	}
+	if modeMissing {
+		w.workPlacement.Status.DeliveryMode = &mode
 	}
 	if err := w.client.Status().Update(w.ctx, w.workPlacement); err != nil {
 		if apierrors.IsConflict(err) {
@@ -321,7 +351,7 @@ func (w *workPlacementReconcileContext) updateWriteFailedStatus(err error) error
 	return w.client.Status().Update(w.ctx, w.workPlacement)
 }
 
-func (w *workPlacementReconcileContext) updateWrittenStatus(written delivery.Result) error {
+func (w *workPlacementReconcileContext) updateWrittenStatus(mode string, written delivery.Result) error {
 	versionID := w.getCachedVersionID(written.VersionID)
 
 	versionChanged := versionID != "" && w.workPlacement.Status.VersionID != versionID
@@ -331,10 +361,12 @@ func (w *workPlacementReconcileContext) updateWrittenStatus(written delivery.Res
 	urlChanged := w.workPlacement.Status.DeliveryURL != written.URL
 	w.workPlacement.Status.DeliveryURL = written.URL
 	w.workPlacement.Status.DeliveryWorkloadsHash = ""
+	modeChanged := !w.deliveryModeIs(mode)
+	w.workPlacement.Status.DeliveryMode = &mode
 	writeSucceededCondChanged := w.workPlacement.SetWriteSucceededCondition()
 	condChanged := w.workPlacement.SetWorkplacementReadyStatus()
 
-	if versionChanged || urlChanged || writeSucceededCondChanged || condChanged {
+	if versionChanged || urlChanged || modeChanged || writeSucceededCondChanged || condChanged {
 		logging.Debug(w.logger, "updating workplacement status")
 		if err := w.client.Status().Update(w.ctx, w.workPlacement); err != nil {
 			return err
@@ -363,6 +395,16 @@ func (w *workPlacementReconcileContext) publishWriteEvent(reason, versionID stri
 func (r *WorkPlacementReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.WorkPlacement{}, builder.WithPredicates(workPlacementReconcilePredicate())).
+		Watches(
+			&v1alpha1.GitStateStore{},
+			handler.EnqueueRequestsFromMapFunc(r.workPlacementsForStateStore(v1alpha1.GitStateStoreKind)),
+			builder.WithPredicates(stateStoreObservedGenerationChanged()),
+		).
+		Watches(
+			&v1alpha1.BucketStateStore{},
+			handler.EnqueueRequestsFromMapFunc(r.workPlacementsForStateStore(v1alpha1.BucketStateStoreKind)),
+			builder.WithPredicates(stateStoreObservedGenerationChanged()),
+		).
 		Complete(r)
 }
 
@@ -614,7 +656,7 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	return w.recordDeliveryResult(result)
+	return w.recordDeliveryResult(repo.DeliveryMode, result)
 }
 
 // clearSupersededFailure marks the WorkPlacement as Pending before a new delivery starts when the generation has changed
@@ -659,7 +701,7 @@ func checkInterval(result delivery.Result) time.Duration {
 	return result.CheckAfter
 }
 
-func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Result) (ctrl.Result, error) {
+func (w *workPlacementReconcileContext) recordDeliveryResult(mode string, result delivery.Result) (ctrl.Result, error) {
 	switch result.Outcome {
 	case delivery.Pending:
 		deliveredGeneration := w.workPlacement.GetGeneration()
@@ -669,6 +711,7 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 			w.workPlacement.Status.DeliveryGeneration = deliveredGeneration
 			w.workPlacement.Status.DeliveryWorkloadsHash = deliveredHash
 			w.workPlacement.Status.DeliveryURL = result.URL
+			w.workPlacement.Status.DeliveryMode = &mode
 			w.workPlacement.SetWriteDeferredCondition(resourceutil.CutToRunes(result.Reason, writeMessageMaxRunes))
 			return true
 		}); err != nil {
@@ -685,6 +728,7 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 			w.clearOutstandingDelivery()
 			w.workPlacement.Status.DeliveryURL = result.URL
 			w.workPlacement.Status.DeliveryWorkloadsHash = rejectedHash
+			w.workPlacement.Status.DeliveryMode = &mode
 			w.workPlacement.SetWriteRejectedCondition(resourceutil.CutToRunes(result.Reason, writeMessageMaxRunes))
 			return true
 		})
@@ -700,7 +744,7 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(result delivery.Res
 		w.clearOutstandingDelivery()
 		w.setVersionID(result.VersionID)
 		w.publishWriteEvent("WorkloadsWrittenToStateStore", result.VersionID, nil)
-		if err := w.updateWrittenStatus(result); err != nil {
+		if err := w.updateWrittenStatus(mode, result); err != nil {
 			if apierrors.IsConflict(err) {
 				return fastRequeue, nil
 			}
@@ -894,7 +938,103 @@ func getDir(destinationPath string, workPlacement v1alpha1.WorkPlacement) string
 	}
 }
 
+func (w *workPlacementReconcileContext) holdsEarlierDelivery() bool {
+	if w.workPlacement.Status.DeliveryReceipt != "" {
+		return true
+	}
+	written := apiMeta.FindStatusCondition(w.workPlacement.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+	return written != nil && written.Status == metav1.ConditionFalse && written.Reason == v1alpha1.WorkloadsRejectedReason
+}
+
+// deliverAgainWithNewMode drops the outstanding or rejected delivery, which the new mode's writer cannot resolve.
+func (w *workPlacementReconcileContext) deliverAgainWithNewMode(mode string) (ctrl.Result, error) {
+	earlierDelivery := "The earlier delivery"
+	if url := w.workPlacement.Status.DeliveryURL; url != "" {
+		earlierDelivery += ", " + url + ","
+	}
+	message := fmt.Sprintf("delivery mode changed from %q to %q; delivering the workloads again with the new mode. %s is left as it is",
+		deliveryModeName(*w.workPlacement.Status.DeliveryMode), deliveryModeName(mode), earlierDelivery)
+
+	if _, err := w.persistDeliveryStatus(func() bool {
+		w.clearOutstandingDelivery()
+		w.workPlacement.Status.DeliveryWorkloadsHash = ""
+		w.workPlacement.Status.DeliveryURL = ""
+		w.workPlacement.Status.DeliveryMode = &mode
+		w.workPlacement.SetWriteDeferredCondition("delivering the current workloads")
+		return true
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	logging.Warn(w.logger, message)
+	w.eventRecorder.Eventf(w.workPlacement, nil, v1.EventTypeWarning, deliveryModeChangedReason, deliveryModeChangedReason, "%s", message)
+	return fastRequeue, nil
+}
+
+func deliveryModeName(mode string) string {
+	if mode == delivery.BuiltIn {
+		return "built-in"
+	}
+	return mode
+}
+
+func (w *workPlacementReconcileContext) deliveryModeIs(mode string) bool {
+	recorded := w.workPlacement.Status.DeliveryMode
+	return recorded != nil && *recorded == mode
+}
+
+// deliveryModeChangedTo is false while no mode is recorded: an unknown mode is not a change.
+func (w *workPlacementReconcileContext) deliveryModeChangedTo(mode string) bool {
+	return w.workPlacement.Status.DeliveryMode != nil && !w.deliveryModeIs(mode)
+}
+
 func (w *workPlacementReconcileContext) clearOutstandingDelivery() {
 	w.workPlacement.Status.DeliveryReceipt = ""
 	w.workPlacement.Status.DeliveryGeneration = 0
+}
+
+// workPlacementsForStateStore lists the WorkPlacements to deliver again once the state store's writer is rebuilt.
+func (r *WorkPlacementReconciler) workPlacementsForStateStore(stateStoreKind string) handler.MapFunc {
+	return func(ctx context.Context, stateStore client.Object) []reconcile.Request {
+		destinations := &v1alpha1.DestinationList{}
+		if err := r.Client.List(ctx, destinations); err != nil {
+			logging.Error(r.Log, err, "error listing destinations for state store", "stateStore", stateStore.GetName())
+			return nil
+		}
+
+		var requests []reconcile.Request
+		for _, destination := range destinations.Items {
+			ref := destination.Spec.StateStoreRef
+			if ref == nil || ref.IsManagedByCustomController() ||
+				ref.Kind != stateStoreKind || ref.Name != stateStore.GetName() {
+				continue
+			}
+
+			workPlacements := &v1alpha1.WorkPlacementList{}
+			if err := r.Client.List(ctx, workPlacements, client.MatchingLabels{
+				TargetDestinationNameLabel: destination.GetName(),
+			}); err != nil {
+				logging.Error(r.Log, err, "error listing workplacements for destination", "destination", destination.GetName())
+				continue
+			}
+			for _, workPlacement := range workPlacements.Items {
+				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&workPlacement)})
+			}
+		}
+		return requests
+	}
+}
+
+// stateStoreObservedGenerationChanged passes a state store once its controller has rebuilt the writer.
+func stateStoreObservedGenerationChanged() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return false },
+		DeleteFunc:  func(event.DeleteEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldStore, oldOK := e.ObjectOld.(StateStore)
+			newStore, newOK := e.ObjectNew.(StateStore)
+			return oldOK && newOK && oldStore.GetObservedGeneration() != newStore.GetObservedGeneration()
+		},
+	}
 }

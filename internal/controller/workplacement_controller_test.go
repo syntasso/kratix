@@ -46,8 +46,10 @@ import (
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -1584,6 +1586,270 @@ files:
 
 				Expect(deferredWriter.DeleteFilesCallCount()).To(Equal(1))
 			})
+		})
+
+		When("the state store's delivery mode changes", func() {
+			var newWriter *fakeDeferredWriter
+
+			useRepository := func(writer delivery.Writer, mode string) {
+				repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{Writer: writer, DeliveryMode: mode}, nil)
+			}
+
+			modeChangedEvents := func() []string {
+				var found []string
+				for {
+					select {
+					case event := <-workplacementRecorder.Events:
+						if strings.Contains(event, "DeliveryModeChanged") {
+							found = append(found, event)
+						}
+					default:
+						return found
+					}
+				}
+			}
+
+			readStatus := func() v1alpha1.WorkPlacementStatus {
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+				return workPlacement.Status
+			}
+
+			forgetDeliveryMode := func() {
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+				workPlacement.Status.DeliveryMode = nil
+				Expect(fakeK8sClient.Status().Update(ctx, &workPlacement)).To(Succeed())
+			}
+
+			BeforeEach(func() {
+				newWriter = &fakeDeferredWriter{
+					FakeStateStoreWriter: &writersfakes.FakeStateStoreWriter{},
+					deliverResult:        delivery.Result{Outcome: delivery.Delivered, VersionID: "v-new"},
+				}
+				useRepository(deferredWriter, "x")
+			})
+
+			When("a delivery is outstanding", func() {
+				BeforeEach(func() {
+					reconcileTimes(2)
+					Expect(readStatus().DeliveryReceipt).To(Equal("receipt-1"))
+					Expect(workPlacement.Status.DeliveryMode).To(Equal(ptr.To("x")))
+				})
+
+				It("drops the outstanding delivery and delivers again with the new mode", func() {
+					useRepository(newWriter, "")
+
+					reconcileTimes(1)
+
+					Expect(modeChangedEvents()).To(ConsistOf(
+						`Warning DeliveryModeChanged delivery mode changed from "x" to "built-in"; ` +
+							`delivering the workloads again with the new mode. ` +
+							`The earlier delivery, https://h/pr/7, is left as it is`))
+					status := readStatus()
+					Expect(status.DeliveryReceipt).To(BeEmpty())
+					Expect(status.DeliveryGeneration).To(BeZero())
+					Expect(status.DeliveryURL).To(BeEmpty())
+					Expect(status.DeliveryMode).To(Equal(ptr.To("")))
+					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).To(Equal("WorkloadsAwaitingDelivery"))
+					Expect(newWriter.checkReceipts).To(BeEmpty())
+					Expect(newWriter.deliverCalls).To(Equal(0))
+
+					By("delivering with the new writer on the next reconcile")
+					reconcileTimes(1)
+
+					Expect(newWriter.deliverCalls).To(Equal(1))
+					Expect(newWriter.checkReceipts).To(BeEmpty())
+					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
+					Expect(workPlacement.Status.DeliveryMode).To(Equal(ptr.To("")))
+				})
+
+				It("checks the delivery as before when only the configuration changed", func() {
+					useRepository(newWriter, "x")
+					newWriter.checkResult = delivery.Result{Outcome: delivery.Pending, Receipt: "receipt-1"}
+
+					reconcileTimes(1)
+
+					Expect(modeChangedEvents()).To(BeEmpty())
+					Expect(newWriter.checkReceipts).To(ConsistOf("receipt-1"))
+					Expect(newWriter.deliverCalls).To(Equal(0))
+				})
+
+				It("records the current mode without delivering again when no mode was recorded", func() {
+					forgetDeliveryMode()
+					useRepository(newWriter, "y")
+					newWriter.checkResult = delivery.Result{Outcome: delivery.Pending, Receipt: "receipt-1"}
+
+					reconcileTimes(1)
+
+					Expect(modeChangedEvents()).To(BeEmpty())
+					Expect(newWriter.checkReceipts).To(ConsistOf("receipt-1"))
+					Expect(newWriter.deliverCalls).To(Equal(0))
+					Expect(readStatus().DeliveryMode).To(Equal(ptr.To("y")))
+				})
+			})
+
+			When("a delivery was rejected", func() {
+				BeforeEach(func() {
+					reconcileTimes(2)
+					deferredWriter.checkResult = delivery.Result{
+						Outcome: delivery.Rejected, Reason: "closed without merging", URL: "https://h/pr/8",
+					}
+					reconcileTimes(1)
+					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).To(Equal("WorkloadsRejected"))
+					Expect(workPlacement.Status.DeliveryMode).To(Equal(ptr.To("x")))
+				})
+
+				It("drops the rejection and writes the workloads with the built-in writer", func() {
+					fakeWriter.UpdateFilesReturns("sha-direct", nil)
+					useRepository(delivery.Direct(fakeWriter), delivery.BuiltIn)
+
+					reconcileTimes(1)
+
+					Expect(modeChangedEvents()).To(ConsistOf(
+						`Warning DeliveryModeChanged delivery mode changed from "x" to "built-in"; ` +
+							`delivering the workloads again with the new mode. ` +
+							`The earlier delivery, https://h/pr/8, is left as it is`))
+					written := readCondition(v1alpha1.WriteSucceededConditionType)
+					Expect(written.Status).To(Equal(metav1.ConditionUnknown))
+					Expect(written.Reason).To(Equal("WorkloadsAwaitingDelivery"))
+					Expect(workPlacement.Status.DeliveryWorkloadsHash).To(BeEmpty())
+					Expect(workPlacement.Status.DeliveryURL).To(BeEmpty())
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(0))
+
+					By("writing the workloads on the next reconcile")
+					reconcileTimes(1)
+
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
+					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
+					Expect(workPlacement.Status.VersionID).To(Equal("sha-direct"))
+					Expect(workPlacement.Status.DeliveryMode).To(Equal(ptr.To("")))
+				})
+
+				It("keeps the rejection when only the configuration changed", func() {
+					useRepository(newWriter, "x")
+
+					reconcileTimes(1)
+
+					Expect(modeChangedEvents()).To(BeEmpty())
+					Expect(newWriter.deliverCalls).To(Equal(0))
+					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).To(Equal("WorkloadsRejected"))
+				})
+
+				It("records the current mode and keeps the rejection when no mode was recorded", func() {
+					forgetDeliveryMode()
+					useRepository(newWriter, "y")
+
+					reconcileTimes(1)
+
+					Expect(modeChangedEvents()).To(BeEmpty())
+					Expect(newWriter.deliverCalls).To(Equal(0))
+					Expect(deferredWriter.deliverCalls).To(Equal(1))
+					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).To(Equal("WorkloadsRejected"))
+					Expect(workPlacement.Status.DeliveryMode).To(Equal(ptr.To("y")))
+				})
+
+				It("waits for the repository when it is not in the cache yet", func() {
+					repositoryCache.GetRepositoryByTypeAndNameReturns(nil, controller.ErrCacheMiss)
+
+					result := reconcileTimes(1)
+
+					Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).To(Equal("WorkloadsRejected"))
+				})
+			})
+
+			When("the workloads were delivered with the built-in mode", func() {
+				BeforeEach(func() {
+					deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "v1"}
+					useRepository(deferredWriter, delivery.BuiltIn)
+					reconcileTimes(2)
+					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
+					Expect(workPlacement.Status.DeliveryMode).To(Equal(ptr.To("")))
+				})
+
+				It("delivers them again with the new mode without a warning", func() {
+					useRepository(newWriter, "x")
+
+					reconcileTimes(1)
+
+					Expect(modeChangedEvents()).To(BeEmpty())
+					Expect(newWriter.deliverCalls).To(Equal(1))
+					Expect(readStatus().DeliveryMode).To(Equal(ptr.To("x")))
+				})
+			})
+		})
+	})
+})
+
+var _ = Describe("WorkPlacements for a state store", func() {
+	var reconciler *controller.WorkPlacementReconciler
+
+	destinationFor := func(name string, ref v1alpha1.StateStoreReference) {
+		Expect(fakeK8sClient.Create(ctx, &v1alpha1.Destination{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec:       v1alpha1.DestinationSpec{StateStoreRef: &ref},
+		})).To(Succeed())
+		wp := createWorkPlacement("wp-on-"+name, nil)
+		wp.Labels[controller.TargetDestinationNameLabel] = name
+		wp.Spec.TargetDestinationName = name
+		Expect(fakeK8sClient.Create(ctx, &wp)).To(Succeed())
+	}
+
+	BeforeEach(func() {
+		reconciler = &controller.WorkPlacementReconciler{Client: fakeK8sClient, Log: ctrl.Log}
+		destinationFor("dest-a", v1alpha1.StateStoreReference{Kind: "GitStateStore", Name: "store-1"})
+		destinationFor("dest-b", v1alpha1.StateStoreReference{Kind: "GitStateStore", Name: "store-1"})
+		destinationFor("dest-bucket", v1alpha1.StateStoreReference{Kind: "BucketStateStore", Name: "store-1"})
+		destinationFor("dest-other", v1alpha1.StateStoreReference{Kind: "GitStateStore", Name: "store-2"})
+		destinationFor("dest-custom", v1alpha1.StateStoreReference{
+			APIVersion: "custom.example.com/v1", Kind: "GitStateStore", Name: "store-1",
+		})
+	})
+
+	It("enqueues the WorkPlacements on the Destinations that use the state store", func() {
+		store := &v1alpha1.GitStateStore{ObjectMeta: metav1.ObjectMeta{Name: "store-1"}}
+
+		requests := controller.WorkPlacementsForStateStore(reconciler, v1alpha1.GitStateStoreKind)(ctx, store)
+
+		Expect(requests).To(ConsistOf(
+			ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "wp-on-dest-a"}},
+			ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "wp-on-dest-b"}},
+		))
+	})
+
+	It("tells a bucket store apart from a git store with the same name", func() {
+		store := &v1alpha1.BucketStateStore{ObjectMeta: metav1.ObjectMeta{Name: "store-1"}}
+
+		requests := controller.WorkPlacementsForStateStore(reconciler, v1alpha1.BucketStateStoreKind)(ctx, store)
+
+		Expect(requests).To(ConsistOf(
+			ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "wp-on-dest-bucket"}},
+		))
+	})
+
+	Describe("the predicate", func() {
+		storeAt := func(observedGeneration int64, status string) *v1alpha1.GitStateStore {
+			store := &v1alpha1.GitStateStore{ObjectMeta: metav1.ObjectMeta{Name: "store-1"}}
+			store.Status.ObservedGeneration = observedGeneration
+			store.Status.Status = status
+			return store
+		}
+
+		It("passes an update that changes the observed generation", func() {
+			Expect(controller.StateStoreObservedGenerationChangedPredicate().Update(event.UpdateEvent{
+				ObjectOld: storeAt(1, "Ready"), ObjectNew: storeAt(2, "Ready"),
+			})).To(BeTrue())
+		})
+
+		It("drops an update that leaves the observed generation alone", func() {
+			Expect(controller.StateStoreObservedGenerationChangedPredicate().Update(event.UpdateEvent{
+				ObjectOld: storeAt(2, "Ready"), ObjectNew: storeAt(2, "NotReady"),
+			})).To(BeFalse())
+		})
+
+		It("drops a create, since the WorkPlacements wait for a new repository on their own", func() {
+			Expect(controller.StateStoreObservedGenerationChangedPredicate().Create(event.CreateEvent{
+				Object: storeAt(1, "Ready"),
+			})).To(BeFalse())
 		})
 	})
 })
