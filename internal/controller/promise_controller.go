@@ -1125,6 +1125,15 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 		return false, result, nil
 	}
 
+	// suspended label with no delete pipeline status means suspend comes from the configure workflow
+	deleteWorkflowStarted := len(promise.Status.Kratix.Workflows["delete"].Pipelines) > 0
+	if !promise.DeletionTimestamp.IsZero() && !deleteWorkflowStarted {
+		logging.Info(o.logger, "promise is being deleted while its configure workflow is suspended; "+
+			"removing the workflow-suspended label so we can proceed with delete")
+		delete(promise.Labels, v1alpha1.WorkflowSuspendedLabel)
+		return true, result, r.Client.Update(o.ctx, promise)
+	}
+
 	if isManualReconcile(promise) || promiseSpecChanged {
 		promise.Labels[resourceutil.WorkflowRunFromStartLabel] = "true"
 		if promiseSpecChanged {

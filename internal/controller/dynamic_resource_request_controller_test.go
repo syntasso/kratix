@@ -405,6 +405,48 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
+		When("the configure pipeline was suspended when the delete was requested", func() {
+			var deleteWorkflowCalled bool
+
+			BeforeEach(func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+				labels := resReq.GetLabels()
+				labels[v1alpha1.WorkflowSuspendedLabel] = "true"
+				resReq.SetLabels(labels)
+				Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+				Expect(unstructured.SetNestedSlice(resReq.Object, []any{
+					map[string]any{
+						"name":        "configure",
+						"phase":       "Suspended",
+						"nextRetryAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+					},
+				}, "status", "kratix", "workflows", "configure", "pipelines")).To(Succeed())
+				Expect(unstructured.SetNestedField(resReq.Object, int64(1),
+					"status", "kratix", "workflows", "configure", "suspendedGeneration")).To(Succeed())
+				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+				deleteWorkflowCalled = false
+				controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+					deleteWorkflowCalled = true
+					return true, nil
+				})
+			})
+
+			It("removes the workflow-suspended label and runs the delete workflow", func() {
+				_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				Expect(resReq.GetLabels()).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+
+				_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(deleteWorkflowCalled).To(BeTrue())
+			})
+		})
+
 		When("the delete pipeline is actively suspended (waiting before Works are deleted)", func() {
 			BeforeEach(func() {
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())

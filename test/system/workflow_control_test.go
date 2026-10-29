@@ -41,7 +41,7 @@ var _ = Describe("Workflow Control", func() {
 		kubeutils.SetTimeoutAndInterval(4*time.Minute, 2*time.Second)
 	})
 
-	When("the file has 'retryAfter' set", func() {
+	When("the configure workflow has 'retryAfter' set", Ordered, ContinueOnFailure, func() {
 		BeforeEach(func() {
 			// clear all retry gates in case a previous run was interrupted
 			platform.EventuallyKubectlDelete("cm", retryDependentCM, "-n", "kratix-platform-system", "--ignore-not-found")
@@ -126,6 +126,42 @@ var _ = Describe("Workflow Control", func() {
 					g.Expect(platform.Kubectl("get", "workflowretries", "retry-test", `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(BeEmpty())
 				}).Should(Succeed())
 			})
+		})
+
+		It("runs the delete workflow when a resource request is deleted while its configure workflow is suspended", func() {
+			platform.Kubectl("create", "-n", "kratix-platform-system", "cm", retryDependentCM)
+			platform.Kubectl("apply", "-f", "assets/workflow-control/promise-retry.yaml")
+			Eventually(func(g Gomega) {
+				g.Expect(platform.Kubectl("get", "promise", retryPromiseName)).To(ContainSubstring("Available"))
+			}).Should(Succeed())
+
+			platform.Kubectl("apply", "-f", "assets/workflow-control/resource-request-retry.yaml")
+			Eventually(func(g Gomega) {
+				state := pipelineState("workflowretries", "retry-test", "resource-pipe-retry")
+				g.Expect(state.phase).To(Equal("Suspended"))
+				g.Expect(state.suspendedLabel).To(Equal("true"))
+			}).Should(Succeed())
+
+			platform.Kubectl("create", "cm", "workflow-retry-delete-gate", "-n", "default")
+			platform.Kubectl("delete", "-f", "assets/workflow-control/resource-request-retry.yaml", "--wait=false")
+			Eventually(func(g Gomega) {
+				g.Expect(platform.KubectlAllowFail("get", "workflowretries", "retry-test")).To(ContainSubstring("not found"))
+			}).Should(Succeed())
+		})
+
+		It("runs the delete workflow when a promise is deleted while its configure workflow is suspended", func() {
+			platform.Kubectl("apply", "-f", "assets/workflow-control/promise-retry.yaml")
+			Eventually(func(g Gomega) {
+				state := pipelineState("promise", retryPromiseName, "pipe-retry")
+				g.Expect(state.phase).To(Equal("Suspended"))
+				g.Expect(state.suspendedLabel).To(Equal("true"))
+			}).Should(Succeed())
+
+			platform.Kubectl("create", "cm", "workflow-retry-promise-delete-gate", "-n", "kratix-platform-system")
+			platform.Kubectl("delete", "promise", retryPromiseName, "--wait=false")
+			Eventually(func(g Gomega) {
+				g.Expect(platform.KubectlAllowFail("get", "promise", retryPromiseName)).To(ContainSubstring("not found"))
+			}).Should(Succeed())
 		})
 	})
 
