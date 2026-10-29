@@ -823,19 +823,15 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 	}
 	suspendedGeneration, _, _ := unstructured.NestedInt64(rr.Object, "status", "kratix", "workflows", workflowKey, "suspendedGeneration")
 
-	configureSuspendedGenPath := []string{"status", "kratix", "workflows", "configure", "suspendedGeneration"}
-	configureSuspendedGen, _, _ := unstructured.NestedInt64(rr.Object, configureSuspendedGenPath...)
-	if workflowKey == "delete" && suspendedGeneration == 0 && configureSuspendedGen != 0 {
+	// suspended label with no delete pipeline status means suspend comes from the configure workflow
+	_, deleteWorkflowStarted, _ := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "delete", "pipelines")
+	if workflowKey == "delete" && !deleteWorkflowStarted {
 		logging.Info(logger, "resource request is being deleted while its configure workflow is suspended; "+
-			"removing the workflow-suspended label so the delete workflow can run")
+			"removing the workflow-suspended label so we can proceed with delete")
 		resourceLabels := rr.GetLabels()
 		delete(resourceLabels, v1alpha1.WorkflowSuspendedLabel)
 		rr.SetLabels(resourceLabels)
-		if err := r.Client.Update(ctx, rr); err != nil {
-			return true, nil, err
-		}
-		unstructured.RemoveNestedField(rr.Object, configureSuspendedGenPath...)
-		return true, nil, r.Client.Status().Update(ctx, rr)
+		return true, nil, r.Client.Update(ctx, rr)
 	}
 
 	resourceSpecChanged := suspendedGeneration != 0 &&

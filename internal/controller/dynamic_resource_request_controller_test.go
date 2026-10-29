@@ -440,9 +440,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 				Expect(resReq.GetLabels()).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
-				_, found, _ := unstructured.NestedInt64(resReq.Object,
-					"status", "kratix", "workflows", "configure", "suspendedGeneration")
-				Expect(found).To(BeFalse())
 
 				_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
 				Expect(err).NotTo(HaveOccurred())

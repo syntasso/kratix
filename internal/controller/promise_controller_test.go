@@ -1559,7 +1559,6 @@ var _ = Describe("PromiseController", func() {
 
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 						Expect(promise.GetLabels()).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
-						Expect(promise.Status.Kratix.Workflows["configure"].SuspendedGeneration).To(BeZero())
 
 						_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
 						Expect(err).NotTo(HaveOccurred())
