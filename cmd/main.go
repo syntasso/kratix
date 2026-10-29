@@ -413,6 +413,7 @@ func main() {
 	}
 	if err = (&controller.BucketStateStoreReconciler{
 		Client:          mgr.GetClient(),
+		APIReader:       mgr.GetAPIReader(),
 		Scheme:          mgr.GetScheme(),
 		Log:             ctrl.Log.WithName("controllers").WithName("BucketStateStoreController"),
 		EventRecorder:   mgr.GetEventRecorder("BucketStateStoreController"),
@@ -424,6 +425,7 @@ func main() {
 
 	if err := (&controller.GitStateStoreReconciler{
 		Client:          mgr.GetClient(),
+		APIReader:       mgr.GetAPIReader(),
 		Scheme:          mgr.GetScheme(),
 		Log:             ctrl.Log.WithName("controllers").WithName("GitStateStore"),
 		EventRecorder:   mgr.GetEventRecorder("GitStateStoreController"),

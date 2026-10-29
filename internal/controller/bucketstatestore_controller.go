@@ -37,6 +37,8 @@ import (
 // BucketStateStoreReconciler reconciles a BucketStateStore object
 type BucketStateStoreReconciler struct {
 	client.Client
+	// APIReader reads from the API server: the cache can miss a delivery receipt written a moment ago.
+	APIReader       client.Reader
 	Scheme          *runtime.Scheme
 	Log             logr.Logger
 	EventRecorder   events.EventRecorder
@@ -87,6 +89,7 @@ func (r *BucketStateStoreReconciler) newReconcileContext(ctx context.Context, lo
 		controller:      "BucketStateStore",
 		logger:          logger.WithValues("generation", bucketStateStore.GetGeneration()),
 		client:          r.Client,
+		apiReader:       r.APIReader,
 		stateStore:      bucketStateStore,
 		repositoryCache: r.RepositoryCache,
 		eventRecorder:   r.EventRecorder,

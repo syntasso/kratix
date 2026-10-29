@@ -37,6 +37,8 @@ import (
 // GitStateStoreReconciler reconciles a GitStateStore object
 type GitStateStoreReconciler struct {
 	client.Client
+	// APIReader reads from the API server: the cache can miss a delivery receipt written a moment ago.
+	APIReader       client.Reader
 	Scheme          *runtime.Scheme
 	Log             logr.Logger
 	EventRecorder   events.EventRecorder
@@ -91,6 +93,7 @@ func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logge
 		controller:      "GitStateStore",
 		logger:          logger.WithValues("generation", gitStateStore.GetGeneration()),
 		client:          r.Client,
+		apiReader:       r.APIReader,
 		stateStore:      gitStateStore,
 		repositoryCache: r.RepositoryCache,
 		eventRecorder:   r.EventRecorder,

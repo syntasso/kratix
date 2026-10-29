@@ -43,6 +43,8 @@ const (
 	StateStoreNotReadyErrorInitialisingWriterMessage    = "Error initialising writer"
 	StateStoreNotReadyErrorValidatingPermissionsReason  = "ErrorValidatingPermissions"
 	StateStoreNotReadyErrorValidatingPermissionsMessage = "Error validating state store permissions"
+	StateStoreNotReadyRetireFailedReason                = "RetireFailed"
+	StateStoreDeliveryModeNotRegisteredReason           = "DeliveryModeNotRegistered"
 )
 
 var (

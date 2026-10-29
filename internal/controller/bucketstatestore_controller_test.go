@@ -74,6 +74,7 @@ var _ = Describe("BucketStateStore Controller", func() {
 
 		reconciler = &controller.BucketStateStoreReconciler{
 			Client:          fakeK8sClient,
+			APIReader:       fakeK8sClient,
 			Scheme:          scheme.Scheme,
 			Log:             ctrl.Log.WithName("controllers").WithName("BucketStateStore"),
 			EventRecorder:   eventRecorder,

@@ -131,15 +131,9 @@ func (c *repositoryCache) GetRepositoryByTypeAndName(stateStoreType string, name
 
 func (c *repositoryCache) initGitRepository(logger logr.Logger, store StateStore, secret corev1.Secret) (*Repository, *StateStoreError) {
 	stateStore := store.(*v1alpha1.GitStateStore)
-	gitWriter, err := newGitWriter(
-		logger.WithName("writers").WithName("GitStateStoreWriter"),
-		stateStore.Spec,
-		"",
-		secret.Data,
-		writers.WithMinimumFetchInterval(c.gitMinimumFetchInterval),
-	)
+	gitWriter, err := newBaseWriter(logger, store, secret.Data, writers.WithMinimumFetchInterval(c.gitMinimumFetchInterval))
 	if err != nil {
-		return nil, NewInitialiseWriterError(fmt.Errorf("unable to create git writer: %w", err))
+		return nil, NewInitialiseWriterError(err)
 	}
 
 	repoDir, err := gitWriter.Init(stateStore.Spec.Branch)
@@ -159,6 +153,29 @@ func (c *repositoryCache) initGitRepository(logger logr.Logger, store StateStore
 		Writer:        writer,
 	}
 	return repo, nil
+}
+
+// newBaseWriter builds the writer the state store uses on its own, without calling Init.
+func newBaseWriter(logger logr.Logger, store StateStore, creds map[string][]byte,
+	gitOpts ...writers.GitWriterOption) (writers.StateStoreWriter, error) {
+	switch stateStore := store.(type) {
+	case *v1alpha1.GitStateStore:
+		writer, err := newGitWriter(logger.WithName("writers").WithName("GitStateStoreWriter"),
+			stateStore.Spec, "", creds, gitOpts...)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create git writer: %w", err)
+		}
+		return writer, nil
+	case *v1alpha1.BucketStateStore:
+		writer, err := newS3Writer(logger.WithName("writers").WithName("S3StateStoreWriter"),
+			stateStore.Spec, "", creds)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create bucket writer: %w", err)
+		}
+		return writer, nil
+	default:
+		return nil, fmt.Errorf("unknown state store type: %T", store)
+	}
 }
 
 // writerForDelivery wraps the writer the state store built for itself, which every write path uses.
@@ -182,16 +199,9 @@ func writerForDelivery(store StateStore, base writers.StateStoreWriter,
 }
 
 func (c *repositoryCache) initBucketRepository(logger logr.Logger, store StateStore, secret corev1.Secret) (*Repository, *StateStoreError) {
-	stateStore := store.(*v1alpha1.BucketStateStore)
-	s3Writer, err := newS3Writer(
-		logger.WithName("writers").WithName("S3StateStoreWriter"),
-		stateStore.Spec,
-		"",
-		secret.Data,
-	)
-
+	s3Writer, err := newBaseWriter(logger, store, secret.Data)
 	if err != nil {
-		return nil, NewInitialiseWriterError(fmt.Errorf("unable to create bucket writer: %w", err))
+		return nil, NewInitialiseWriterError(err)
 	}
 
 	writer, deliveryErr := writerForDelivery(store, s3Writer, secret.Data)

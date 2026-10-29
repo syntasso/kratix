@@ -182,6 +182,23 @@ spec:
                   - type
                   type: object
                 type: array
+              delivery:
+                description: |-
+                  delivery is the delivery block the state store's writer was last built with. Kratix uses it
+                  to retire the old mode when spec.delivery changes.
+                properties:
+                  config:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Config is handed to the registered writer and is not read by Kratix. Which keys it needs,
+                      and whether it needs any, depends on the mode.
+                    type: object
+                  mode:
+                    description: Mode names a registered writer. Leaving it unset
+                      writes to the StateStore directly.
+                    type: string
+                type: object
               observedGeneration:
                 description: The generation last observed by the controller
                 format: int64

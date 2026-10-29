@@ -78,6 +78,10 @@ type StateStoreStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// The generation last observed by the controller
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// delivery is the delivery block the state store's writer was last built with. Kratix uses it
+	// to retire the old mode when spec.delivery changes.
+	// +optional
+	Delivery *Delivery `json:"delivery,omitempty"`
 }
 
 // +kubebuilder:object:root=true
