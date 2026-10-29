@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -204,30 +206,63 @@ func (c *repositoryCache) initBucketRepository(logger logr.Logger, store StateSt
 	return repo, nil
 }
 
+// Cleanup waits for any write in progress, then makes the repository refuse every later write.
 func (c *repositoryCache) Cleanup(stateStore StateStore) error {
+	repo, err := c.remove(stateStore)
+	if err != nil || repo == nil {
+		return err
+	}
+
+	repo.Lock()
+	defer repo.Unlock()
+	repo.Writer = cleanedUpWriter{}
+	if repo.Path == "" {
+		return nil
+	}
+	return os.RemoveAll(repo.Path)
+}
+
+func (c *repositoryCache) remove(stateStore StateStore) (*Repository, error) {
 	c.Lock()
 	defer c.Unlock()
 
-	kind := stateStore.GetObjectKind().GroupVersionKind().Kind
-	name := stateStore.GetName()
-
-	var repo *Repository
-	var found bool
-
-	switch kind {
+	var entries map[string]*Repository
+	switch kind := stateStore.GetObjectKind().GroupVersionKind().Kind; kind {
 	case v1alpha1.GitStateStoreKind:
-		if repo, found = c.gitRepositoryCache[name]; !found {
-			return nil
-		}
-		delete(c.gitRepositoryCache, name)
-		return os.RemoveAll(repo.Path)
+		entries = c.gitRepositoryCache
 	case v1alpha1.BucketStateStoreKind:
-		if _, found = c.s3RepositoryCache[name]; !found {
-			return nil
-		}
-		delete(c.s3RepositoryCache, name)
-		return nil
+		entries = c.s3RepositoryCache
 	default:
-		return fmt.Errorf("unknown state store type: %s", kind)
+		return nil, fmt.Errorf("unknown state store type: %s", kind)
 	}
+
+	repo := entries[stateStore.GetName()]
+	delete(entries, stateStore.GetName())
+	return repo, nil
+}
+
+var errRepositoryCleanedUp = errors.New("repository was cleaned up because its state store changed")
+
+// cleanedUpWriter is the writer of a repository removed from the cache.
+type cleanedUpWriter struct{}
+
+func (cleanedUpWriter) Init(string) (string, error) { return "", errRepositoryCleanedUp }
+func (cleanedUpWriter) Reset() error                { return errRepositoryCleanedUp }
+func (cleanedUpWriter) UpdateFiles(string, string, []v1alpha1.Workload, []string) (string, error) {
+	return "", errRepositoryCleanedUp
+}
+func (cleanedUpWriter) ReadFile(string) ([]byte, error)    { return nil, errRepositoryCleanedUp }
+func (cleanedUpWriter) ValidatePermissions() error         { return errRepositoryCleanedUp }
+func (cleanedUpWriter) DeleteFiles(string, []string) error { return errRepositoryCleanedUp }
+func (cleanedUpWriter) Check(context.Context, string) (delivery.Result, error) {
+	return delivery.Result{}, errRepositoryCleanedUp
+}
+func (cleanedUpWriter) Deliver(context.Context, delivery.Target, []v1alpha1.Workload, []string) (delivery.Result, error) {
+	return delivery.Result{}, errRepositoryCleanedUp
+}
+func (cleanedUpWriter) WriteCanary(context.Context, string, []v1alpha1.Workload) (bool, error) {
+	return false, errRepositoryCleanedUp
+}
+func (cleanedUpWriter) RemoveCanary(context.Context, string, []string) error {
+	return errRepositoryCleanedUp
 }

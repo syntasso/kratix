@@ -222,5 +222,17 @@ var _ = Describe("GitStateStore Controller", func() {
 					"Warning NotReady Error validating state store permissions: ARGH!")))
 			})
 		})
+
+		It("returns from a reconcile when the writer fails to validate permissions", func() {
+			fakeWriter.ValidatePermissionsReturns(errors.New("ARGH!"))
+
+			done := make(chan ctrl.Result, 1)
+			go func() {
+				result, _ := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: testGitStateStoreName})
+				done <- result
+			}()
+
+			Eventually(done, 5*time.Second).Should(Receive(Equal(ctrl.Result{RequeueAfter: 15 * time.Second})))
+		})
 	})
 })

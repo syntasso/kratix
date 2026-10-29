@@ -126,12 +126,13 @@ func (reconcileCtx *stateStoreReconcileContext) Reconcile() (ctrl.Result, error)
 		return defaultRequeue, nil
 	}
 	repository.Lock()
-	defer repository.Unlock()
+	validateErr := repository.Writer.ValidatePermissions()
+	repository.Unlock()
 
-	if err := repository.Writer.ValidatePermissions(); err != nil {
-		logging.Error(reconcileCtx.logger, err, "unable to validate permissions")
+	if validateErr != nil {
+		logging.Error(reconcileCtx.logger, validateErr, "unable to validate permissions")
 		_ = reconcileCtx.repositoryCache.Cleanup(reconcileCtx.stateStore)
-		if err := reconcileCtx.setNotReadyStatus(NewValidatePermissionsError(err)); err != nil {
+		if err := reconcileCtx.setNotReadyStatus(NewValidatePermissionsError(validateErr)); err != nil {
 			return ctrl.Result{}, err
 		}
 		return defaultRequeue, nil
