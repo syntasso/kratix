@@ -75,6 +75,18 @@ type Writer interface {
 	RemoveCanary(ctx context.Context, name string, files []string) error
 }
 
+// Outstanding is a delivery a WorkPlacement still waits on.
+type Outstanding struct {
+	Receipt       string
+	WorkPlacement string
+}
+
+// Retirer is a Writer that can undo its outstanding deliveries. Kratix calls Retire on the old
+// writer when a state store's delivery mode changes, so nothing the old mode opened stays open.
+type Retirer interface {
+	Retire(ctx context.Context, outstanding []Outstanding) error
+}
+
 // ErrUnknownReceipt means that the Writer cannot parse the provided delivery receipt
 var ErrUnknownReceipt = errors.New("delivery receipt not recognised by this delivery mode")
 
