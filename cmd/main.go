@@ -434,6 +434,7 @@ func main() {
 	}
 	if err = (&controller.WorkPlacementReconciler{
 		Client:                           mgr.GetClient(),
+		APIReader:                        mgr.GetAPIReader(),
 		Log:                              ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
 		VersionCache:                     make(map[string]string),
 		RepositoryCache:                  repositoryCache,

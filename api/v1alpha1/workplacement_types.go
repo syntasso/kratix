@@ -81,6 +81,11 @@ type WorkPlacementStatus struct {
 	// Kratix delivers the WorkPlacement again when its StateStore's delivery mode differs.
 	DeliveryMode *string `json:"deliveryMode,omitempty"`
 
+	// +optional
+	// DeliveryRemoval is true when the outstanding delivery, or the rejection in WriteSucceeded,
+	// removes this WorkPlacement's workloads from the Destination because the WorkPlacement is being deleted.
+	DeliveryRemoval bool `json:"deliveryRemoval,omitempty"`
+
 	// Status fields set by other controllers, kept so typed status updates do not drop them.
 	Custom map[string]apiextensionsv1.JSON `json:"-"`
 }

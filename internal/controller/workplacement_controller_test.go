@@ -49,6 +49,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	//+kubebuilder:scaffold:imports
 )
@@ -67,6 +68,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 		workPlacement     v1alpha1.WorkPlacement
 		reconciler        *controller.WorkPlacementReconciler
 		fakeWriter        *writersfakes.FakeStateStoreWriter
+		recorder          *recordingWriter
 
 		metricsReader        *sdkmetric.ManualReader
 		restoreMeterProvider func()
@@ -84,6 +86,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 		workplacementRecorder = events.NewFakeRecorder(1024)
 		reconciler = &controller.WorkPlacementReconciler{
 			Client:          fakeK8sClient,
+			APIReader:       fakeK8sClient,
 			Log:             ctrl.Log.WithName("controllers").WithName("Workplacement"),
 			VersionCache:    make(map[string]string),
 			EventRecorder:   workplacementRecorder,
@@ -140,10 +143,21 @@ var _ = Describe("WorkPlacementReconciler", func() {
 			},
 		}
 
+		recorder = &recordingWriter{Writer: delivery.Direct(fakeWriter)}
 		repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{
-			Writer: delivery.Direct(fakeWriter),
+			Writer: recorder,
 		}, nil)
 	})
+
+	removals := func() []deliverCall {
+		var found []deliverCall
+		for _, call := range recorder.delivered {
+			if call.target.Removing {
+				found = append(found, call)
+			}
+		}
+		return found
+	}
 
 	AfterEach(func() {
 		if restoreMeterProvider != nil {
@@ -272,18 +286,23 @@ var _ = Describe("WorkPlacementReconciler", func() {
 					Expect(err).NotTo(HaveOccurred())
 
 					fakeWriter.ReadFileReturns(nil, writers.ErrFileNotFound)
+					fakeWriter.DeleteFilesReturns(fmt.Errorf("deletes go through Deliver"))
 					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
 
 					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(1))
-					workPlacementName, workloadsToDelete := fakeWriter.DeleteFilesArgsForCall(0)
-					Expect(workPlacementName).To(Equal(workPlacement.Name))
-					Expect(workloadsToDelete).To(ConsistOf(
+					Expect(removals()).To(HaveLen(1))
+					Expect(removals()[0].target.Dir).To(BeEmpty())
+					Expect(removals()[0].target.WorkPlacement).To(Equal(workPlacement.Name))
+					Expect(removals()[0].create).To(BeNil())
+					Expect(removals()[0].remove).To(ConsistOf(
+						fmt.Sprintf("%s/fruit.yaml", destination.Spec.Path),
+						fmt.Sprintf("%s/file2.yaml", destination.Spec.Path),
 						fmt.Sprintf("%s/.kratix/%s-%s.yaml", destination.Spec.Path, workPlacement.Namespace, workPlacement.Name),
 					))
+					Expect(fakeWriter.DeleteFilesCallCount()).To(BeZero())
 
 					err = fakeK8sClient.Get(ctx, types.NamespacedName{
 						Name: workPlacement.GetName(), Namespace: workPlacement.GetNamespace()}, &v1alpha1.WorkPlacement{})
@@ -292,24 +311,29 @@ var _ = Describe("WorkPlacementReconciler", func() {
 			})
 
 			When("the .kratix state file goes missing after a successful write", func() {
-				It("deletes only the marker, never files it cannot account for", func() {
+				It("removes the WorkPlacement's workloads and the marker", func() {
 					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
 					fakeWriter.ReadFileReturns(nil, writers.ErrFileNotFound)
+					fakeWriter.DeleteFilesReturns(fmt.Errorf("deletes go through Deliver"))
 					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
 
 					result, err = t.reconcileUntilCompletion(reconciler, &workPlacement)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(1))
-					workPlacementName, workloadsToDelete := fakeWriter.DeleteFilesArgsForCall(0)
-					Expect(workPlacementName).To(Equal(workPlacement.Name))
-					Expect(workloadsToDelete).To(ConsistOf(
+					Expect(removals()).To(HaveLen(1))
+					Expect(removals()[0].target.Dir).To(BeEmpty())
+					Expect(removals()[0].target.WorkPlacement).To(Equal(workPlacement.Name))
+					Expect(removals()[0].create).To(BeNil())
+					Expect(removals()[0].remove).To(ConsistOf(
+						fmt.Sprintf("%s/fruit.yaml", destination.Spec.Path),
+						fmt.Sprintf("%s/file2.yaml", destination.Spec.Path),
 						fmt.Sprintf("%s/.kratix/%s-%s.yaml", destination.Spec.Path, workPlacement.Namespace, workPlacement.Name),
 					))
+					Expect(fakeWriter.DeleteFilesCallCount()).To(BeZero())
 
 					err = fakeK8sClient.Get(ctx, types.NamespacedName{
 						Name: workPlacement.GetName(), Namespace: workPlacement.GetNamespace()}, &v1alpha1.WorkPlacement{})
@@ -325,25 +349,77 @@ var _ = Describe("WorkPlacementReconciler", func() {
 
 				})
 
-				It("calls UpdateFiles()", func() {
+				It("removes the state file's files and the state file through the writer", func() {
 					fakeWriter.ReadFileReturns([]byte(fmt.Sprintf(`
 files:
   - %s/fruit.yaml
   - %s/file2.yaml`, destination.Spec.Path, destination.Spec.Path)), nil)
+					fakeWriter.DeleteFilesReturns(fmt.Errorf("deletes go through Deliver"))
 					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
 					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
 					kratixStateFile := fmt.Sprintf("%s/.kratix/%s-%s.yaml", destination.Spec.Path, workPlacement.Namespace, workPlacement.Name)
-					Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(1))
-
-					workPlacementName, workloadsToDelete := fakeWriter.DeleteFilesArgsForCall(0)
-					Expect(workPlacementName).To(Equal(workPlacement.Name))
-					Expect(workloadsToDelete).To(ConsistOf(
+					Expect(removals()).To(HaveLen(1))
+					Expect(removals()[0].target.Dir).To(BeEmpty())
+					Expect(removals()[0].create).To(BeNil())
+					Expect(removals()[0].remove).To(ConsistOf(
 						fmt.Sprintf("%s/fruit.yaml", destination.Spec.Path),
 						fmt.Sprintf("%s/file2.yaml", destination.Spec.Path),
 						kratixStateFile,
+					))
+					Expect(fakeWriter.DeleteFilesCallCount()).To(BeZero())
+				})
+
+				It("also removes the WorkPlacement's workloads that the state file does not list", func() {
+					fakeWriter.ReadFileReturns([]byte(fmt.Sprintf(`
+files:
+  - %s/fruit.yaml`, destination.Spec.Path)), nil)
+					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+
+					_, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+
+					Expect(err).NotTo(HaveOccurred())
+					Expect(removals()).To(HaveLen(1))
+					Expect(removals()[0].remove).To(ConsistOf(
+						fmt.Sprintf("%s/fruit.yaml", destination.Spec.Path),
+						fmt.Sprintf("%s/file2.yaml", destination.Spec.Path),
+						fmt.Sprintf("%s/.kratix/%s-%s.yaml", destination.Spec.Path, workPlacement.Namespace, workPlacement.Name),
+					))
+				})
+
+				It("delivers nothing and keeps the finalizers when the state file cannot be read", func() {
+					fakeWriter.ReadFileReturns(nil, fmt.Errorf("bucket unavailable"))
+					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+
+					_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&workPlacement)})
+
+					Expect(err).NotTo(HaveOccurred())
+					Expect(removals()).To(BeEmpty())
+					latest := &v1alpha1.WorkPlacement{}
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), latest)).To(Succeed())
+					Expect(latest.GetFinalizers()).To(ConsistOf(
+						"finalizers.workplacement.kratix.io/repo-cleanup",
+						"finalizers.workplacement.kratix.io/kratix-dot-files-cleanup",
+					))
+				})
+
+				It("removes only the state file once the repo-cleanup finalizer is gone", func() {
+					fakeWriter.ReadFileReturns([]byte(fmt.Sprintf(`
+files:
+  - %s/fruit.yaml`, destination.Spec.Path)), nil)
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					workPlacement.SetFinalizers([]string{"finalizers.workplacement.kratix.io/kratix-dot-files-cleanup"})
+					Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+
+					_, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+
+					Expect(err).NotTo(HaveOccurred())
+					Expect(removals()).To(HaveLen(1))
+					Expect(removals()[0].remove).To(ConsistOf(
+						fmt.Sprintf("%s/.kratix/%s-%s.yaml", destination.Spec.Path, workPlacement.Namespace, workPlacement.Name),
 					))
 				})
 
@@ -455,7 +531,7 @@ files:
 				destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
 				setupGitDestination(&gitStateStore, &destination)
 				repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{
-					Writer: delivery.Direct(fakeWriter),
+					Writer: recorder,
 				}, nil)
 			})
 
@@ -500,13 +576,44 @@ files:
 					Expect(workloadsToDelete).To(BeEmpty())
 				})
 			})
+
+			When("deleting a work placement", func() {
+				It("names the directory as the delivery's Dir, with nothing to create or remove", func() {
+					_, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+					Expect(err).NotTo(HaveOccurred())
+					fakeWriter.DeleteFilesReturns(fmt.Errorf("deletes go through Deliver"))
+					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(removals()).To(HaveLen(1))
+					Expect(removals()[0].target).To(Equal(delivery.Target{
+						Dir:           "test-path/resources/default/test-promise/test-resource/5058f/",
+						Namespace:     "default",
+						WorkPlacement: workPlacement.GetName(),
+						Promise:       "test-promise",
+						Resource:      "test-resource",
+						Pipeline:      workPlacement.PipelineName(),
+						Destination:   "test-destination",
+						Removing:      true,
+					}))
+					Expect(removals()[0].create).To(BeNil())
+					Expect(removals()[0].remove).To(BeNil())
+					Expect(fakeWriter.DeleteFilesCallCount()).To(BeZero())
+
+					err = fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &v1alpha1.WorkPlacement{})
+					Expect(errors.IsNotFound(err)).To(BeTrue(), "work placement should be gone")
+				})
+			})
 		})
 
 		When("the destination has filepath mode of none", func() {
 			BeforeEach(func() {
 				setupGitDestination(&gitStateStore, &destination)
 				repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{
-					Writer: delivery.Direct(fakeWriter),
+					Writer: recorder,
 				}, nil)
 			})
 
@@ -554,26 +661,28 @@ files:
 					Expect(result).To(Equal(ctrl.Result{}))
 				})
 
-				It("calls DeleteFiles with only this workplacement's files", func() {
+				It("removes only this workplacement's files through the writer", func() {
 					fakeWriter.ReadFileReturns([]byte(fmt.Sprintf(`
 files:
   - %s/fruit.yaml
   - %s/file2.yaml`, destination.Spec.Path, destination.Spec.Path)), nil)
+					fakeWriter.DeleteFilesReturns(fmt.Errorf("deletes go through Deliver"))
 					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
 					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
 					kratixStateFile := fmt.Sprintf("%s/.kratix/%s-%s.yaml", destination.Spec.Path, workPlacement.Namespace, workPlacement.Name)
-					Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(1))
-
-					wpName, workloadsToDelete := fakeWriter.DeleteFilesArgsForCall(0)
-					Expect(wpName).To(Equal(workPlacement.Name))
-					Expect(workloadsToDelete).To(ConsistOf(
+					Expect(removals()).To(HaveLen(1))
+					Expect(removals()[0].target.Dir).To(BeEmpty())
+					Expect(removals()[0].target.WorkPlacement).To(Equal(workPlacement.Name))
+					Expect(removals()[0].create).To(BeNil())
+					Expect(removals()[0].remove).To(ConsistOf(
 						fmt.Sprintf("%s/fruit.yaml", destination.Spec.Path),
 						fmt.Sprintf("%s/file2.yaml", destination.Spec.Path),
 						kratixStateFile,
 					))
+					Expect(fakeWriter.DeleteFilesCallCount()).To(BeZero())
 				})
 			})
 
@@ -709,6 +818,24 @@ files:
 						_, _, _, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(i)
 						Expect(workloadsToDelete).To(BeEmpty())
 					}
+
+					Expect(removals()).To(HaveLen(1))
+					Expect(removals()[0].target.Dir).To(BeEmpty())
+					Expect(removals()[0].create).To(Equal(mergedWorkloads))
+					Expect(removals()[0].remove).To(BeNil())
+				})
+
+				It("delivers nothing and keeps the finalizer when the aggregated file cannot be built", func() {
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&secondWorkPlacement), &secondWorkPlacement)).To(Succeed())
+					secondWorkPlacement.Spec.Workloads[0].Content = "not compressed"
+					Expect(fakeK8sClient.Update(ctx, &secondWorkPlacement)).To(Succeed())
+
+					_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&workPlacement)})
+
+					Expect(err).NotTo(HaveOccurred())
+					Expect(removals()).To(BeEmpty())
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					Expect(workPlacement.GetFinalizers()).To(ContainElement("finalizers.workplacement.kratix.io/repo-cleanup"))
 				})
 			})
 
@@ -721,11 +848,13 @@ files:
 					Expect(result).To(Equal(ctrl.Result{}))
 				})
 
-				It("removes the workloads of the deleted workplacement from the file", func() {
-					Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(1))
-					workPlacementName, workloadsToDelete := fakeWriter.DeleteFilesArgsForCall(0)
-					Expect(workPlacementName).To(Equal(workPlacement.Name))
-					Expect(workloadsToDelete).To(ConsistOf("test-path/workloads.yaml"))
+				It("removes the aggregated file through the writer", func() {
+					Expect(removals()).To(HaveLen(1))
+					Expect(removals()[0].target.Dir).To(BeEmpty())
+					Expect(removals()[0].target.WorkPlacement).To(Equal(workPlacement.Name))
+					Expect(removals()[0].create).To(BeNil())
+					Expect(removals()[0].remove).To(ConsistOf("test-path/workloads.yaml"))
+					Expect(fakeWriter.DeleteFilesCallCount()).To(BeZero())
 				})
 			})
 		})
@@ -785,6 +914,7 @@ files:
 							Message: "",
 						},
 					}
+					workPlacement.Status.DeliveryMode = ptr.To("")
 					Expect(fakeK8sClient.Status().Update(ctx, &workPlacement)).To(Succeed())
 
 					errSubResourceUpdate = fmt.Errorf("an-error")
@@ -811,6 +941,9 @@ files:
 
 			When("updating the status fails on updating the conditions", func() {
 				It("applies the Version ID on the next reconcile", func() {
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					workPlacement.Status.DeliveryMode = ptr.To("")
+					Expect(fakeK8sClient.Status().Update(ctx, &workPlacement)).To(Succeed())
 					errSubResourceUpdate = fmt.Errorf("an-error")
 					fakeWriter.UpdateFilesReturnsOnCall(0, "an-amazing-version-id", nil)
 
@@ -958,13 +1091,126 @@ files:
 					_, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
 					Expect(err).NotTo(HaveOccurred())
 
-					Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(1))
+					Expect(removals()).To(HaveLen(1))
 					err = fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &v1alpha1.WorkPlacement{})
 					Expect(errors.IsNotFound(err)).To(BeTrue())
 				})
 			})
 		})
 
+	})
+
+	When("the built-in writer removes files from a real state store", func() {
+		const remoteURL = "https://kratix.test/state.git"
+
+		var bare string
+
+		useGitRemote := func() {
+			bare = newLocalGitRemote(remoteURL)
+			setupGitDestination(&gitStateStore, &destination)
+			writer, err := writers.NewGitWriter(ctrl.Log, v1alpha1.GitStateStoreSpec{
+				StateStoreCoreFields: gitStateStore.Spec.StateStoreCoreFields,
+				URL:                  remoteURL,
+				Branch:               "main",
+				AuthMethod:           v1alpha1.BasicAuthMethod,
+				GitAuthor:            v1alpha1.GitAuthor{Name: "kratix", Email: "kratix@example.com"},
+			}, "", map[string][]byte{"username": []byte("u"), "password": []byte("p")})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = writer.Init("main")
+			Expect(err).NotTo(HaveOccurred())
+			repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{Writer: delivery.Direct(writer)}, nil)
+		}
+
+		deleteAndReconcile := func() error {
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+			_, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+			return err
+		}
+
+		expectGone := func() {
+			err := fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &v1alpha1.WorkPlacement{})
+			Expect(errors.IsNotFound(err)).To(BeTrue(), "work placement should be gone")
+		}
+
+		It("removes a nestedByMetadata directory from git in a commit", func() {
+			destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
+			useGitRemote()
+			dir := "test-path/resources/default/test-promise/test-resource/5058f/"
+
+			_, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(gitFiles(bare)).To(ContainElements(dir+"fruit.yaml", dir+"file2.yaml"))
+
+			err = deleteAndReconcile()
+
+			Expect(gitFiles(bare)).To(ConsistOf("seed.txt"))
+			Expect(gitOutput(bare, "log", "-1", "--format=%s", "main")).To(Equal("Delete from: " + workPlacementName))
+			Expect(err).NotTo(HaveOccurred())
+			expectGone()
+		})
+
+		It("removes the listed files and the state file from git when filepath mode is none", func() {
+			useGitRemote()
+
+			_, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(gitFiles(bare)).To(ConsistOf("seed.txt", "test-path/fruit.yaml", "test-path/file2.yaml",
+				"test-path/.kratix/default-"+workPlacementName+".yaml"))
+
+			err = deleteAndReconcile()
+
+			Expect(gitFiles(bare)).To(ConsistOf("seed.txt"))
+			Expect(gitOutput(bare, "log", "-1", "--format=%s", "main")).To(Equal("Delete from: " + workPlacementName))
+			Expect(err).NotTo(HaveOccurred())
+			expectGone()
+		})
+
+		It("releases a WorkPlacement deleted before its first write when filepath mode is none", func() {
+			useGitRemote()
+			workPlacement.SetFinalizers([]string{
+				"finalizers.workplacement.kratix.io/repo-cleanup",
+				"finalizers.workplacement.kratix.io/kratix-dot-files-cleanup",
+			})
+			Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+
+			err := deleteAndReconcile()
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(gitFiles(bare)).To(ConsistOf("seed.txt"))
+			expectGone()
+		})
+
+		It("removes every object under a nestedByMetadata directory from a bucket", func() {
+			bucket := newFakeBucket()
+			dir := "test-path/resources/default/test-promise/test-resource/5058f/"
+			bucket.objects[dir+"fruit.yaml"] = []byte("a: 1")
+			bucket.objects[dir+"nested/file2.yaml"] = []byte("b: 2")
+			bucket.objects["test-path/other/keep.yaml"] = []byte("c: 3")
+
+			destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
+			destination.Spec.StateStoreRef.Kind = "BucketStateStore"
+			destination.Spec.StateStoreRef.Name = "test-state-store"
+			Expect(fakeK8sClient.Create(ctx, &destination)).To(Succeed())
+			writer, err := writers.NewS3Writer(ctrl.Log, v1alpha1.BucketStateStoreSpec{
+				Endpoint:   bucket.endpoint,
+				Insecure:   true,
+				BucketName: "kratix",
+				AuthMethod: writers.AuthMethodAccessKey,
+			}, "", map[string][]byte{"accessKeyID": []byte("a"), "secretAccessKey": []byte("s")})
+			Expect(err).NotTo(HaveOccurred())
+			repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{Writer: delivery.Direct(writer)}, nil)
+
+			workPlacement.SetFinalizers([]string{"finalizers.workplacement.kratix.io/repo-cleanup"})
+			Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+			Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+
+			_, err = t.reconcileUntilCompletion(reconciler, &workPlacement)
+
+			Expect(bucket.keys()).To(ConsistOf("test-path/other/keep.yaml"))
+			Expect(err).NotTo(HaveOccurred())
+			expectGone()
+		})
 	})
 
 	When("the destination statestore kind is not managed by Kratix", func() {
@@ -1115,6 +1361,16 @@ files:
 			return apiMeta.FindStatusCondition(workPlacement.Status.Conditions, conditionType)
 		}
 
+		removalsDelivered := func() []deliverCall {
+			var found []deliverCall
+			for _, call := range deferredWriter.delivered {
+				if call.target.Removing {
+					found = append(found, call)
+				}
+			}
+			return found
+		}
+
 		BeforeEach(func() {
 			deferredWriter = &fakeDeferredWriter{FakeStateStoreWriter: &writersfakes.FakeStateStoreWriter{}}
 			deferredWriter.deliverResult = delivery.Result{
@@ -1164,6 +1420,21 @@ files:
 				Expect(duringDelivery).NotTo(Equal(metav1.ConditionFalse),
 					"a verdict on superseded workloads reads as a current failure for the whole delivery")
 			})
+		})
+
+		It("records the delivery mode before the first delivery", func() {
+			repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{Writer: deferredWriter, DeliveryMode: "pullRequest"}, nil)
+			var modeDuringDelivery *string
+			deferredWriter.onDeliver = func() {
+				latest := &v1alpha1.WorkPlacement{}
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), latest)).To(Succeed())
+				modeDuringDelivery = latest.Status.DeliveryMode
+			}
+
+			reconcileTimes(2)
+
+			Expect(deferredWriter.deliverCalls).To(Equal(1))
+			Expect(modeDuringDelivery).To(Equal(ptr.To("pullRequest")))
 		})
 
 		It("keeps the receipt when a concurrent write conflicts, since the delivery exists", func() {
@@ -1578,13 +1849,450 @@ files:
 				Expect(workPlacement.Status.DeliveryWorkloadsHash).To(BeEmpty())
 			})
 
-			It("still removes the files when the WorkPlacement is deleted", func() {
+			It("delivers the removal when the WorkPlacement is deleted, and releases it once delivered", func() {
+				deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Delivered}
+				deferredWriter.DeleteFilesReturns(fmt.Errorf("deletes go through Deliver"))
 				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
 				Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
 
 				reconcileTimes(1)
 
-				Expect(deferredWriter.DeleteFilesCallCount()).To(Equal(1))
+				Expect(removalsDelivered()).To(HaveLen(1))
+				Expect(deferredWriter.DeleteFilesCallCount()).To(BeZero())
+				err := fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &v1alpha1.WorkPlacement{})
+				Expect(errors.IsNotFound(err)).To(BeTrue(), "work placement should be gone")
+			})
+		})
+
+		When("the WorkPlacement is deleted", func() {
+			const repoCleanup = "finalizers.workplacement.kratix.io/repo-cleanup"
+
+			pendingRemoval := delivery.Result{
+				Outcome:    delivery.Pending,
+				Receipt:    "removal-1",
+				Reason:     "Waiting for approval to remove: https://h/pr/9",
+				URL:        "https://h/pr/9",
+				CheckAfter: 7 * time.Second,
+			}
+
+			read := func(name string) *v1alpha1.WorkPlacement {
+				latest := &v1alpha1.WorkPlacement{}
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, latest)).To(Succeed())
+				return latest
+			}
+
+			deleteNamed := func(name string) {
+				Expect(fakeK8sClient.Delete(ctx, read(name))).To(Succeed())
+			}
+
+			reconcileNamed := func(name string, times int) ctrl.Result {
+				var result ctrl.Result
+				for range times {
+					var err error
+					result, err = reconciler.Reconcile(ctx, ctrl.Request{
+						NamespacedName: types.NamespacedName{Name: name, Namespace: "default"},
+					})
+					Expect(err).NotTo(HaveOccurred())
+				}
+				return result
+			}
+
+			bumpGenerationAsTheAPIServerDoes := func() {
+				latest := read(workPlacementName)
+				latest.SetGeneration(latest.GetGeneration() + 1)
+				Expect(fakeK8sClient.Update(ctx, latest)).To(Succeed())
+			}
+
+			isGone := func(name string) bool {
+				err := fakeK8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, &v1alpha1.WorkPlacement{})
+				return errors.IsNotFound(err)
+			}
+
+			deliverThenDelete := func() {
+				deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "v1"}
+				reconcileTimes(2)
+				Expect(read(workPlacementName).Status.DeliveryReceipt).To(BeEmpty())
+				deleteNamed(workPlacementName)
+			}
+
+			It("keeps the finalizer and records a pending removal", func() {
+				deliverThenDelete()
+				deferredWriter.deliverResult = pendingRemoval
+
+				result := reconcileTimes(1)
+
+				Expect(removalsDelivered()).To(HaveLen(1))
+				Expect(deferredWriter.DeleteFilesCallCount()).To(BeZero())
+				latest := read(workPlacementName)
+				Expect(latest.GetFinalizers()).To(ContainElement(repoCleanup))
+				Expect(latest.Status.DeliveryReceipt).To(Equal("removal-1"))
+				Expect(latest.Status.DeliveryRemoval).To(BeTrue())
+				Expect(latest.Status.DeliveryURL).To(Equal("https://h/pr/9"))
+				Expect(latest.Status.DeliveryMode).To(Equal(ptr.To("")))
+				written := apiMeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+				Expect(written.Status).To(Equal(metav1.ConditionUnknown))
+				Expect(written.Message).To(Equal("Waiting for approval to remove: https://h/pr/9"))
+				Expect(result.RequeueAfter).To(Equal(7 * time.Second))
+			})
+
+			It("drops an update's receipt, and saves that, before delivering the removal once", func() {
+				reconcileTimes(2)
+				Expect(read(workPlacementName).Status.DeliveryReceipt).To(Equal("receipt-1"))
+				deleteNamed(workPlacementName)
+				deferredWriter.deliverResult = pendingRemoval
+				var duringRemoval v1alpha1.WorkPlacementStatus
+				deferredWriter.onDeliver = func() { duringRemoval = read(workPlacementName).Status }
+
+				reconcileTimes(2)
+
+				Expect(deferredWriter.deliverCalls).To(Equal(2), "one update, one removal")
+				Expect(removalsDelivered()).To(HaveLen(1))
+				Expect(deferredWriter.checkReceipts).NotTo(ContainElement("receipt-1"))
+				Expect(duringRemoval.DeliveryReceipt).To(BeEmpty())
+				written := apiMeta.FindStatusCondition(duringRemoval.Conditions, v1alpha1.WriteSucceededConditionType)
+				Expect(written).NotTo(BeNil())
+				Expect(written.Message).To(Equal("removing the workloads"))
+				Expect(read(workPlacementName).Status.DeliveryReceipt).To(Equal("removal-1"))
+			})
+
+			It("names the update's receipt it dropped as superseded by the removal", func() {
+				deferredWriter.deliverResult.Receipt = "42"
+				reconcileTimes(2)
+				Expect(read(workPlacementName).Status.DeliveryReceipt).To(Equal("42"))
+				deleteNamed(workPlacementName)
+				deferredWriter.deliverResult = pendingRemoval
+
+				reconcileTimes(1)
+
+				Expect(removalsDelivered()).To(HaveLen(1))
+				Expect(removalsDelivered()[0].target.Supersedes).To(Equal("42"))
+			})
+
+			It("supersedes nothing when no delivery was outstanding", func() {
+				deliverThenDelete()
+				deferredWriter.deliverResult = pendingRemoval
+
+				reconcileTimes(1)
+
+				Expect(removalsDelivered()).To(HaveLen(1))
+				Expect(removalsDelivered()[0].target.Supersedes).To(BeEmpty())
+			})
+
+			It("saves an update that comes back after deletion started as an update, then removes", func() {
+				deleted := false
+				deferredWriter.onDeliver = func() {
+					if !deleted {
+						deleted = true
+						deleteNamed(workPlacementName)
+					}
+				}
+
+				reconcileTimes(2)
+
+				latest := read(workPlacementName)
+				Expect(latest.DeletionTimestamp.IsZero()).To(BeFalse())
+				Expect(latest.Status.DeliveryReceipt).To(Equal("receipt-1"))
+				Expect(latest.Status.DeliveryRemoval).To(BeFalse())
+
+				deferredWriter.deliverResult = pendingRemoval
+				reconcileTimes(1)
+
+				Expect(removalsDelivered()).To(HaveLen(1))
+				Expect(read(workPlacementName).Status.DeliveryReceipt).To(Equal("removal-1"))
+				Expect(read(workPlacementName).Status.DeliveryRemoval).To(BeTrue())
+			})
+
+			It("leaves a removal receipt saved since its copy was read", func() {
+				reconcileTimes(2)
+				deleteNamed(workPlacementName)
+				stale := read(workPlacementName)
+				Expect(stale.Status.DeliveryReceipt).To(Equal("receipt-1"))
+
+				saved := read(workPlacementName)
+				saved.Status.DeliveryReceipt = "removal-1"
+				saved.Status.DeliveryRemoval = true
+				Expect(fakeK8sClient.Status().Update(ctx, saved)).To(Succeed())
+
+				servedStale := false
+				reconciler.Client = interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if wp, ok := obj.(*v1alpha1.WorkPlacement); ok && !servedStale {
+							servedStale = true
+							stale.DeepCopyInto(wp)
+							return nil
+						}
+						return c.Get(ctx, key, obj, opts...)
+					},
+				})
+
+				reconcileTimes(1)
+
+				Expect(servedStale).To(BeTrue())
+				Expect(deferredWriter.deliverCalls).To(Equal(1), "only the update")
+				Expect(read(workPlacementName).Status.DeliveryReceipt).To(Equal("removal-1"))
+				Expect(read(workPlacementName).Status.DeliveryRemoval).To(BeTrue())
+
+				By("checking the saved removal on the next reconcile")
+				reconcileTimes(1)
+				Expect(deferredWriter.checkReceipts).To(Equal([]string{"removal-1"}))
+				Expect(deferredWriter.deliverCalls).To(Equal(1))
+			})
+
+			When("the removal is rejected", func() {
+				BeforeEach(func() {
+					deliverThenDelete()
+					deferredWriter.deliverResult = delivery.Result{
+						Outcome: delivery.Rejected, Reason: "closed by a reviewer", URL: "https://h/pr/9",
+					}
+					reconcileTimes(1)
+				})
+
+				It("keeps the finalizer and says the workloads are still on the Destination", func() {
+					latest := read(workPlacementName)
+					Expect(latest.GetFinalizers()).To(ContainElement(repoCleanup))
+					Expect(latest.Status.DeliveryRemoval).To(BeTrue())
+					Expect(latest.Status.DeliveryReceipt).To(BeEmpty())
+					written := apiMeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+					Expect(written.Status).To(Equal(metav1.ConditionFalse))
+					Expect(written.Reason).To(Equal("WorkloadsRejected"))
+					Expect(written.Message).To(Equal(
+						"Removal rejected; the workloads are still on test-destination. closed by a reviewer"))
+				})
+
+				It("neither delivers nor checks again", func() {
+					delivered := deferredWriter.deliverCalls
+
+					result := reconcileTimes(2)
+
+					Expect(deferredWriter.deliverCalls).To(Equal(delivered))
+					Expect(deferredWriter.checkReceipts).To(BeEmpty())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(read(workPlacementName).GetFinalizers()).To(ContainElement(repoCleanup))
+				})
+			})
+
+			It("keeps Kratix's sentence when the rejection reason is long", func() {
+				deliverThenDelete()
+				deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Rejected, Reason: strings.Repeat("x", 2000)}
+
+				reconcileTimes(1)
+
+				written := readCondition(v1alpha1.WriteSucceededConditionType)
+				Expect(written.Message).To(HavePrefix("Removal rejected; the workloads are still on test-destination. xxx"))
+				Expect(utf8.RuneCountInString(written.Message)).To(BeNumerically("<=", 1024))
+			})
+
+			When("a removal is pending", func() {
+				BeforeEach(func() {
+					deliverThenDelete()
+					deferredWriter.deliverResult = pendingRemoval
+					reconcileTimes(1)
+					Expect(read(workPlacementName).Status.DeliveryRemoval).To(BeTrue())
+					bumpGenerationAsTheAPIServerDoes()
+				})
+
+				It("releases the WorkPlacement once the check says delivered, without delivering again", func() {
+					deferredWriter.checkResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "merge-sha"}
+
+					reconcileTimes(1)
+
+					Expect(deferredWriter.checkReceipts).To(Equal([]string{"removal-1"}))
+					Expect(removalsDelivered()).To(HaveLen(1))
+					Expect(isGone(workPlacementName)).To(BeTrue())
+				})
+
+				It("drops a receipt the writer does not recognise and delivers the removal again", func() {
+					deferredWriter.checkErr = fmt.Errorf("%w: %q", delivery.ErrUnknownReceipt, "removal-1")
+					deferredWriter.deliverResult.Receipt = "removal-2"
+
+					reconcileTimes(1)
+
+					Expect(deferredWriter.checkReceipts).To(Equal([]string{"removal-1"}))
+					Expect(removalsDelivered()).To(HaveLen(2))
+					Expect(read(workPlacementName).Status.DeliveryReceipt).To(Equal("removal-2"))
+					Expect(read(workPlacementName).Status.DeliveryRemoval).To(BeTrue())
+				})
+
+				It("records a rejection the check reports, with its URL and without the receipt", func() {
+					deferredWriter.checkResult = delivery.Result{
+						Outcome: delivery.Rejected, Reason: "closed by a reviewer", URL: "https://h/pr/10",
+					}
+
+					reconcileTimes(1)
+
+					latest := read(workPlacementName)
+					Expect(deferredWriter.checkReceipts).To(Equal([]string{"removal-1"}))
+					Expect(latest.Status.DeliveryReceipt).To(BeEmpty())
+					Expect(latest.Status.DeliveryURL).To(Equal("https://h/pr/10"))
+					Expect(latest.Status.DeliveryRemoval).To(BeTrue())
+				})
+
+				It("holds no removal when the receipt is unknown and the removal cannot be delivered again", func() {
+					deferredWriter.checkErr = fmt.Errorf("%w: %q", delivery.ErrUnknownReceipt, "removal-1")
+					deferredWriter.deliverErr = fmt.Errorf("host down")
+
+					reconcileTimes(1)
+
+					latest := read(workPlacementName)
+					Expect(removalsDelivered()).To(HaveLen(2))
+					Expect(latest.Status.DeliveryReceipt).To(BeEmpty())
+					Expect(latest.Status.DeliveryURL).To(BeEmpty())
+					Expect(latest.Status.DeliveryRemoval).To(BeFalse())
+				})
+
+				It("leaves a newer removal receipt saved since its copy was read when the old receipt is unknown", func() {
+					stale := read(workPlacementName)
+					saved := read(workPlacementName)
+					saved.Status.DeliveryReceipt = "removal-2"
+					Expect(fakeK8sClient.Status().Update(ctx, saved)).To(Succeed())
+					deferredWriter.checkErr = fmt.Errorf("%w: %q", delivery.ErrUnknownReceipt, "removal-1")
+
+					servedStale := false
+					reconciler.Client = interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+						Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+							if wp, ok := obj.(*v1alpha1.WorkPlacement); ok && !servedStale {
+								servedStale = true
+								stale.DeepCopyInto(wp)
+								return nil
+							}
+							return c.Get(ctx, key, obj, opts...)
+						},
+					})
+
+					reconcileTimes(1)
+
+					Expect(servedStale).To(BeTrue())
+					Expect(deferredWriter.checkReceipts).To(Equal([]string{"removal-1"}))
+					Expect(removalsDelivered()).To(HaveLen(1))
+					Expect(read(workPlacementName).Status.DeliveryReceipt).To(Equal("removal-2"))
+				})
+			})
+
+			It("does not deliver the removal again when the API server already holds a rejected removal", func() {
+				deliverThenDelete()
+				stale := read(workPlacementName)
+				deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Rejected, Reason: "closed by a reviewer", URL: "https://h/pr/9"}
+				reconcileTimes(1)
+				Expect(read(workPlacementName).Status.DeliveryRemoval).To(BeTrue())
+				deferredWriter.deliverResult = pendingRemoval
+
+				servedStale := false
+				reconciler.Client = interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if wp, ok := obj.(*v1alpha1.WorkPlacement); ok && !servedStale {
+							servedStale = true
+							stale.DeepCopyInto(wp)
+							return nil
+						}
+						return c.Get(ctx, key, obj, opts...)
+					},
+				})
+
+				reconcileTimes(1)
+
+				Expect(servedStale).To(BeTrue())
+				Expect(removalsDelivered()).To(HaveLen(1))
+				latest := read(workPlacementName)
+				Expect(latest.Status.DeliveryReceipt).To(BeEmpty())
+				Expect(apiMeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.WriteSucceededConditionType).Reason).
+					To(Equal("WorkloadsRejected"))
+			})
+
+			It("keeps a rejected removal saved while its own removal was being delivered", func() {
+				deliverThenDelete()
+				deferredWriter.deliverResult = pendingRemoval
+				deferredWriter.onDeliver = func() {
+					latest := read(workPlacementName)
+					latest.Status.DeliveryRemoval = true
+					latest.SetWriteRejectedCondition("Removal rejected; the workloads are still on test-destination. closed")
+					Expect(fakeK8sClient.Status().Update(ctx, latest)).To(Succeed())
+				}
+
+				reconcileTimes(1)
+
+				latest := read(workPlacementName)
+				Expect(removalsDelivered()).To(HaveLen(1))
+				Expect(latest.Status.DeliveryReceipt).To(BeEmpty())
+				Expect(latest.Status.DeliveryRemoval).To(BeTrue())
+				Expect(apiMeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.WriteSucceededConditionType).Reason).
+					To(Equal("WorkloadsRejected"))
+			})
+
+			When("the removal cannot be delivered", func() {
+				BeforeEach(func() {
+					reconcileTimes(2)
+					Expect(read(workPlacementName).Status.DeliveryURL).To(Equal("https://h/pr/7"))
+					deleteNamed(workPlacementName)
+					deferredWriter.deliverErr = fmt.Errorf("host down")
+
+					reconcileTimes(1)
+				})
+
+				It("fails the write with the writer's error and keeps the finalizer", func() {
+					Expect(removalsDelivered()).To(HaveLen(1))
+					written := readCondition(v1alpha1.WriteSucceededConditionType)
+					Expect(written.Status).To(Equal(metav1.ConditionFalse))
+					Expect(written.Reason).To(Equal("WorkloadsFailedWrite"))
+					Expect(written.Message).To(ContainSubstring("host down"))
+					Expect(read(workPlacementName).GetFinalizers()).To(ContainElement(repoCleanup))
+				})
+
+				It("does not keep the update's pull request link", func() {
+					Expect(read(workPlacementName).Status.DeliveryURL).To(BeEmpty())
+				})
+			})
+
+			It("records the delivery mode with a rejected removal of a WorkPlacement that never recorded one", func() {
+				repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{Writer: deferredWriter, DeliveryMode: "pullRequest"}, nil)
+				reconcileTimes(1)
+				Expect(read(workPlacementName).GetFinalizers()).To(ContainElement(repoCleanup))
+				Expect(read(workPlacementName).Status.DeliveryMode).To(BeNil())
+				deleteNamed(workPlacementName)
+				deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Rejected, Reason: "closed", URL: "https://h/pr/11"}
+
+				reconcileTimes(1)
+
+				latest := read(workPlacementName)
+				Expect(removalsDelivered()).To(HaveLen(1))
+				Expect(latest.Status.DeliveryMode).To(Equal(ptr.To("pullRequest")))
+				Expect(latest.Status.DeliveryURL).To(Equal("https://h/pr/11"))
+				Expect(latest.Status.DeliveryReceipt).To(BeEmpty())
+			})
+
+			It("removes every WorkPlacement of a Work, dropping an update receipt first", func() {
+				deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "v1"}
+				reconcileNamed(workPlacementName, 2)
+
+				second := createWorkPlacement(workPlacementName+"-2", workloads)
+				Expect(fakeK8sClient.Create(ctx, &second)).To(Succeed())
+				deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Pending, Receipt: "receipt-2"}
+				reconcileNamed(second.GetName(), 2)
+				Expect(read(second.GetName()).Status.DeliveryReceipt).To(Equal("receipt-2"))
+
+				deleteNamed(workPlacementName)
+				deleteNamed(second.GetName())
+				deferredWriter.deliverResult = pendingRemoval
+				var secondDuringRemoval *v1alpha1.WorkPlacementStatus
+				deferredWriter.onDeliver = func() {
+					latest := read(second.GetName())
+					if len(deferredWriter.delivered) > 0 && deferredWriter.delivered[len(deferredWriter.delivered)-1].target.WorkPlacement == second.GetName() {
+						secondDuringRemoval = &latest.Status
+					}
+				}
+
+				reconcileNamed(workPlacementName, 1)
+				reconcileNamed(second.GetName(), 1)
+
+				var removed []string
+				for _, call := range removalsDelivered() {
+					removed = append(removed, call.target.WorkPlacement)
+				}
+				Expect(removed).To(ConsistOf(workPlacementName, second.GetName()))
+				Expect(secondDuringRemoval).NotTo(BeNil())
+				Expect(secondDuringRemoval.DeliveryReceipt).To(BeEmpty())
+				Expect(deferredWriter.checkReceipts).NotTo(ContainElement("receipt-2"))
+				Expect(read(workPlacementName).Status.DeliveryRemoval).To(BeTrue())
+				Expect(read(second.GetName()).Status.DeliveryRemoval).To(BeTrue())
 			})
 		})
 
@@ -1814,7 +2522,7 @@ var _ = Describe("WorkPlacements for a state store", func() {
 	}
 
 	BeforeEach(func() {
-		reconciler = &controller.WorkPlacementReconciler{Client: fakeK8sClient, Log: ctrl.Log}
+		reconciler = &controller.WorkPlacementReconciler{Client: fakeK8sClient, APIReader: fakeK8sClient, Log: ctrl.Log}
 		destinationFor("dest-a", v1alpha1.StateStoreReference{Kind: "GitStateStore", Name: "store-1"})
 		destinationFor("dest-b", v1alpha1.StateStoreReference{Kind: "GitStateStore", Name: "store-1"})
 		destinationFor("dest-bucket", v1alpha1.StateStoreReference{Kind: "BucketStateStore", Name: "store-1"})
@@ -1873,25 +2581,49 @@ var _ = Describe("WorkPlacements for a state store", func() {
 	})
 })
 
+type deliverCall struct {
+	target delivery.Target
+	create []v1alpha1.Workload
+	remove []string
+}
+
+// recordingWriter passes every call to Writer and keeps the arguments of each Deliver.
+type recordingWriter struct {
+	delivery.Writer
+	delivered []deliverCall
+}
+
+func (r *recordingWriter) Deliver(ctx context.Context, target delivery.Target, create []v1alpha1.Workload, remove []string) (delivery.Result, error) {
+	r.delivered = append(r.delivered, deliverCall{target: target, create: create, remove: remove})
+	return r.Writer.Deliver(ctx, target, create, remove)
+}
+
 // fakeDeferredWriter is a delivery writer that returns Pending and writes no canary.
 type fakeDeferredWriter struct {
 	*writersfakes.FakeStateStoreWriter
 
 	deliverResult  delivery.Result
+	deliverErr     error
 	deliverCalls   int
 	deliverTargets []delivery.Target
+	delivered      []deliverCall
 	// onDeliver runs inside the call, which is the window the Work reads while a delivery runs.
 	onDeliver     func()
 	checkResult   delivery.Result
+	checkErr      error
 	checkReceipts []string
 	onCheck       func()
 }
 
-func (f *fakeDeferredWriter) Deliver(_ context.Context, target delivery.Target, _ []v1alpha1.Workload, _ []string) (delivery.Result, error) {
+func (f *fakeDeferredWriter) Deliver(_ context.Context, target delivery.Target, create []v1alpha1.Workload, remove []string) (delivery.Result, error) {
 	f.deliverCalls++
 	f.deliverTargets = append(f.deliverTargets, target)
+	f.delivered = append(f.delivered, deliverCall{target: target, create: create, remove: remove})
 	if f.onDeliver != nil {
 		f.onDeliver()
+	}
+	if f.deliverErr != nil {
+		return delivery.Result{}, f.deliverErr
 	}
 	return f.deliverResult, nil
 }
@@ -1900,6 +2632,9 @@ func (f *fakeDeferredWriter) Check(_ context.Context, receipt string) (delivery.
 	f.checkReceipts = append(f.checkReceipts, receipt)
 	if f.onCheck != nil {
 		f.onCheck()
+	}
+	if f.checkErr != nil {
+		return delivery.Result{}, f.checkErr
 	}
 	if f.checkResult.Outcome == "" {
 		return f.deliverResult, nil

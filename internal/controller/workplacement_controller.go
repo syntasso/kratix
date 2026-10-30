@@ -70,7 +70,9 @@ type StateFile struct {
 
 // WorkPlacementReconciler reconciles a WorkPlacement object
 type WorkPlacementReconciler struct {
-	Client        client.Client
+	Client client.Client
+	// APIReader reads a WorkPlacement past the cache before its removal is delivered.
+	APIReader     client.Reader
 	Log           logr.Logger
 	VersionCache  map[string]string
 	EventRecorder events.EventRecorder
@@ -90,6 +92,7 @@ type workPlacementReconcileContext struct {
 	logger        logr.Logger
 	trace         *reconcileTrace
 	client        client.Client
+	apiReader     client.Reader
 	eventRecorder events.EventRecorder
 
 	workPlacement   *v1alpha1.WorkPlacement
@@ -157,6 +160,7 @@ func (r *WorkPlacementReconciler) newReconcileContext(ctx context.Context, logge
 		controller:      "workplacement-controller",
 		logger:          logger.WithValues("generation", workPlacement.GetGeneration()),
 		client:          r.Client,
+		apiReader:       r.APIReader,
 		eventRecorder:   r.EventRecorder,
 		workPlacement:   workPlacement,
 		destination:     dest,
@@ -238,6 +242,10 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 
 	if receipt := w.workPlacement.Status.DeliveryReceipt; receipt != "" {
 		return w.resolveOutstandingDelivery(repo, receipt)
+	}
+
+	if err := w.recordDeliveryModeBeforeFirstDelivery(repo.DeliveryMode); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if err := w.clearSupersededFailure(); err != nil {
@@ -615,12 +623,7 @@ func (w *workPlacementReconcileContext) combineAllWorkloads(workPlacements []v1a
 	return sb.String(), nil
 }
 
-func (w *workPlacementReconcileContext) delete(repo *Repository, workloadsToDelete []string) (ctrl.Result, error) {
-	if err := repo.Writer.DeleteFiles(w.workPlacement.Name, workloadsToDelete); err != nil {
-		w.logAndRecordError(err, "FailedDeleteFilesFromRepository", "failed to delete files from repository")
-		return defaultRequeue, nil
-	}
-
+func (w *workPlacementReconcileContext) releaseFinalizers() (ctrl.Result, error) {
 	controllerutil.RemoveFinalizer(w.workPlacement, repoCleanupWorkPlacementFinalizer)
 	controllerutil.RemoveFinalizer(w.workPlacement, kratixFileCleanupWorkPlacementFinalizer)
 
@@ -656,6 +659,21 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 		return ctrl.Result{}, err
 	}
 	return w.recordDeliveryResult(repo.DeliveryMode, result)
+}
+
+// recordDeliveryModeBeforeFirstDelivery saves the mode so a deleting Work waits for whatever the first delivery opens
+func (w *workPlacementReconcileContext) recordDeliveryModeBeforeFirstDelivery(mode string) error {
+	if w.workPlacement.Status.DeliveryMode != nil {
+		return nil
+	}
+	_, err := w.persistDeliveryStatus(func() bool {
+		if w.workPlacement.Status.DeliveryMode != nil {
+			return false
+		}
+		w.workPlacement.Status.DeliveryMode = &mode
+		return true
+	})
+	return err
 }
 
 // clearSupersededFailure marks the WorkPlacement as Pending before a new delivery starts when the generation has changed
@@ -703,20 +721,7 @@ func checkInterval(result delivery.Result) time.Duration {
 func (w *workPlacementReconcileContext) recordDeliveryResult(mode string, result delivery.Result) (ctrl.Result, error) {
 	switch result.Outcome {
 	case delivery.Pending:
-		deliveredGeneration := w.workPlacement.GetGeneration()
-		deliveredHash := w.currentWorkloadsHash()
-		if _, err := w.persistDeliveryStatus(func() bool {
-			w.workPlacement.Status.DeliveryReceipt = result.Receipt
-			w.workPlacement.Status.DeliveryGeneration = deliveredGeneration
-			w.workPlacement.Status.DeliveryWorkloadsHash = deliveredHash
-			w.workPlacement.Status.DeliveryURL = result.URL
-			w.workPlacement.Status.DeliveryMode = &mode
-			w.workPlacement.SetWriteDeferredCondition(resourceutil.CutToRunes(result.Reason, writeMessageMaxRunes))
-			return true
-		}); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{RequeueAfter: checkInterval(result)}, nil
+		return w.recordPendingDelivery(mode, result, false)
 
 	case delivery.Rejected:
 		rejectedHash := w.currentWorkloadsHash()
@@ -754,6 +759,33 @@ func (w *workPlacementReconcileContext) recordDeliveryResult(mode string, result
 	default:
 		return ctrl.Result{}, fmt.Errorf("writer reported unknown delivery outcome %q", result.Outcome)
 	}
+}
+
+// recordPendingDelivery saves removing as given, never read from the WorkPlacement: a re-read
+// after a conflict can be deleting while the delivery it records is an update.
+func (w *workPlacementReconcileContext) recordPendingDelivery(mode string, result delivery.Result, removing bool) (ctrl.Result, error) {
+	deliveredGeneration := w.workPlacement.GetGeneration()
+	deliveredHash := w.currentWorkloadsHash()
+	applied, err := w.persistDeliveryStatus(func() bool {
+		if removalWasRejected(*w.workPlacement) {
+			return false
+		}
+		w.workPlacement.Status.DeliveryReceipt = result.Receipt
+		w.workPlacement.Status.DeliveryGeneration = deliveredGeneration
+		w.workPlacement.Status.DeliveryWorkloadsHash = deliveredHash
+		w.workPlacement.Status.DeliveryURL = result.URL
+		w.workPlacement.Status.DeliveryMode = &mode
+		w.workPlacement.Status.DeliveryRemoval = removing
+		w.workPlacement.SetWriteDeferredCondition(resourceutil.CutToRunes(result.Reason, writeMessageMaxRunes))
+		return true
+	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !applied {
+		return fastRequeue, nil
+	}
+	return ctrl.Result{RequeueAfter: checkInterval(result)}, nil
 }
 
 func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (delivery.Result, error) {
@@ -834,15 +866,7 @@ func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Reposit
 		return delivery.Result{}, fmt.Errorf("unsupported file path mode: %s", w.destination.GetFilepathMode())
 	}
 
-	result, err := repo.Writer.Deliver(w.ctx, delivery.Target{
-		Dir:           dir,
-		Namespace:     w.workPlacement.GetNamespace(),
-		WorkPlacement: w.workPlacement.GetName(),
-		Promise:       w.workPlacement.Spec.PromiseName,
-		Resource:      w.workPlacement.Spec.ResourceName,
-		Pipeline:      w.workPlacement.PipelineName(),
-		Destination:   w.workPlacement.Spec.TargetDestinationName,
-	}, workloadsToCreate, workloadsToDelete)
+	result, err := repo.Writer.Deliver(w.ctx, w.deliveryTarget(dir, false), workloadsToCreate, workloadsToDelete)
 	if err != nil {
 		logging.Error(w.logger, err, "error writing resources to repository")
 		return delivery.Result{}, err
@@ -850,63 +874,200 @@ func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Reposit
 	return result, nil
 }
 
+func (w *workPlacementReconcileContext) deliveryTarget(dir string, removing bool) delivery.Target {
+	return delivery.Target{
+		Dir:           dir,
+		Namespace:     w.workPlacement.GetNamespace(),
+		WorkPlacement: w.workPlacement.GetName(),
+		Promise:       w.workPlacement.Spec.PromiseName,
+		Resource:      w.workPlacement.Spec.ResourceName,
+		Pipeline:      w.workPlacement.PipelineName(),
+		Destination:   w.workPlacement.Spec.TargetDestinationName,
+		Removing:      removing,
+	}
+}
+
 func (w *workPlacementReconcileContext) deleteWorkPlacement(repo *Repository) (ctrl.Result, error) {
-	pendingRepoCleanup := controllerutil.ContainsFinalizer(w.workPlacement, repoCleanupWorkPlacementFinalizer)
-	pendingKratixFileCleanup := controllerutil.ContainsFinalizer(w.workPlacement, kratixFileCleanupWorkPlacementFinalizer)
+	status := w.workPlacement.Status
+	if status.DeliveryReceipt != "" && !status.DeliveryRemoval {
+		if dropped, err := w.dropDeliveryForRemoval(status.DeliveryReceipt); !dropped || err != nil {
+			return fastRequeue, err
+		}
+		return w.deliverRemoval(repo, status.DeliveryReceipt)
+	}
 
-	var dir string
-	workloadsToDelete := []string{}
+	if status.DeliveryReceipt != "" {
+		return w.resolveOutstandingRemoval(repo, status.DeliveryReceipt)
+	}
 
-	if pendingRepoCleanup {
-		logging.Debug(w.logger, "deleting files from repository")
+	if status.DeliveryRemoval && w.writeRejected() {
+		return ctrl.Result{}, nil
+	}
+	return w.deliverRemoval(repo, "")
+}
 
-		filePathMode := w.destination.GetFilepathMode()
+// dropDeliveryForRemoval forgets receipt so the removal can be delivered. It returns false when the
+// re-read WorkPlacement already holds a different removal, which a stale copy must never clear.
+func (w *workPlacementReconcileContext) dropDeliveryForRemoval(receipt string) (bool, error) {
+	return w.persistDeliveryStatus(func() bool {
+		current := w.workPlacement.Status
+		if current.DeliveryRemoval && current.DeliveryReceipt != receipt {
+			return false
+		}
+		w.clearOutstandingDelivery()
+		w.workPlacement.Status.DeliveryURL = ""
+		w.workPlacement.SetWriteDeferredCondition("removing the workloads")
+		return true
+	})
+}
 
-		switch filePathMode {
+func (w *workPlacementReconcileContext) resolveOutstandingRemoval(repo *Repository, receipt string) (ctrl.Result, error) {
+	result, err := repo.Writer.Check(w.ctx, receipt)
+	if errors.Is(err, delivery.ErrUnknownReceipt) {
+		if dropped, err := w.dropDeliveryForRemoval(receipt); !dropped || err != nil {
+			return fastRequeue, err
+		}
+		return w.deliverRemoval(repo, "")
+	}
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	return w.recordRemovalResult(repo.DeliveryMode, result)
+}
 
+func (w *workPlacementReconcileContext) deliverRemoval(repo *Repository, supersedes string) (ctrl.Result, error) {
+	if held, err := w.removalHeldOnServer(); held || err != nil {
+		return fastRequeue, err
+	}
+
+	dir, create, remove, err := w.removal(repo)
+	if err != nil {
+		logging.Debug(w.logger, "failed to list the files to remove", "error", err)
+		return defaultRequeue, nil
+	}
+
+	target := w.deliveryTarget(dir, true)
+	target.Supersedes = supersedes
+	result, err := repo.Writer.Deliver(w.ctx, target, create, remove)
+	if err != nil {
+		w.logAndRecordError(err, "FailedDeleteFilesFromRepository", "failed to delete files from repository")
+		if err := w.updateWriteFailedStatus(err); err != nil && !apierrors.IsConflict(err) {
+			return ctrl.Result{}, err
+		}
+		return defaultRequeue, nil
+	}
+	return w.recordRemovalResult(repo.DeliveryMode, result)
+}
+
+// removalHeldOnServer is true when the API server holds a pending or rejected removal that the cached copy missed
+func (w *workPlacementReconcileContext) removalHeldOnServer() (bool, error) {
+	latest := &v1alpha1.WorkPlacement{}
+	if err := w.apiReader.Get(w.ctx, client.ObjectKeyFromObject(w.workPlacement), latest); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	return latest.Status.DeliveryRemoval && (latest.Status.DeliveryReceipt != "" || removalWasRejected(*latest)), nil
+}
+
+// removal lists what to deliver so the WorkPlacement's files leave the state store.
+// A named dir is replaced wholesale, which removes it; listing it in remove would not.
+func (w *workPlacementReconcileContext) removal(repo *Repository) (string, []v1alpha1.Workload, []string, error) {
+	var (
+		dir    string
+		create []v1alpha1.Workload
+		remove []string
+	)
+
+	if controllerutil.ContainsFinalizer(w.workPlacement, repoCleanupWorkPlacementFinalizer) {
+		logging.Debug(w.logger, "removing files from repository")
+
+		switch filePathMode := w.destination.GetFilepathMode(); filePathMode {
 		case v1alpha1.FilepathModeNestedByMetadata:
-			logging.Trace(w.logger, "handling file path mode nestedByMetadata")
 			dir = getDir(w.destination.Spec.Path, *w.workPlacement) + "/"
-			workloadsToDelete = append(workloadsToDelete, dir)
 
 		case v1alpha1.FilepathModeNone:
-			logging.Trace(w.logger, "handling file path mode none")
 			stateFile, err := w.readKratixStateFile(repo, true)
 			if err != nil {
-				logging.Debug(w.logger, "failed to read .kratix state file", "error", err)
-				return defaultRequeue, nil
+				return "", nil, nil, err
 			}
-			workloadsToDelete = stateFile.Files
+			remove = withWorkloadPaths(stateFile.Files, w.workPlacement.Spec.Workloads, w.destination.Spec.Path+"/")
 
 		case v1alpha1.FilepathModeAggregatedYAML:
-			logging.Trace(w.logger, "handling file path mode aggregatedYAML")
 			workload, err := w.getAggregatedWorkload()
 			if err != nil {
-				logging.Debug(w.logger, "failed to get aggregated workload", "error", err)
-				return defaultRequeue, nil
+				return "", nil, nil, err
 			}
-			workloadsToDelete = []string{workload.Filepath}
-
-			if workload.Content != "" { // there are still other workplacements for this destination
-				_, err := repo.Writer.UpdateFiles("", w.workPlacement.Name, []v1alpha1.Workload{workload}, []string{})
-				if err != nil {
-					logging.Debug(w.logger, "failed to update files in repository", "error", err)
-					return defaultRequeue, nil
-				}
-				workloadsToDelete = []string{}
+			if workload.Content != "" {
+				create = []v1alpha1.Workload{workload}
+			} else {
+				remove = []string{workload.Filepath}
 			}
 
 		default:
-			return ctrl.Result{}, fmt.Errorf("unsupported file path mode: %s", filePathMode)
+			return "", nil, nil, fmt.Errorf("unsupported file path mode: %s", filePathMode)
 		}
 	}
 
-	if pendingKratixFileCleanup {
+	if controllerutil.ContainsFinalizer(w.workPlacement, kratixFileCleanupWorkPlacementFinalizer) {
 		logging.Debug(w.logger, "cleaning up .kratix state file")
-		workloadsToDelete = append(workloadsToDelete, w.kratixStateFilePath())
+		remove = append(remove, w.kratixStateFilePath())
 	}
+	return dir, create, remove, nil
+}
 
-	return w.delete(repo, workloadsToDelete)
+// withWorkloadPaths adds the workloads' paths to files once each, since a stale state file can miss some
+func withWorkloadPaths(files []string, workloads []v1alpha1.Workload, pathPrefix string) []string {
+	var paths []string
+	seen := map[string]bool{}
+	add := func(path string) {
+		if !seen[path] {
+			seen[path] = true
+			paths = append(paths, path)
+		}
+	}
+	for _, file := range files {
+		add(file)
+	}
+	for _, workload := range workloads {
+		add(filepath.Join(pathPrefix, workload.Filepath))
+	}
+	return paths
+}
+
+func (w *workPlacementReconcileContext) recordRemovalResult(mode string, result delivery.Result) (ctrl.Result, error) {
+	switch result.Outcome {
+	case delivery.Pending:
+		return w.recordPendingDelivery(mode, result, true)
+
+	case delivery.Rejected:
+		// The request shows only the start of this message, so Kratix's sentence comes first.
+		message := fmt.Sprintf("Removal rejected; the workloads are still on %s. %s",
+			w.workPlacement.Spec.TargetDestinationName, result.Reason)
+		if _, err := w.persistDeliveryStatus(func() bool {
+			w.clearOutstandingDelivery()
+			w.workPlacement.Status.DeliveryRemoval = true
+			w.workPlacement.Status.DeliveryURL = result.URL
+			w.workPlacement.Status.DeliveryMode = &mode
+			w.workPlacement.SetWriteRejectedCondition(resourceutil.CutToRunes(message, writeMessageMaxRunes))
+			return true
+		}); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+
+	case delivery.Delivered:
+		return w.releaseFinalizers()
+
+	default:
+		return ctrl.Result{}, fmt.Errorf("writer reported unknown delivery outcome %q", result.Outcome)
+	}
+}
+
+func (w *workPlacementReconcileContext) writeRejected() bool {
+	written := apiMeta.FindStatusCondition(w.workPlacement.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+	return written != nil && written.Status == metav1.ConditionFalse && written.Reason == v1alpha1.WorkloadsRejectedReason
 }
 
 func cleanupWorkloadsWithPrefix(oldWorkloads []string, newWorkloads []v1alpha1.Workload, pathPrefix string) []string {
@@ -941,8 +1102,7 @@ func (w *workPlacementReconcileContext) holdsEarlierDelivery() bool {
 	if w.workPlacement.Status.DeliveryReceipt != "" {
 		return true
 	}
-	written := apiMeta.FindStatusCondition(w.workPlacement.Status.Conditions, v1alpha1.WriteSucceededConditionType)
-	return written != nil && written.Status == metav1.ConditionFalse && written.Reason == v1alpha1.WorkloadsRejectedReason
+	return w.writeRejected()
 }
 
 // deliverAgainWithNewMode drops the outstanding or rejected delivery, which the new mode's writer cannot resolve.
@@ -990,6 +1150,7 @@ func (w *workPlacementReconcileContext) deliveryModeChangedTo(mode string) bool 
 func (w *workPlacementReconcileContext) clearOutstandingDelivery() {
 	w.workPlacement.Status.DeliveryReceipt = ""
 	w.workPlacement.Status.DeliveryGeneration = 0
+	w.workPlacement.Status.DeliveryRemoval = false
 }
 
 // workPlacementsForStateStore lists the WorkPlacements to deliver again once the state store's writer is rebuilt.
@@ -1036,4 +1197,10 @@ func stateStoreObservedGenerationChanged() predicate.Funcs {
 			return oldOK && newOK && oldStore.GetObservedGeneration() != newStore.GetObservedGeneration()
 		},
 	}
+}
+
+// removalWasRejected is true when a reviewer turned down the WorkPlacement's removal.
+func removalWasRejected(wp v1alpha1.WorkPlacement) bool {
+	write := apiMeta.FindStatusCondition(wp.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+	return wp.Status.DeliveryRemoval && write != nil && write.Reason == v1alpha1.WorkloadsRejectedReason
 }
