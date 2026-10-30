@@ -258,8 +258,7 @@ func (w *workPlacementReconcileContext) repositoryUnavailable(err error) (ctrl.R
 	}
 	return ctrl.Result{}, err
 }
-// reconcileUnchangedRejection does not take the repository's lock, so a rejected WorkPlacement does not wait behind
-// another WorkPlacement's write. It only reads repo.DeliveryMode, and a mode change builds a new Repository.
+
 func (w *workPlacementReconcileContext) reconcileUnchangedRejection() (ctrl.Result, error) {
 	repo, err := w.repositoryCache.GetRepositoryByTypeAndName(
 		w.destination.Spec.StateStoreRef.Kind,
