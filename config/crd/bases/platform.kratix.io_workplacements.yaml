@@ -167,6 +167,11 @@ spec:
                   DeliveryReceipt identifies a write the StateStore's writer accepted but has not delivered.
                   It is set while WriteSucceeded is Unknown and cleared once the delivery resolves.
                 type: string
+              deliveryRemoval:
+                description: |-
+                  DeliveryRemoval is true when the outstanding delivery, or the rejection in WriteSucceeded,
+                  removes this WorkPlacement's workloads from the Destination because the WorkPlacement is being deleted.
+                type: boolean
               deliveryURL:
                 description: |-
                   DeliveryURL links to the latest delivery of these workloads, such as a pull request.

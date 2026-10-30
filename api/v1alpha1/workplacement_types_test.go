@@ -96,6 +96,17 @@ var _ = Describe("WorkPlacement", func() {
 			Expect(string(data)).To(ContainSubstring(`"url":"https://github.com/acme/platform/pull/42"`))
 		})
 
+		It("names the removal flag deliveryRemoval in JSON", func() {
+			data, err := json.Marshal(&v1alpha1.WorkPlacementStatus{DeliveryRemoval: true})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(data)).To(ContainSubstring(`"deliveryRemoval":true`))
+
+			status := &v1alpha1.WorkPlacementStatus{}
+			Expect(json.Unmarshal([]byte(`{"deliveryRemoval":true}`), status)).To(Succeed())
+			Expect(status.DeliveryRemoval).To(BeTrue())
+			Expect(status.Custom).To(BeEmpty())
+		})
+
 		It("lets Kratix-owned fields win over custom fields with the same name", func() {
 			workPlacement := &v1alpha1.WorkPlacement{}
 			workPlacement.Status.Custom = map[string]apiextensionsv1.JSON{

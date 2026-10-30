@@ -59,7 +59,9 @@ const (
 
 // WorkReconciler reconciles a Work object.
 type WorkReconciler struct {
-	Client        client.Client
+	Client client.Client
+	// APIReader lists a deleting Work's WorkPlacements past the cache.
+	APIReader     client.Reader
 	Log           logr.Logger
 	Scheduler     WorkScheduler
 	EventRecorder events.EventRecorder
@@ -115,8 +117,12 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 	}
 
 	if !work.DeletionTimestamp.IsZero() {
-		if err := r.deleteWork(ctx, logger, work); err != nil {
+		waiting, err := r.deleteWork(ctx, logger, work)
+		if err != nil {
 			return ctrl.Result{}, err
+		}
+		if waiting {
+			return defaultRequeue, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -170,7 +176,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 }
 
 func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) error {
-	workplacements, err := r.listWorkPlacements(ctx, logger, work)
+	workplacements, err := r.listWorkPlacements(ctx, r.Client, logger, work)
 	if err != nil {
 		return err
 	}
@@ -184,7 +190,7 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 }
 
 func (r *WorkReconciler) updateWriteState(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) error {
-	workplacements, err := r.listWorkPlacements(ctx, logger, work)
+	workplacements, err := r.listWorkPlacements(ctx, r.Client, logger, work)
 	if err != nil {
 		return err
 	}
@@ -195,8 +201,8 @@ func (r *WorkReconciler) updateWriteState(ctx context.Context, logger logr.Logge
 	return nil
 }
 
-func (r *WorkReconciler) listWorkPlacements(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) ([]v1alpha1.WorkPlacement, error) {
-	workplacements, err := listWorkplacementWithLabels(ctx, r.Client, logger, work.GetNamespace(), map[string]string{
+func (r *WorkReconciler) listWorkPlacements(ctx context.Context, reader client.Reader, logger logr.Logger, work *v1alpha1.Work) ([]v1alpha1.WorkPlacement, error) {
+	workplacements, err := listWorkplacementWithLabels(ctx, reader, logger, work.GetNamespace(), map[string]string{
 		workLabelKey: work.Name,
 	})
 	if err != nil {
@@ -208,6 +214,9 @@ func (r *WorkReconciler) listWorkPlacements(ctx context.Context, logger logr.Log
 func (r *WorkReconciler) setReadyCondition(work *v1alpha1.Work, workplacements []v1alpha1.WorkPlacement) bool {
 	var failedWorkPlacements []string
 	for _, wp := range workplacements {
+		if removalWasRejected(wp) {
+			continue
+		}
 		if apiMeta.IsStatusConditionFalse(wp.Status.Conditions, v1alpha1.WriteSucceededConditionType) {
 			failedWorkPlacements = append(failedWorkPlacements, wp.GetName())
 		}
@@ -268,15 +277,16 @@ func restoreSchedulerReadyCondition(work *v1alpha1.Work) bool {
 	return apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
 }
 
-// setWorkPlacementWriteState skips WorkPlacements being deleted
+// setWorkPlacementWriteState skips WorkPlacements being deleted unless their removal awaits delivery, failed or was rejected
 func setWorkPlacementWriteState(work *v1alpha1.Work, workplacements []v1alpha1.WorkPlacement) bool {
 	var live []v1alpha1.WorkPlacement
 	statuses := []v1alpha1.WorkPlacementWriteStatus{}
 	for _, wp := range workplacements {
-		if !wp.GetDeletionTimestamp().IsZero() {
+		if wp.GetDeletionTimestamp().IsZero() {
+			live = append(live, wp)
+		} else if !removalIsUnresolved(wp) {
 			continue
 		}
-		live = append(live, wp)
 		status := v1alpha1.WorkPlacementWriteStatus{
 			Name:        wp.GetName(),
 			Destination: wp.Spec.TargetDestinationName,
@@ -335,6 +345,22 @@ func workWriteSucceededCondition(work *v1alpha1.Work, live []v1alpha1.WorkPlacem
 	}
 }
 
+func removalIsUnresolved(wp v1alpha1.WorkPlacement) bool {
+	write := apiMeta.FindStatusCondition(wp.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+	return write != nil && (write.Reason == v1alpha1.WorkloadsAwaitingDeliveryReason || write.Status == metav1.ConditionFalse)
+}
+
+// deliversThroughRegisteredMode is false for the built-in mode and for WorkPlacements Kratix does not write
+func deliversThroughRegisteredMode(wp v1alpha1.WorkPlacement) bool {
+	if wp.Status.DeliveryReceipt != "" {
+		return true
+	}
+	if wp.Status.DeliveryMode == nil {
+		return controllerutil.ContainsFinalizer(&wp, repoCleanupWorkPlacementFinalizer)
+	}
+	return *wp.Status.DeliveryMode != ""
+}
+
 func writeStateMessage(statuses []v1alpha1.WorkPlacementWriteStatus) string {
 	parts := make([]string, 0, len(statuses))
 	for _, s := range statuses {
@@ -362,7 +388,8 @@ func allWorkloadGroupsWrittenAtCurrentGeneration(work *v1alpha1.Work, workplacem
 	return true
 }
 
-func (r *WorkReconciler) deleteWork(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) error {
+// deleteWork reports whether the Work must wait for a WorkPlacement still removing its workloads
+func (r *WorkReconciler) deleteWork(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) (bool, error) {
 	workplacementGVK := schema.GroupVersionKind{
 		Group:   v1alpha1.GroupVersion.Group,
 		Version: v1alpha1.GroupVersion.Version,
@@ -376,7 +403,7 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, logger logr.Logger, wor
 	selector := labels.SelectorFromSet(map[string]string{workLabelKey: work.Name})
 	if err := r.Client.List(ctx, wpList, &client.ListOptions{LabelSelector: selector}); err != nil {
 		r.EventRecorder.Eventf(work, nil, v1.EventTypeWarning, "FailedDelete", "FailedDelete", "failed to list associated workplacements: %s", err.Error())
-		return err
+		return false, err
 	}
 
 	parentAnnotations := work.GetAnnotations()
@@ -396,18 +423,32 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, logger logr.Logger, wor
 	}
 
 	if len(deleteErrors) > 0 {
-		return fmt.Errorf("failed to delete workplacements: %s", strings.Join(deleteErrors, ","))
+		return false, fmt.Errorf("failed to delete workplacements: %s", strings.Join(deleteErrors, ","))
+	}
+
+	remaining, err := r.listWorkPlacements(ctx, r.APIReader, logger, work)
+	if err != nil {
+		return false, err
+	}
+	if slices.ContainsFunc(remaining, deliversThroughRegisteredMode) {
+		logging.Debug(logger, "waiting for workplacements to remove their workloads")
+		if setWorkPlacementWriteState(work, remaining) {
+			if err := r.Client.Status().Update(ctx, work); err != nil && !apierrors.IsConflict(err) {
+				return true, err
+			}
+		}
+		return true, nil
 	}
 
 	if controllerutil.RemoveFinalizer(work, workCleanUpFinalizer) {
 		if err := r.Client.Update(ctx, work); err != nil {
 			logging.Debug(logger, "Failed to remove finalizer, requeuing...", "error", err)
-			return err
+			return false, err
 		}
 	}
 
 	logging.Debug(logger, "workplacements deleted")
-	return nil
+	return false, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
