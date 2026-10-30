@@ -157,6 +157,11 @@ spec:
                   different workloads cannot satisfy the current generation, however it resolves.
                 format: int64
                 type: integer
+              deliveryMode:
+                description: |-
+                  DeliveryMode is the StateStore delivery mode of the latest delivery, including one still outstanding or rejected; empty means the built-in mode.
+                  Kratix delivers the WorkPlacement again when its StateStore's delivery mode differs.
+                type: string
               deliveryReceipt:
                 description: |-
                   DeliveryReceipt identifies a write the StateStore's writer accepted but has not delivered.

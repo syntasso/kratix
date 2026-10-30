@@ -3,6 +3,9 @@ package controller_test
 import (
 	"context"
 
+	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -85,5 +88,31 @@ var _ = Describe("writerForDelivery", func() {
 
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("unclaimed-bucket-mode"))
+	})
+})
+
+var _ = Describe("InitRepository", func() {
+	initBucketRepository := func(spec *v1alpha1.Delivery) *controller.Repository {
+		controller.SetNewS3Writer(func(logr.Logger, v1alpha1.BucketStateStoreSpec, string, map[string][]byte) (writers.StateStoreWriter, error) {
+			return &writersfakes.FakeStateStoreWriter{}, nil
+		})
+		DeferCleanup(controller.SetNewS3Writer, writers.NewS3Writer)
+
+		store := &v1alpha1.BucketStateStore{}
+		store.SetName("mode-store")
+		store.SetGroupVersionKind(v1alpha1.GroupVersion.WithKind(v1alpha1.BucketStateStoreKind))
+		store.Spec.Delivery = spec
+
+		repo, err := controller.NewRepositoryCache().InitRepository(logr.Discard(), store, corev1.Secret{})
+		Expect(err).ToNot(HaveOccurred())
+		return repo
+	}
+
+	It("records the delivery mode the writer was built for", func() {
+		delivery.Register("mode-recorded", func(b writers.StateStoreWriter, _ map[string]string, _ map[string][]byte) (delivery.Writer, error) {
+			return delivery.Direct(b), nil
+		})
+
+		Expect(initBucketRepository(&v1alpha1.Delivery{Mode: "mode-recorded"}).DeliveryMode).To(Equal("mode-recorded"))
 	})
 })

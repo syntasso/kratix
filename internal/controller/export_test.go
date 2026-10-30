@@ -62,3 +62,11 @@ func WithTrace(logger logr.Logger, reconcileFunc func() (ctrl.Result, error)) (c
 var DryRunWorksFailure = worksFailure
 
 const DryRunWorksTimeout = dryRunWorksTimeout
+
+func WorkPlacementsForStateStore(r *WorkPlacementReconciler, stateStoreKind string) func(context.Context, client.Object) []reconcile.Request {
+	return r.workPlacementsForStateStore(stateStoreKind)
+}
+
+func StateStoreObservedGenerationChangedPredicate() predicate.Funcs {
+	return stateStoreObservedGenerationChanged()
+}

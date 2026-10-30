@@ -1719,6 +1719,11 @@ func (in *WorkPlacementStatus) DeepCopyInto(out *WorkPlacementStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.DeliveryMode != nil {
+		in, out := &in.DeliveryMode, &out.DeliveryMode
+		*out = new(string)
+		**out = **in
+	}
 	if in.Custom != nil {
 		in, out := &in.Custom, &out.Custom
 		*out = make(map[string]apiextensionsv1.JSON, len(*in))
