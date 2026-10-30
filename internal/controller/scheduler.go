@@ -353,7 +353,7 @@ func (s *Scheduler) getExistingWorkPlacementsForWork(ctx context.Context, namesp
 	})
 }
 
-func listWorkplacementWithLabels(ctx context.Context, c client.Client, logger logr.Logger, namespace string, matchLabels map[string]string) ([]v1alpha1.WorkPlacement, error) {
+func listWorkplacementWithLabels(ctx context.Context, c client.Reader, logger logr.Logger, namespace string, matchLabels map[string]string) ([]v1alpha1.WorkPlacement, error) {
 	workPlacementList := &v1alpha1.WorkPlacementList{}
 	workPlacementListOptions := &client.ListOptions{
 		Namespace: namespace,

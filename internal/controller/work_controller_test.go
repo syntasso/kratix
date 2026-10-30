@@ -29,6 +29,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
+	"github.com/syntasso/kratix/internal/ptr"
 	"github.com/syntasso/kratix/lib/hash"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,6 +37,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	//+kubebuilder:scaffold:imports
 )
@@ -58,6 +60,7 @@ var _ = Describe("WorkReconciler", func() {
 		fakeEventRecorder = events.NewFakeRecorder(1024)
 		reconciler = &controller.WorkReconciler{
 			Client:        fakeK8sClient,
+			APIReader:     fakeK8sClient,
 			Log:           ctrl.Log.WithName("controllers").WithName("Work"),
 			Scheduler:     fakeScheduler,
 			EventRecorder: fakeEventRecorder,
@@ -474,6 +477,143 @@ var _ = Describe("WorkReconciler", func() {
 		})
 	})
 
+	Describe("deleting a Work whose WorkPlacement is still removing its workloads", func() {
+		var workPlacementFinalizers []string
+
+		BeforeEach(func() {
+			workPlacementFinalizers = []string{"kratix.io/test"}
+		})
+
+		deleteWorkWithWorkPlacement := func(setStatus func(*v1alpha1.WorkPlacement)) ctrl.Result {
+			GinkgoHelper()
+			_, err := t.reconcileUntilCompletion(reconciler, work)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			createWorkPlacementWithStatus(work, "a", "prod", work.Spec.WorkloadGroups[0].ID, setStatus)
+			workPlacement := &v1alpha1.WorkPlacement{}
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: work.Name + "-a", Namespace: work.Namespace}, workPlacement)).To(Succeed())
+			workPlacement.Finalizers = workPlacementFinalizers
+			Expect(fakeK8sClient.Update(ctx, workPlacement)).To(Succeed())
+
+			Expect(fakeK8sClient.Delete(ctx, work)).To(Succeed())
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: workName})
+			Expect(err).NotTo(HaveOccurred())
+			return result
+		}
+
+		When("the WorkPlacement delivers through a registered mode and waits for approval", func() {
+			var result ctrl.Result
+
+			BeforeEach(func() {
+				result = deleteWorkWithWorkPlacement(func(wp *v1alpha1.WorkPlacement) {
+					wp.Status.DeliveryMode = ptr.To("pullRequest")
+					wp.SetWriteDeferredCondition("Waiting for approval to remove: u")
+				})
+			})
+
+			It("keeps the Work and its finalizer and checks again later", func() {
+				Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+				Expect(work.GetFinalizers()).To(ContainElement("kratix.io/work-cleanup"))
+				Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+			})
+
+			It("lists the WorkPlacement and sets WriteSucceeded to Unknown", func() {
+				Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+				Expect(work.Status.WorkPlacementStatuses).To(Equal([]v1alpha1.WorkPlacementWriteStatus{{
+					Name:        work.Name + "-a",
+					Destination: "prod",
+					Status:      "Unknown",
+					Reason:      v1alpha1.WorkloadsAwaitingDeliveryReason,
+					Message:     "Waiting for approval to remove: u",
+				}}))
+				condition := apimeta.FindStatusCondition(work.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+				Expect(condition).NotTo(BeNil())
+				Expect(condition.Status).To(Equal(v1.ConditionUnknown))
+				Expect(condition.Reason).To(Equal("WorkplacementsAwaitingDelivery"))
+				Expect(condition.Message).To(Equal("prod: Waiting for approval to remove: u"))
+			})
+		})
+
+		It("removes the Work when the WorkPlacement delivers through the built-in mode", func() {
+			deleteWorkWithWorkPlacement(func(wp *v1alpha1.WorkPlacement) {
+				wp.Status.DeliveryMode = ptr.To("")
+				wp.SetWriteDeferredCondition("Waiting for approval to remove: u")
+			})
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(MatchError(ContainSubstring("not found")))
+		})
+
+		It("keeps the Work while the WorkPlacement has not recorded a delivery mode", func() {
+			workPlacementFinalizers = []string{"finalizers.workplacement.kratix.io/repo-cleanup"}
+
+			deleteWorkWithWorkPlacement(func(*v1alpha1.WorkPlacement) {})
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			Expect(work.GetFinalizers()).To(ContainElement("kratix.io/work-cleanup"))
+		})
+
+		It("removes the Work when a WorkPlacement with no recorded mode holds only another controller's finalizer", func() {
+			workPlacementFinalizers = []string{"example.com/custom-cleanup"}
+
+			deleteWorkWithWorkPlacement(func(*v1alpha1.WorkPlacement) {})
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(MatchError(ContainSubstring("not found")))
+		})
+
+		It("reads the remaining WorkPlacements from the API server, not the cache", func() {
+			reconciler.Client = interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+				List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+					if err := c.List(ctx, list, opts...); err != nil {
+						return err
+					}
+					if placements, ok := list.(*v1alpha1.WorkPlacementList); ok {
+						placements.Items = nil
+					}
+					return nil
+				},
+			})
+
+			deleteWorkWithWorkPlacement(func(wp *v1alpha1.WorkPlacement) {
+				wp.Status.DeliveryMode = ptr.To("pullRequest")
+				wp.SetWriteDeferredCondition("Waiting for approval to remove: u")
+			})
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			Expect(work.GetFinalizers()).To(ContainElement("kratix.io/work-cleanup"))
+		})
+
+		It("lists a WorkPlacement whose removal failed and sets WriteSucceeded to failing", func() {
+			deleteWorkWithWorkPlacement(func(wp *v1alpha1.WorkPlacement) {
+				wp.Status.DeliveryMode = ptr.To("pullRequest")
+				wp.SetWriteFailedCondition(errors.New("host down"))
+			})
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			Expect(work.Status.WorkPlacementStatuses).To(Equal([]v1alpha1.WorkPlacementWriteStatus{{
+				Name:        work.Name + "-a",
+				Destination: "prod",
+				Status:      "False",
+				Reason:      "WorkloadsFailedWrite",
+				Message:     "host down",
+			}}))
+			condition := apimeta.FindStatusCondition(work.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(v1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("WorkplacementsFailing"))
+			Expect(condition.Message).To(Equal("prod: host down"))
+		})
+
+		It("keeps the Work when the WorkPlacement has a delivery receipt but no recorded mode", func() {
+			deleteWorkWithWorkPlacement(func(wp *v1alpha1.WorkPlacement) {
+				wp.Status.DeliveryReceipt = "receipt-1"
+				wp.SetWriteDeferredCondition("Waiting for approval to remove: u")
+			})
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			Expect(work.GetFinalizers()).To(ContainElement("kratix.io/work-cleanup"))
+		})
+	})
+
 	Describe("WorkPlacement write state on the Work", func() {
 		writeSucceeded := func() *v1.Condition {
 			GinkgoHelper()
@@ -563,20 +703,63 @@ var _ = Describe("WorkReconciler", func() {
 			Expect(names).To(Equal([]string{work.Name + "-a", work.Name + "-b", work.Name + "-c"}))
 		})
 
-		It("does not list a WorkPlacement that is being deleted", func() {
+		It("does not list a WorkPlacement being deleted whose removal is not waiting on its delivery", func() {
 			createWorkPlacementWithStatus(work, "a", "dev", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
-				wp.SetWriteDeferredCondition("Waiting for approval: u")
+				wp.SetWriteSucceededCondition()
 			})
-			deleting := &v1alpha1.WorkPlacement{}
-			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: work.Name + "-a", Namespace: work.Namespace}, deleting)).To(Succeed())
-			deleting.Finalizers = []string{"kratix.io/test"}
-			Expect(fakeK8sClient.Update(ctx, deleting)).To(Succeed())
-			Expect(fakeK8sClient.Delete(ctx, deleting)).To(Succeed())
+			startDeletingWorkPlacement(work, "a")
 			reconcile()
 
 			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
 			Expect(work.Status.WorkPlacementStatuses).To(BeEmpty())
-			Expect(writeSucceeded().Reason).NotTo(Equal("WorkplacementsAwaitingDelivery"))
+			Expect(writeSucceeded().Reason).To(Equal("WaitingForWorkplacementsToBeReconciled"))
+		})
+
+		It("lists a WorkPlacement being deleted whose removal was rejected", func() {
+			createWorkPlacementWithStatus(work, "a", "prod", work.Spec.WorkloadGroups[0].ID, func(wp *v1alpha1.WorkPlacement) {
+				wp.SetWriteRejectedCondition("Removal rejected; the workloads are still on prod. Rejected in u")
+			})
+			createWrittenWorkPlacement(work, "b", work.Spec.WorkloadGroups[1].ID, work.GetGeneration())
+			startDeletingWorkPlacement(work, "a")
+			reconcile()
+
+			condition := writeSucceeded()
+			Expect(condition.Status).To(Equal(v1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("WorkplacementsRejected"))
+			Expect(condition.Message).To(Equal("prod: Removal rejected; the workloads are still on prod. Rejected in u"))
+			Expect(work.Status.WorkPlacementStatuses).To(ContainElement(v1alpha1.WorkPlacementWriteStatus{
+				Name:        work.Name + "-a",
+				Destination: "prod",
+				Status:      "False",
+				Reason:      v1alpha1.WorkloadsRejectedReason,
+				Message:     "Removal rejected; the workloads are still on prod. Rejected in u",
+			}))
+		})
+
+		When("a WorkPlacement the Work no longer schedules had its removal rejected", func() {
+			BeforeEach(func() {
+				createWrittenWorkPlacement(work, "b", work.Spec.WorkloadGroups[0].ID, work.GetGeneration())
+				createWrittenWorkPlacement(work, "c", work.Spec.WorkloadGroups[1].ID, work.GetGeneration())
+				createWorkPlacementWithStatus(work, "a", "prod", "dropped-group", func(wp *v1alpha1.WorkPlacement) {
+					wp.Status.DeliveryRemoval = true
+					wp.SetWriteRejectedCondition("Removal rejected; the workloads are still on prod. Rejected in u")
+				})
+				startDeletingWorkPlacement(work, "a")
+				reconcile()
+			})
+
+			It("keeps the Work Ready", func() {
+				Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+				ready := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+				Expect(ready.Status).To(Equal(v1.ConditionTrue))
+				Expect(ready.Reason).To(Equal("AllWorkplacementsWritten"))
+			})
+
+			It("still reports the rejection in WriteSucceeded", func() {
+				condition := writeSucceeded()
+				Expect(condition.Reason).To(Equal("WorkplacementsRejected"))
+				Expect(condition.Message).To(Equal("prod: Removal rejected; the workloads are still on prod. Rejected in u"))
+			})
 		})
 
 		When("one WorkPlacement was rejected and another failed to write", func() {
@@ -776,6 +959,15 @@ func createWrittenWorkPlacement(work *v1alpha1.Work, name, workloadGroupID strin
 	Expect(fakeK8sClient.Get(context.TODO(), client.ObjectKeyFromObject(workPlacement), workPlacement)).To(Succeed())
 	workPlacement.SetWriteSucceededCondition()
 	Expect(fakeK8sClient.Status().Update(context.TODO(), workPlacement)).To(Succeed())
+}
+
+func startDeletingWorkPlacement(work *v1alpha1.Work, name string) {
+	GinkgoHelper()
+	workPlacement := &v1alpha1.WorkPlacement{}
+	Expect(fakeK8sClient.Get(context.TODO(), types.NamespacedName{Name: work.Name + "-" + name, Namespace: work.Namespace}, workPlacement)).To(Succeed())
+	workPlacement.Finalizers = []string{"kratix.io/test"}
+	Expect(fakeK8sClient.Update(context.TODO(), workPlacement)).To(Succeed())
+	Expect(fakeK8sClient.Delete(context.TODO(), workPlacement)).To(Succeed())
 }
 
 func createWorkPlacementWithStatus(work *v1alpha1.Work, name, destination, workloadGroupID string, setStatus func(*v1alpha1.WorkPlacement)) {

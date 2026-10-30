@@ -361,6 +361,7 @@ func main() {
 	}
 	if err = (&controller.WorkReconciler{
 		Client:        mgr.GetClient(),
+		APIReader:     mgr.GetAPIReader(),
 		Log:           ctrl.Log.WithName("controllers").WithName("Work"),
 		Scheduler:     &scheduler,
 		EventRecorder: mgr.GetEventRecorder("WorkController"),
