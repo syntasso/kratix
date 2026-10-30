@@ -1724,6 +1724,25 @@ files:
 					Expect(workPlacement.Status.DeliveryMode).To(Equal(ptr.To("")))
 				})
 
+				It("drops the rejection and delivers again when the new mode is not the built-in one", func() {
+					useRepository(newWriter, "y")
+
+					reconcileTimes(1)
+
+					Expect(modeChangedEvents()).To(ConsistOf(
+						`Warning DeliveryModeChanged delivery mode changed from "x" to "y"; ` +
+							`delivering the workloads again with the new mode. ` +
+							`The earlier delivery, https://h/pr/8, is left as it is`))
+					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).To(Equal("WorkloadsAwaitingDelivery"))
+					Expect(newWriter.deliverCalls).To(Equal(0))
+
+					By("delivering with the new writer on the next reconcile")
+					reconcileTimes(1)
+
+					Expect(newWriter.deliverCalls).To(Equal(1))
+					Expect(workPlacement.Status.DeliveryMode).To(Equal(ptr.To("y")))
+				})
+
 				It("keeps the rejection when only the configuration changed", func() {
 					useRepository(newWriter, "x")
 
