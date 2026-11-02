@@ -602,16 +602,6 @@ var _ = Describe("WorkReconciler", func() {
 			Expect(condition.Reason).To(Equal("WorkplacementsFailing"))
 			Expect(condition.Message).To(Equal("prod: host down"))
 		})
-
-		It("keeps the Work when the WorkPlacement has a delivery receipt but no recorded mode", func() {
-			deleteWorkWithWorkPlacement(func(wp *v1alpha1.WorkPlacement) {
-				wp.Status.DeliveryReceipt = "receipt-1"
-				wp.SetWriteDeferredCondition("Waiting for approval to remove: u")
-			})
-
-			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
-			Expect(work.GetFinalizers()).To(ContainElement("kratix.io/work-cleanup"))
-		})
 	})
 
 	Describe("WorkPlacement write state on the Work", func() {

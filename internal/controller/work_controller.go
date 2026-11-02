@@ -122,7 +122,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 			return ctrl.Result{}, err
 		}
 		if waiting {
-			return defaultRequeue, nil
+			return slowRequeue, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -352,9 +352,6 @@ func removalIsUnresolved(wp v1alpha1.WorkPlacement) bool {
 
 // deliversThroughRegisteredMode is false for the built-in mode and for WorkPlacements Kratix does not write
 func deliversThroughRegisteredMode(wp v1alpha1.WorkPlacement) bool {
-	if wp.Status.DeliveryReceipt != "" {
-		return true
-	}
 	if wp.Status.DeliveryMode == nil {
 		return controllerutil.ContainsFinalizer(&wp, repoCleanupWorkPlacementFinalizer)
 	}
