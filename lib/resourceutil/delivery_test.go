@@ -42,7 +42,7 @@ var _ = Describe("DeliveryEntries", func() {
 	})
 })
 
-var _ = Describe("IsOrdinaryWorksFailure", func() {
+var _ = Describe("AnyWorkWriteFailed", func() {
 	work := func(readyReason, readyMessage string, writeStatus metav1.ConditionStatus, writeReason string, placements ...v1alpha1.WorkPlacementWriteStatus) v1alpha1.Work {
 		w := v1alpha1.Work{Status: v1alpha1.WorkStatus{
 			Conditions:            []metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse, Reason: readyReason, Message: readyMessage}},
@@ -63,22 +63,22 @@ var _ = Describe("IsOrdinaryWorksFailure", func() {
 			work("WorkplacementsFailing", "Failing", metav1.ConditionFalse, v1alpha1.WorkplacementsFailingReason),
 			work("WorkplacementsFailing", "Failing", metav1.ConditionFalse, v1alpha1.WorkplacementsRejectedReason, rejected),
 		}
-		Expect(resourceutil.IsOrdinaryWorksFailure(works)).To(BeTrue())
+		Expect(resourceutil.AnyWorkWriteFailed(works)).To(BeTrue())
 	})
 
 	It("ignores Ready", func() {
 		works := []v1alpha1.Work{work("Misplaced", "Misplaced", metav1.ConditionFalse, v1alpha1.WorkplacementsFailingReason)}
-		Expect(resourceutil.IsOrdinaryWorksFailure(works)).To(BeTrue())
+		Expect(resourceutil.AnyWorkWriteFailed(works)).To(BeTrue())
 	})
 
 	It("is false when a failing Work has no write state", func() {
 		works := []v1alpha1.Work{work("WorkplacementsFailing", "Failing", "", "")}
-		Expect(resourceutil.IsOrdinaryWorksFailure(works)).To(BeFalse())
+		Expect(resourceutil.AnyWorkWriteFailed(works)).To(BeFalse())
 	})
 
 	It("is false when the only failing Work was rejected", func() {
 		works := []v1alpha1.Work{work("WorkplacementsFailing", "Failing", metav1.ConditionFalse, v1alpha1.WorkplacementsRejectedReason, rejected)}
-		Expect(resourceutil.IsOrdinaryWorksFailure(works)).To(BeFalse())
+		Expect(resourceutil.AnyWorkWriteFailed(works)).To(BeFalse())
 	})
 })
 
@@ -150,7 +150,7 @@ var _ = Describe("delivery text on the resource request's conditions", func() {
 				Expect(reconciled().Message).To(Equal("Rejected in b with no comment"))
 			})
 
-			It("shows Failing for an ordinary failure", func() {
+			It("shows Failing for a failed write", func() {
 				resourceutil.MarkReconciledWorksFailing(rr, entries, true)
 
 				Expect(reconciled().Reason).To(Equal("WorksFailing"))

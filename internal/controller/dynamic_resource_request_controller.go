@@ -900,9 +900,9 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	if len(works.failed) > 0 || len(works.pending) > 0 || len(works.misplaced) > 0 {
 		deliveries = resourceutil.DeliveryEntries(works.items)
 	}
-	ordinaryFailure := resourceutil.IsOrdinaryWorksFailure(works.items)
+	writeFailed := resourceutil.AnyWorkWriteFailed(works.items)
 	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, works, deliveries)
-	reconciledUpdate := r.updateReconciledCondition(rr, deliveries, ordinaryFailure)
+	reconciledUpdate := r.updateReconciledCondition(rr, deliveries, writeFailed)
 	promiseVersionUpdate := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevision)
 	healthUpdate, err := r.updateExpectedHealth(ctx, logger, promise, rr)
 	if err != nil {
@@ -1115,7 +1115,7 @@ func (r *DynamicResourceRequestController) ensureDryRunSummary(
 	return nil
 }
 
-func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured, deliveries []resourceutil.DeliveryEntry, ordinaryFailure bool) bool {
+func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured, deliveries []resourceutil.DeliveryEntry, writeFailed bool) bool {
 	worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 
@@ -1142,7 +1142,7 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 	case worksPending:
 		return resourceutil.MarkReconciledWorksPending(rr, deliveries)
 	case worksFailed:
-		return resourceutil.MarkReconciledWorksFailing(rr, deliveries, ordinaryFailure)
+		return resourceutil.MarkReconciledWorksFailing(rr, deliveries, writeFailed)
 	case workflowDone && worksReady:
 		return r.markReconciledSucceeded(rr)
 	}
@@ -1454,8 +1454,8 @@ func (r *DynamicResourceRequestController) deleteResourceBinding(o opts, rr *uns
 // reportWorkRemovalDelivery sets Reconciled while a remaining Work's removal awaits delivery, failed or was rejected
 func (r *DynamicResourceRequestController) reportWorkRemovalDelivery(o opts, resourceRequest *unstructured.Unstructured, works []v1alpha1.Work) (ctrl.Result, error) {
 	deliveries := resourceutil.DeliveryEntries(works)
-	ordinaryFailure := resourceutil.IsOrdinaryWorksFailure(works)
-	if len(deliveries) == 0 && !ordinaryFailure {
+	writeFailed := resourceutil.AnyWorkWriteFailed(works)
+	if len(deliveries) == 0 && !writeFailed {
 		return fastRequeue, nil
 	}
 
@@ -1463,8 +1463,8 @@ func (r *DynamicResourceRequestController) reportWorkRemovalDelivery(o opts, res
 		return entry.Reason == v1alpha1.WorkloadsRejectedReason
 	})
 	var changed bool
-	if rejected || ordinaryFailure {
-		changed = resourceutil.MarkReconciledWorksFailing(resourceRequest, deliveries, ordinaryFailure)
+	if rejected || writeFailed {
+		changed = resourceutil.MarkReconciledWorksFailing(resourceRequest, deliveries, writeFailed)
 	} else {
 		changed = resourceutil.MarkReconciledWorksPending(resourceRequest, deliveries)
 	}

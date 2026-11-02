@@ -82,8 +82,7 @@ type WorkPlacementStatus struct {
 	DeliveryMode *string `json:"deliveryMode,omitempty"`
 
 	// +optional
-	// DeliveryRemoval is true when the outstanding delivery, or the rejection in WriteSucceeded,
-	// removes this WorkPlacement's workloads from the Destination because the WorkPlacement is being deleted.
+	// DeliveryRemoval is true when the pending or rejected delivery removes this WorkPlacement's files.
 	DeliveryRemoval bool `json:"deliveryRemoval,omitempty"`
 
 	// Status fields set by other controllers, kept so typed status updates do not drop them.
