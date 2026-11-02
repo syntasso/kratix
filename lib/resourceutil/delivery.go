@@ -51,8 +51,8 @@ func DeliveryEntries(works []v1alpha1.Work) []DeliveryEntry {
 	return entries
 }
 
-// IsOrdinaryWorksFailure reports whether any Work's WriteSucceeded is WorkplacementsFailing
-func IsOrdinaryWorksFailure(works []v1alpha1.Work) bool {
+// AnyWorkWriteFailed reports whether a Work's write errored, as opposed to being rejected
+func AnyWorkWriteFailed(works []v1alpha1.Work) bool {
 	return slices.ContainsFunc(works, func(work v1alpha1.Work) bool {
 		write := apimeta.FindStatusCondition(work.Status.Conditions, v1alpha1.WriteSucceededConditionType)
 		return write != nil && write.Status == metav1.ConditionFalse && write.Reason == v1alpha1.WorkplacementsFailingReason
@@ -67,8 +67,8 @@ func MarkReconciledWorksPending(obj *unstructured.Unstructured, entries []Delive
 }
 
 // MarkReconciledWorksFailing shows delivery text unless a Work failed to write
-func MarkReconciledWorksFailing(obj *unstructured.Unstructured, entries []DeliveryEntry, ordinaryFailure bool) bool {
-	if !ordinaryFailure {
+func MarkReconciledWorksFailing(obj *unstructured.Unstructured, entries []DeliveryEntry, writeFailed bool) bool {
+	if !writeFailed {
 		if message, found := reconciledDeliveryMessage(entries, v1alpha1.WorkloadsRejectedReason); found {
 			return markReconciled(obj, v1.ConditionFalse, WorksRejectedReason, message)
 		}

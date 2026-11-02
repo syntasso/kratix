@@ -900,9 +900,9 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	if len(works.failed) > 0 || len(works.pending) > 0 || len(works.misplaced) > 0 {
 		deliveries = resourceutil.DeliveryEntries(works.items)
 	}
-	ordinaryFailure := resourceutil.IsOrdinaryWorksFailure(works.items)
+	writeFailed := resourceutil.AnyWorkWriteFailed(works.items)
 	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, works, deliveries)
-	reconciledUpdate := r.updateReconciledCondition(rr, deliveries, ordinaryFailure)
+	reconciledUpdate := r.updateReconciledCondition(rr, deliveries, writeFailed)
 	promiseVersionUpdate := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevision)
 	healthUpdate, err := r.updateExpectedHealth(ctx, logger, promise, rr)
 	if err != nil {
@@ -1115,7 +1115,7 @@ func (r *DynamicResourceRequestController) ensureDryRunSummary(
 	return nil
 }
 
-func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured, deliveries []resourceutil.DeliveryEntry, ordinaryFailure bool) bool {
+func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured, deliveries []resourceutil.DeliveryEntry, writeFailed bool) bool {
 	worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 
@@ -1142,7 +1142,7 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 	case worksPending:
 		return resourceutil.MarkReconciledWorksPending(rr, deliveries)
 	case worksFailed:
-		return resourceutil.MarkReconciledWorksFailing(rr, deliveries, ordinaryFailure)
+		return resourceutil.MarkReconciledWorksFailing(rr, deliveries, writeFailed)
 	case workflowDone && worksReady:
 		return r.markReconciledSucceeded(rr)
 	}
@@ -1353,11 +1353,11 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
-		err := r.deleteWork(o, resourceRequest, workFinalizer, namespace)
+		remaining, err := r.deleteWork(o, resourceRequest, workFinalizer, namespace)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		return fastRequeue, nil
+		return r.reportWorkRemovalDelivery(o, resourceRequest, remaining)
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, removeAllWorkflowJobsFinalizer) {
@@ -1451,37 +1451,66 @@ func (r *DynamicResourceRequestController) deleteResourceBinding(o opts, rr *uns
 	return nil
 }
 
-func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, finalizer, namespace string) error {
+// reportWorkRemovalDelivery sets Reconciled while a remaining Work's removal awaits delivery, failed or was rejected
+func (r *DynamicResourceRequestController) reportWorkRemovalDelivery(o opts, resourceRequest *unstructured.Unstructured, works []v1alpha1.Work) (ctrl.Result, error) {
+	deliveries := resourceutil.DeliveryEntries(works)
+	writeFailed := resourceutil.AnyWorkWriteFailed(works)
+	if len(deliveries) == 0 && !writeFailed {
+		return fastRequeue, nil
+	}
+
+	rejected := slices.ContainsFunc(deliveries, func(entry resourceutil.DeliveryEntry) bool {
+		return entry.Reason == v1alpha1.WorkloadsRejectedReason
+	})
+	var changed bool
+	if rejected || writeFailed {
+		changed = resourceutil.MarkReconciledWorksFailing(resourceRequest, deliveries, writeFailed)
+	} else {
+		changed = resourceutil.MarkReconciledWorksPending(resourceRequest, deliveries)
+	}
+	if changed {
+		if err := r.Client.Status().Update(o.ctx, resourceRequest); err != nil {
+			if apierrors.IsConflict(err) {
+				return fastRequeue, nil
+			}
+			return ctrl.Result{}, err
+		}
+	}
+	return slowRequeue, nil
+}
+
+// deleteWork returns the Works still to be removed
+func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, finalizer, namespace string) ([]v1alpha1.Work, error) {
 	works, err := resourceutil.GetAllWorksForResource(r.Client, namespace, r.PromiseIdentifier, resourceRequest.GetName())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if len(works) == 0 {
 		// only remove finalizer at this point because deletion success is guaranteed
 		controllerutil.RemoveFinalizer(resourceRequest, finalizer)
 		if err := r.Client.Update(o.ctx, resourceRequest); err != nil {
-			return err
+			return nil, err
 		}
-		return nil
+		return nil, nil
 	}
 
 	parentAnnotations := resourceRequest.GetAnnotations()
 	for i := range works {
 		work := &works[i]
 		if err := ensureTraceAnnotations(o.ctx, r.Client, work, parentAnnotations); err != nil {
-			return err
+			return nil, err
 		}
 		if err := r.Client.Delete(o.ctx, work); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
 			}
 			logging.Warn(o.logger, "could not delete work; retrying", "reason", err.Error())
-			return err
+			return nil, err
 		}
 	}
 
-	return nil
+	return works, nil
 }
 
 func (r *DynamicResourceRequestController) deleteWorkflows(o opts, resourceRequest *unstructured.Unstructured, finalizer string) error {

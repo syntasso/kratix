@@ -373,6 +373,152 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(jobs.Items).To(BeEmpty())
 		})
 
+		Describe("while its Works wait for their removal to be delivered", func() {
+			createRemainingWork := func(placements ...v1alpha1.WorkPlacementWriteStatus) {
+				GinkgoHelper()
+				remaining := &v1alpha1.Work{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "remaining-work",
+						Namespace:  resReq.GetNamespace(),
+						Finalizers: []string{"kratix.io/work-cleanup"},
+						Labels: map[string]string{
+							v1alpha1.PromiseNameLabel:  promise.GetName(),
+							v1alpha1.ResourceNameLabel: resReq.GetName(),
+						},
+					},
+				}
+				Expect(fakeK8sClient.Create(ctx, remaining)).To(Succeed())
+				remaining.Status.WorkPlacementStatuses = placements
+				Expect(fakeK8sClient.Status().Update(ctx, remaining)).To(Succeed())
+			}
+
+			reconcileDeletion := func() ctrl.Result {
+				GinkgoHelper()
+				setReconcileDeleteWorkflowToReturnFinished(resReq)
+				result, err := t.reconcileUntilCompletion(reconciler, resReq, &opts{requeueExpected: true})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				Expect(resReq.GetFinalizers()).To(ContainElement("kratix.io/work-cleanup"))
+				return result
+			}
+
+			It("says the removal is waiting for approval and checks again slowly", func() {
+				createRemainingWork(v1alpha1.WorkPlacementWriteStatus{
+					Name: "remaining-work-a", Destination: "prod", Status: "Unknown",
+					Reason: v1alpha1.WorkloadsAwaitingDeliveryReason, Message: "Waiting for approval to remove: https://github.com/acme/platform-repo/pull/123",
+				})
+
+				result := reconcileDeletion()
+
+				reconciled := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+				Expect(reconciled).NotTo(BeNil())
+				Expect(reconciled.Status).To(Equal(v1.ConditionUnknown))
+				Expect(string(reconciled.Reason)).To(Equal("WorksAwaitingDelivery"))
+				Expect(reconciled.Message).To(Equal("Waiting for approval to remove: https://github.com/acme/platform-repo/pull/123"))
+				Expect(result.RequeueAfter).To(Equal(time.Minute))
+			})
+
+			It("says the removal was rejected", func() {
+				rejection := "Removal rejected; the workloads are still on prod. Rejected in https://github.com/acme/platform-repo/pull/123: \"" +
+					strings.Repeat("x", 200) + "\""
+				createRemainingWork(v1alpha1.WorkPlacementWriteStatus{
+					Name: "remaining-work-a", Destination: "prod", Status: "False",
+					Reason: v1alpha1.WorkloadsRejectedReason, Message: rejection,
+				})
+
+				reconcileDeletion()
+
+				reconciled := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+				Expect(reconciled).NotTo(BeNil())
+				Expect(reconciled.Status).To(Equal(v1.ConditionFalse))
+				Expect(string(reconciled.Reason)).To(Equal("WorksRejected"))
+				Expect(reconciled.Message).To(HavePrefix("Removal rejected; the workloads are still on prod."))
+			})
+
+			failRemainingWorkWrite := func() {
+				GinkgoHelper()
+				remaining := &v1alpha1.Work{}
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "remaining-work", Namespace: resReq.GetNamespace()}, remaining)).To(Succeed())
+				apiMeta.SetStatusCondition(&remaining.Status.Conditions, metav1.Condition{
+					Type: v1alpha1.WriteSucceededConditionType, Status: metav1.ConditionFalse,
+					Reason: v1alpha1.WorkplacementsFailingReason, Message: "prod: host down",
+				})
+				Expect(fakeK8sClient.Status().Update(ctx, remaining)).To(Succeed())
+			}
+
+			expectWorksFailing := func() {
+				GinkgoHelper()
+				reconciled := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+				Expect(reconciled).NotTo(BeNil())
+				Expect(reconciled.Status).To(Equal(v1.ConditionFalse))
+				Expect(string(reconciled.Reason)).To(Equal("WorksFailing"))
+			}
+
+			It("says the Works are failing when one failed to write while a removal waits for approval", func() {
+				createRemainingWork(
+					v1alpha1.WorkPlacementWriteStatus{
+						Name: "remaining-work-a", Destination: "prod", Status: "Unknown",
+						Reason: v1alpha1.WorkloadsAwaitingDeliveryReason, Message: "Waiting for approval to remove: u",
+					},
+					v1alpha1.WorkPlacementWriteStatus{
+						Name: "remaining-work-b", Destination: "dev", Status: "False",
+						Reason: "WorkloadsFailedWrite", Message: "host down",
+					},
+				)
+				failRemainingWorkWrite()
+
+				result := reconcileDeletion()
+
+				expectWorksFailing()
+				Expect(result.RequeueAfter).To(Equal(time.Minute))
+			})
+
+			It("says the Works are failing when one failed to write while a removal was rejected", func() {
+				createRemainingWork(
+					v1alpha1.WorkPlacementWriteStatus{
+						Name: "remaining-work-a", Destination: "prod", Status: "False",
+						Reason: v1alpha1.WorkloadsRejectedReason, Message: "Removal rejected; the workloads are still on prod.",
+					},
+					v1alpha1.WorkPlacementWriteStatus{
+						Name: "remaining-work-b", Destination: "dev", Status: "False",
+						Reason: "WorkloadsFailedWrite", Message: "host down",
+					},
+				)
+				failRemainingWorkWrite()
+
+				reconcileDeletion()
+
+				expectWorksFailing()
+			})
+
+			It("says the Works are failing when a removal failed to deliver", func() {
+				createRemainingWork(v1alpha1.WorkPlacementWriteStatus{
+					Name: "remaining-work-a", Destination: "prod", Status: "False",
+					Reason: "WorkloadsFailedWrite", Message: "host down",
+				})
+				failRemainingWorkWrite()
+
+				result := reconcileDeletion()
+
+				expectWorksFailing()
+				Expect(result.RequeueAfter).To(Equal(time.Minute))
+			})
+
+			It("leaves Reconciled alone when no Work is waiting on a delivery", func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				before := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+				createRemainingWork(v1alpha1.WorkPlacementWriteStatus{
+					Name: "remaining-work-a", Destination: "prod", Status: "True",
+					Reason: "WorkloadsWrittenToStateStore", Message: "Workloads written to State Store",
+				})
+
+				result := reconcileDeletion()
+
+				Expect(resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)).To(Equal(before))
+				Expect(result.RequeueAfter).To(Equal(5 * time.Second))
+			})
+		})
+
 		When("the delete pipeline is suspended with a retryAfter interval that has elapsed", func() {
 			BeforeEach(func() {
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())

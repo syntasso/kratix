@@ -428,8 +428,8 @@ func setReconciledFromPipelineWork(opts Opts, previousPipelineWork *v1alpha1.Wor
 	previousPipelineOutputFailing := ready != nil && ready.Reason == "WorkplacementsFailing" &&
 		ready.ObservedGeneration == previousPipelineWork.GetGeneration()
 	if previousPipelineOutputFailing {
-		ordinaryFailure := resourceutil.IsOrdinaryWorksFailure(works)
-		return resourceutil.MarkReconciledWorksFailing(opts.parentObject, deliveries, ordinaryFailure)
+		writeFailed := resourceutil.AnyWorkWriteFailed(works)
+		return resourceutil.MarkReconciledWorksFailing(opts.parentObject, deliveries, writeFailed)
 	}
 	return resourceutil.MarkReconciledWorksPending(opts.parentObject, deliveries)
 }

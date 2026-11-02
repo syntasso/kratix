@@ -59,6 +59,10 @@ type Target struct {
 	Resource    string
 	Pipeline    string
 	Destination string
+	// Removing is true when the delivery removes the WorkPlacement's files because it is being deleted.
+	Removing bool
+	// Supersedes is the receipt of an outstanding delivery Kratix dropped in favour of this one; the writer should withdraw it.
+	Supersedes string
 }
 
 // Writer is the interface to write to the state store
