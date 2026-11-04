@@ -20,10 +20,11 @@ import (
 // These tests cover the writer recovering when the Git state store is changed
 // outside of Kratix (a manual commit, a Flux/Argo prune, another tool). They
 // mutate the in-KinD Gitea repository directly, so they only run against KinD
-// (not the LRE, which uses a real GitHub repository). The spec uses its own
-// Gitea repository, so its external pushes can never race Kratix's pushes to
-// the shared repo and it does not need to be Serial.
-var _ = Describe("GitStateStore writer recovery", Label("git-recovery"), func() {
+// (not the LRE, which uses a real GitHub repository). They use their own
+// Gitea repository, so their external pushes can never race Kratix's pushes to
+// the shared repo and they do not need to be Serial. They are Ordered because
+// they share the Destination, Promise and resource names.
+var _ = Describe("GitStateStore writer recovery", Label("git-recovery"), Ordered, func() {
 	BeforeEach(func() {
 		if os.Getenv("LRE") == "true" {
 			Skip("external repo mutation targets the in-KinD Gitea; not applicable on the LRE")
@@ -80,6 +81,32 @@ var _ = Describe("GitStateStore writer recovery", Label("git-recovery"), func() 
 				return platform.Kubectl("-n", "default", "get", "workplacements",
 					"-l", "kratix.io/targetDestinationName=git-recovery")
 			}).Should(ContainSubstring("Ready"))
+		})
+	})
+
+	It("writes externally-deleted files again when the Work is labelled for redelivery", func() {
+		By("writing the resource's files to the state store", func() {
+			Eventually(gitRecoveryResourceFiles).Should(ContainElement("gitrecovery-configmap.yaml"))
+		})
+
+		By("deleting the resource's directory directly on the remote", func() {
+			deleteGitRecoveryResourcesFromRemote()
+			Expect(gitRecoveryResourceFiles()).NotTo(ContainElement("gitrecovery-configmap.yaml"))
+		})
+
+		By("labelling the Work for redelivery", func() {
+			platform.Kubectl("-n", "default", "label", "works",
+				"-l", "kratix.io/promise-name=gitrecovery,kratix.io/resource-name=example",
+				"kratix.io/redeliver=true")
+		})
+
+		By("writing the same files again and removing the label", func() {
+			Eventually(gitRecoveryResourceFiles).Should(ContainElement("gitrecovery-configmap.yaml"))
+			Expect(gitRecoveryConfigMapContent()).To(ContainSubstring("value: one"))
+			Eventually(func() string {
+				return platform.Kubectl("-n", "default", "get", "workplacements",
+					"-l", "kratix.io/targetDestinationName=git-recovery,kratix.io/redeliver")
+			}).ShouldNot(ContainSubstring("git-recovery"))
 		})
 	})
 })

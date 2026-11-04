@@ -55,6 +55,10 @@ const (
 	DryRunResourceNameAnnotation      = KratixPrefix + "dry-run-resource-name"
 	DryRunResourceNamespaceAnnotation = KratixPrefix + "dry-run-resource-namespace"
 
+	// RedeliverLabel on a Work or WorkPlacement asks Kratix to deliver its workloads again, even
+	// after a rejection. Kratix removes it once the delivery is accepted.
+	RedeliverLabel = KratixPrefix + "redeliver"
+
 	// Compound Promise traceability. A compound Promise's workflow labels the
 	// component resource requests it emits, linking each back to the compound
 	// request that produced it. These are not dry-run specific: in a normal run

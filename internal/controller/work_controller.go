@@ -116,6 +116,10 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 		return ctrl.Result{}, err
 	}
 
+	if work.GetLabels()[v1alpha1.RedeliverLabel] == "true" {
+		return ctrl.Result{}, r.passRedeliverToWorkPlacements(ctx, logger, work)
+	}
+
 	if !work.DeletionTimestamp.IsZero() {
 		waiting, err := r.deleteWork(ctx, logger, work)
 		if err != nil {
@@ -199,6 +203,34 @@ func (r *WorkReconciler) updateWriteState(ctx context.Context, logger logr.Logge
 		return r.Client.Status().Update(ctx, work)
 	}
 	return nil
+}
+
+// passRedeliverToWorkPlacements labels the WorkPlacements first, so a failure leaves the Work labelled and is retried.
+func (r *WorkReconciler) passRedeliverToWorkPlacements(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) error {
+	workplacements, err := r.listWorkPlacements(ctx, r.Client, logger, work)
+	if err != nil {
+		return err
+	}
+	for i := range workplacements {
+		wp := &workplacements[i]
+		if wp.GetLabels()[v1alpha1.RedeliverLabel] == "true" {
+			continue
+		}
+		patch := client.MergeFrom(wp.DeepCopy())
+		labels := wp.GetLabels()
+		if labels == nil {
+			labels = map[string]string{}
+		}
+		labels[v1alpha1.RedeliverLabel] = "true"
+		wp.SetLabels(labels)
+		if err := r.Client.Patch(ctx, wp, patch); client.IgnoreNotFound(err) != nil {
+			return err
+		}
+	}
+
+	patch := client.MergeFrom(work.DeepCopy())
+	delete(work.Labels, v1alpha1.RedeliverLabel)
+	return r.Client.Patch(ctx, work, patch)
 }
 
 func (r *WorkReconciler) listWorkPlacements(ctx context.Context, reader client.Reader, logger logr.Logger, work *v1alpha1.Work) ([]v1alpha1.WorkPlacement, error) {
