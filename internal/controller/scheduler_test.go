@@ -284,6 +284,25 @@ var _ = Describe("Controllers/Scheduler", func() {
 				})
 			})
 
+			When("an existing WorkPlacement is labelled for redelivery", func() {
+				It("keeps the label when the Work is scheduled again", func() {
+					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+					workPlacement := workPlacements.Items[0]
+					workPlacement.Labels[v1alpha1.RedeliverLabel] = "true"
+					Expect(fakeK8sClient.Update(context.Background(), &workPlacement)).To(Succeed())
+
+					latestWork := &v1alpha1.Work{}
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), latestWork)).To(Succeed())
+					_, err = scheduler.ReconcileWork(context.Background(), latestWork)
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					Expect(workPlacement.Labels).To(HaveKeyWithValue(v1alpha1.RedeliverLabel, "true"))
+				})
+			})
+
 			When("a resource Work with scheduling is reconciled after write succeeds", func() {
 				var workPlacement v1alpha1.WorkPlacement
 

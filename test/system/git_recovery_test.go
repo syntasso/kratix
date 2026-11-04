@@ -82,6 +82,32 @@ var _ = Describe("GitStateStore writer recovery", Label("git-recovery"), func() 
 			}).Should(ContainSubstring("Ready"))
 		})
 	})
+
+	It("writes externally-deleted files again when the Work is labelled for redelivery", func() {
+		By("writing the resource's files to the state store", func() {
+			Eventually(gitRecoveryResourceFiles).Should(ContainElement("gitrecovery-configmap.yaml"))
+		})
+
+		By("deleting the resource's directory directly on the remote", func() {
+			deleteGitRecoveryResourcesFromRemote()
+			Expect(gitRecoveryResourceFiles()).NotTo(ContainElement("gitrecovery-configmap.yaml"))
+		})
+
+		By("labelling the Work for redelivery", func() {
+			platform.Kubectl("-n", "default", "label", "works",
+				"-l", "kratix.io/promise-name=gitrecovery,kratix.io/resource-name=example",
+				"kratix.io/redeliver=true")
+		})
+
+		By("writing the same files again and removing the label", func() {
+			Eventually(gitRecoveryResourceFiles).Should(ContainElement("gitrecovery-configmap.yaml"))
+			Expect(gitRecoveryConfigMapContent()).To(ContainSubstring("value: one"))
+			Eventually(func() string {
+				return platform.Kubectl("-n", "default", "get", "workplacements",
+					"-l", "kratix.io/targetDestinationName=git-recovery,kratix.io/redeliver")
+			}).ShouldNot(ContainSubstring("git-recovery"))
+		})
+	})
 })
 
 // runGit shells out to the git CLI. dir is the working directory (empty for the

@@ -43,6 +43,10 @@ func WriterForDelivery(store StateStore, base writers.StateStoreWriter, creds ma
 	return writerForDelivery(store, base, creds)
 }
 
+func WorkPlacementReconcilePredicate() predicate.Funcs {
+	return workPlacementReconcilePredicate()
+}
+
 func WorkPlacementStatusUpdatePredicate() predicate.Funcs {
 	return workPlacementStatusUpdatePredicate()
 }

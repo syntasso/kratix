@@ -1334,6 +1334,24 @@ files:
 			return apiMeta.FindStatusCondition(workPlacement.Status.Conditions, conditionType)
 		}
 
+		labelForRedelivery := func(name string) {
+			latest := &v1alpha1.WorkPlacement{}
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, latest)).To(Succeed())
+			labels := latest.GetLabels()
+			if labels == nil {
+				labels = map[string]string{}
+			}
+			labels[v1alpha1.RedeliverLabel] = "true"
+			latest.SetLabels(labels)
+			Expect(fakeK8sClient.Update(ctx, latest)).To(Succeed())
+		}
+
+		redeliverLabelOf := func(name string) string {
+			latest := &v1alpha1.WorkPlacement{}
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, latest)).To(Succeed())
+			return latest.GetLabels()[v1alpha1.RedeliverLabel]
+		}
+
 		removalsDelivered := func() []deliverCall {
 			var found []deliverCall
 			for _, call := range deferredWriter.delivered {
@@ -1509,6 +1527,17 @@ files:
 
 				Expect(deferredWriter.checkReceipts).To(ConsistOf("receipt-1"))
 				Expect(deferredWriter.deliverCalls).To(Equal(1))
+			})
+
+			It("keeps the pending write when the WorkPlacement is labelled for redelivery", func() {
+				deferredWriter.checkResult = delivery.Result{Outcome: delivery.Pending, Receipt: "receipt-1"}
+				labelForRedelivery(workPlacement.GetName())
+
+				reconcileTimes(1)
+
+				Expect(deferredWriter.deliverCalls).To(Equal(1))
+				Expect(deferredWriter.checkReceipts).To(ConsistOf("receipt-1"))
+				Expect(redeliverLabelOf(workPlacement.GetName())).To(BeEmpty())
 			})
 
 			It("checks a pending write again after the CheckAfter the writer returned", func() {
@@ -1773,6 +1802,30 @@ files:
 				Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).NotTo(Equal("WorkloadsRejected"))
 			})
 
+			When("the WorkPlacement is labelled for redelivery", func() {
+				BeforeEach(func() {
+					labelForRedelivery(workPlacement.GetName())
+				})
+
+				It("delivers the same workloads again and removes the label", func() {
+					reconcileTimes(1)
+
+					Expect(deferredWriter.deliverCalls).To(Equal(2))
+					Expect(readCondition(v1alpha1.WriteSucceededConditionType).Reason).NotTo(Equal("WorkloadsRejected"))
+					Expect(redeliverLabelOf(workPlacement.GetName())).To(BeEmpty())
+				})
+
+				It("keeps the label when the delivery fails, so it is tried again", func() {
+					deferredWriter.deliverErr = fmt.Errorf("host down")
+
+					_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&workPlacement)})
+
+					Expect(err).To(MatchError(ContainSubstring("host down")))
+					Expect(deferredWriter.deliverCalls).To(Equal(2))
+					Expect(redeliverLabelOf(workPlacement.GetName())).To(Equal("true"))
+				})
+			})
+
 			It("delivers again when a file is renamed", func() {
 				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
 				workPlacement.Spec.Workloads[0].Filepath = "renamed.yaml"
@@ -2030,6 +2083,20 @@ files:
 					Expect(written.Reason).To(Equal("WorkloadsRejected"))
 					Expect(written.Message).To(Equal(
 						"Removal rejected; the workloads are still on test-destination. closed by a reviewer"))
+				})
+
+				It("delivers the removal again once the WorkPlacement is labelled for redelivery", func() {
+					deferredWriter.deliverResult = delivery.Result{
+						Outcome: delivery.Pending, Receipt: "removal-2", URL: "https://h/pr/10",
+					}
+					labelForRedelivery(workPlacementName)
+
+					reconcileTimes(1)
+
+					Expect(removalsDelivered()).To(HaveLen(2))
+					latest := read(workPlacementName)
+					Expect(latest.Status.DeliveryReceipt).To(Equal("removal-2"))
+					Expect(latest.GetLabels()).NotTo(HaveKey(v1alpha1.RedeliverLabel))
 				})
 
 				It("neither delivers nor checks again", func() {
@@ -2477,6 +2544,32 @@ files:
 				})
 			})
 		})
+	})
+})
+
+var _ = Describe("which WorkPlacement changes reconcile it", func() {
+	shouldReconcile := func(oldWorkPlacement, newWorkPlacement *v1alpha1.WorkPlacement) bool {
+		return controller.WorkPlacementReconcilePredicate().Update(event.UpdateEvent{
+			ObjectOld: oldWorkPlacement,
+			ObjectNew: newWorkPlacement,
+		})
+	}
+
+	It("reconciles when the redeliver label is added", func() {
+		oldWorkPlacement := &v1alpha1.WorkPlacement{ObjectMeta: metav1.ObjectMeta{Generation: 1}}
+		newWorkPlacement := oldWorkPlacement.DeepCopy()
+		newWorkPlacement.SetLabels(map[string]string{v1alpha1.RedeliverLabel: "true"})
+
+		Expect(shouldReconcile(oldWorkPlacement, newWorkPlacement)).To(BeTrue())
+	})
+
+	It("does not reconcile when the redeliver label is removed", func() {
+		oldWorkPlacement := &v1alpha1.WorkPlacement{ObjectMeta: metav1.ObjectMeta{Generation: 1}}
+		oldWorkPlacement.SetLabels(map[string]string{v1alpha1.RedeliverLabel: "true"})
+		newWorkPlacement := oldWorkPlacement.DeepCopy()
+		newWorkPlacement.SetLabels(nil)
+
+		Expect(shouldReconcile(oldWorkPlacement, newWorkPlacement)).To(BeFalse())
 	})
 })
 

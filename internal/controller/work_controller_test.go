@@ -129,6 +129,55 @@ var _ = Describe("WorkReconciler", func() {
 
 	})
 
+	When("the Work is labelled for redelivery", func() {
+		var workPlacement v1alpha1.WorkPlacement
+
+		labelWork := func() {
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			work.SetLabels(map[string]string{v1alpha1.RedeliverLabel: "true"})
+			Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
+		}
+
+		BeforeEach(func() {
+			workPlacement = v1alpha1.WorkPlacement{
+				ObjectMeta: v1.ObjectMeta{
+					Name:       "redeliver-wp",
+					Namespace:  work.Namespace,
+					Labels:     map[string]string{"kratix.io/work": work.Name},
+					Finalizers: []string{"finalizers.workplacement.kratix.io/repo-cleanup"},
+				},
+			}
+			Expect(fakeK8sClient.Create(ctx, &workPlacement)).To(Succeed())
+		})
+
+		It("passes the label to its WorkPlacements and removes it from the Work", func() {
+			labelWork()
+
+			_, err := t.reconcileUntilCompletion(reconciler, work)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			Expect(workPlacement.GetLabels()).To(HaveKeyWithValue(v1alpha1.RedeliverLabel, "true"))
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			Expect(work.GetLabels()).NotTo(HaveKey(v1alpha1.RedeliverLabel))
+		})
+
+		It("passes the label on while the Work is being deleted", func() {
+			_, err := t.reconcileUntilCompletion(reconciler, work)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fakeK8sClient.Delete(ctx, work)).To(Succeed())
+			_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: workName})
+			Expect(err).NotTo(HaveOccurred())
+			labelWork()
+
+			_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: workName})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			Expect(workPlacement.GetLabels()).To(HaveKeyWithValue(v1alpha1.RedeliverLabel, "true"))
+		})
+	})
+
 	When("scheduled workplacements failed to write", func() {
 		BeforeEach(func() {
 			markWorkAsScheduled(work)
