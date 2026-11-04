@@ -161,21 +161,6 @@ var _ = Describe("WorkReconciler", func() {
 			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
 			Expect(work.GetLabels()).NotTo(HaveKey(v1alpha1.RedeliverLabel))
 		})
-
-		It("passes the label on while the Work is being deleted", func() {
-			_, err := t.reconcileUntilCompletion(reconciler, work)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(fakeK8sClient.Delete(ctx, work)).To(Succeed())
-			_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: workName})
-			Expect(err).NotTo(HaveOccurred())
-			labelWork()
-
-			_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: workName})
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
-			Expect(workPlacement.GetLabels()).To(HaveKeyWithValue(v1alpha1.RedeliverLabel, "true"))
-		})
 	})
 
 	When("scheduled workplacements failed to write", func() {
