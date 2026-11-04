@@ -2505,7 +2505,7 @@ var _ = Describe("WorkPlacements for a state store", func() {
 	It("enqueues the WorkPlacements on the Destinations that use the state store", func() {
 		store := &v1alpha1.GitStateStore{ObjectMeta: metav1.ObjectMeta{Name: "store-1"}}
 
-		requests := controller.WorkPlacementsForStateStore(reconciler, v1alpha1.GitStateStoreKind)(ctx, store)
+		requests := controller.WorkPlacementsForStateStore(reconciler, "GitStateStore")(ctx, store)
 
 		Expect(requests).To(ConsistOf(
 			ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "wp-on-dest-a"}},
@@ -2516,7 +2516,7 @@ var _ = Describe("WorkPlacements for a state store", func() {
 	It("tells a bucket store apart from a git store with the same name", func() {
 		store := &v1alpha1.BucketStateStore{ObjectMeta: metav1.ObjectMeta{Name: "store-1"}}
 
-		requests := controller.WorkPlacementsForStateStore(reconciler, v1alpha1.BucketStateStoreKind)(ctx, store)
+		requests := controller.WorkPlacementsForStateStore(reconciler, "BucketStateStore")(ctx, store)
 
 		Expect(requests).To(ConsistOf(
 			ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "wp-on-dest-bucket"}},

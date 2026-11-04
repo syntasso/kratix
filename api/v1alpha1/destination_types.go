@@ -213,11 +213,6 @@ type StateStoreReference struct {
 	Name string `json:"name"`
 }
 
-const (
-	GitStateStoreKind    = "GitStateStore"
-	BucketStateStoreKind = "BucketStateStore"
-)
-
 func init() {
 	SchemeBuilder.Register(func(s *runtime.Scheme) error {
 		s.AddKnownTypes(GroupVersion, &Destination{}, &DestinationList{})

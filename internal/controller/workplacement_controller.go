@@ -398,12 +398,12 @@ func (r *WorkPlacementReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&v1alpha1.WorkPlacement{}, builder.WithPredicates(workPlacementReconcilePredicate())).
 		Watches(
 			&v1alpha1.GitStateStore{},
-			handler.EnqueueRequestsFromMapFunc(r.workPlacementsForStateStore(v1alpha1.GitStateStoreKind)),
+			handler.EnqueueRequestsFromMapFunc(r.workPlacementsForStateStore("GitStateStore")),
 			builder.WithPredicates(stateStoreObservedGenerationChanged()),
 		).
 		Watches(
 			&v1alpha1.BucketStateStore{},
-			handler.EnqueueRequestsFromMapFunc(r.workPlacementsForStateStore(v1alpha1.BucketStateStoreKind)),
+			handler.EnqueueRequestsFromMapFunc(r.workPlacementsForStateStore("BucketStateStore")),
 			builder.WithPredicates(stateStoreObservedGenerationChanged()),
 		).
 		Complete(r)

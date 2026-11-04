@@ -100,7 +100,7 @@ var _ = Describe("InitRepository", func() {
 
 		store := &v1alpha1.BucketStateStore{}
 		store.SetName("mode-store")
-		store.SetGroupVersionKind(v1alpha1.GroupVersion.WithKind(v1alpha1.BucketStateStoreKind))
+		store.SetGroupVersionKind(v1alpha1.GroupVersion.WithKind("BucketStateStore"))
 		store.Spec.Delivery = spec
 
 		repo, err := controller.NewRepositoryCache().InitRepository(logr.Discard(), store, corev1.Secret{})
