@@ -20,10 +20,11 @@ import (
 // These tests cover the writer recovering when the Git state store is changed
 // outside of Kratix (a manual commit, a Flux/Argo prune, another tool). They
 // mutate the in-KinD Gitea repository directly, so they only run against KinD
-// (not the LRE, which uses a real GitHub repository). The spec uses its own
-// Gitea repository, so its external pushes can never race Kratix's pushes to
-// the shared repo and it does not need to be Serial.
-var _ = Describe("GitStateStore writer recovery", Label("git-recovery"), func() {
+// (not the LRE, which uses a real GitHub repository). They use their own
+// Gitea repository, so their external pushes can never race Kratix's pushes to
+// the shared repo and they do not need to be Serial. They are Ordered because
+// they share the Destination, Promise and resource names.
+var _ = Describe("GitStateStore writer recovery", Label("git-recovery"), Ordered, func() {
 	BeforeEach(func() {
 		if os.Getenv("LRE") == "true" {
 			Skip("external repo mutation targets the in-KinD Gitea; not applicable on the LRE")
