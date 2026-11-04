@@ -1213,33 +1213,6 @@ files:
 		})
 	})
 
-	When("the destination statestore kind is not managed by Kratix", func() {
-		BeforeEach(func() {
-			destination.Spec.StateStoreRef.APIVersion = "platform.example.com/v1alpha1"
-			destination.Spec.StateStoreRef.Kind = "ExampleStateStore"
-			destination.Spec.StateStoreRef.Name = "test-state-store"
-			Expect(fakeK8sClient.Create(ctx, &destination)).To(Succeed())
-
-			workPlacement.SetFinalizers([]string{"finalizers.example.com/cleanup"})
-			Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
-			Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
-		})
-
-		It("leaves the work placement alone", func() {
-			result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result).To(Equal(ctrl.Result{}))
-
-			Expect(repositoryCache.GetRepositoryByTypeAndNameCallCount()).To(Equal(0))
-			Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(0))
-			Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(0))
-
-			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
-			Expect(workPlacement.Status.Conditions).To(BeEmpty())
-			Expect(workPlacement.GetFinalizers()).To(ConsistOf("finalizers.example.com/cleanup"))
-		})
-	})
-
 	When("the state store has no delivery mode", func() {
 		reconcileOnce := func() (ctrl.Result, error) {
 			return reconciler.Reconcile(ctx, ctrl.Request{
@@ -2527,15 +2500,12 @@ var _ = Describe("WorkPlacements for a state store", func() {
 		destinationFor("dest-b", v1alpha1.StateStoreReference{Kind: "GitStateStore", Name: "store-1"})
 		destinationFor("dest-bucket", v1alpha1.StateStoreReference{Kind: "BucketStateStore", Name: "store-1"})
 		destinationFor("dest-other", v1alpha1.StateStoreReference{Kind: "GitStateStore", Name: "store-2"})
-		destinationFor("dest-custom", v1alpha1.StateStoreReference{
-			APIVersion: "custom.example.com/v1", Kind: "GitStateStore", Name: "store-1",
-		})
 	})
 
 	It("enqueues the WorkPlacements on the Destinations that use the state store", func() {
 		store := &v1alpha1.GitStateStore{ObjectMeta: metav1.ObjectMeta{Name: "store-1"}}
 
-		requests := controller.WorkPlacementsForStateStore(reconciler, v1alpha1.GitStateStoreKind)(ctx, store)
+		requests := controller.WorkPlacementsForStateStore(reconciler, "GitStateStore")(ctx, store)
 
 		Expect(requests).To(ConsistOf(
 			ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "wp-on-dest-a"}},
@@ -2546,7 +2516,7 @@ var _ = Describe("WorkPlacements for a state store", func() {
 	It("tells a bucket store apart from a git store with the same name", func() {
 		store := &v1alpha1.BucketStateStore{ObjectMeta: metav1.ObjectMeta{Name: "store-1"}}
 
-		requests := controller.WorkPlacementsForStateStore(reconciler, v1alpha1.BucketStateStoreKind)(ctx, store)
+		requests := controller.WorkPlacementsForStateStore(reconciler, "BucketStateStore")(ctx, store)
 
 		Expect(requests).To(ConsistOf(
 			ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "wp-on-dest-bucket"}},

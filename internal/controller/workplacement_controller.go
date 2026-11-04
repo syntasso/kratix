@@ -192,12 +192,6 @@ func (w *workPlacementReconcileContext) reconcileWithSpanAttributes() (result ct
 }
 
 func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr error) {
-	if w.destination.Spec.StateStoreRef.IsManagedByCustomController() {
-		logging.Debug(w.logger, "state store kind is not managed by Kratix, skipping",
-			"kind", w.destination.Spec.StateStoreRef.Kind)
-		return ctrl.Result{}, nil
-	}
-
 	if w.workPlacement.DeletionTimestamp.IsZero() && w.rejectedWorkloadsUnchanged() {
 		return w.reconcileUnchangedRejection()
 	}
@@ -404,12 +398,12 @@ func (r *WorkPlacementReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&v1alpha1.WorkPlacement{}, builder.WithPredicates(workPlacementReconcilePredicate())).
 		Watches(
 			&v1alpha1.GitStateStore{},
-			handler.EnqueueRequestsFromMapFunc(r.workPlacementsForStateStore(v1alpha1.GitStateStoreKind)),
+			handler.EnqueueRequestsFromMapFunc(r.workPlacementsForStateStore("GitStateStore")),
 			builder.WithPredicates(stateStoreObservedGenerationChanged()),
 		).
 		Watches(
 			&v1alpha1.BucketStateStore{},
-			handler.EnqueueRequestsFromMapFunc(r.workPlacementsForStateStore(v1alpha1.BucketStateStoreKind)),
+			handler.EnqueueRequestsFromMapFunc(r.workPlacementsForStateStore("BucketStateStore")),
 			builder.WithPredicates(stateStoreObservedGenerationChanged()),
 		).
 		Complete(r)
@@ -1165,8 +1159,7 @@ func (r *WorkPlacementReconciler) workPlacementsForStateStore(stateStoreKind str
 		var requests []reconcile.Request
 		for _, destination := range destinations.Items {
 			ref := destination.Spec.StateStoreRef
-			if ref == nil || ref.IsManagedByCustomController() ||
-				ref.Kind != stateStoreKind || ref.Name != stateStore.GetName() {
+			if ref == nil || ref.Kind != stateStoreKind || ref.Name != stateStore.GetName() {
 				continue
 			}
 
