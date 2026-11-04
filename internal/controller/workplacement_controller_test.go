@@ -1739,6 +1739,146 @@ files:
 			})
 		})
 
+		It("fails a first delivery the writer reports as outdated", func() {
+			deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Outdated}
+			reconcileTimes(1)
+
+			_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&workPlacement)})
+
+			Expect(deferredWriter.deliverCalls).To(Equal(1))
+			Expect(err).To(MatchError(ContainSubstring("unknown delivery outcome")))
+		})
+
+		When("the writer reports an outstanding delivery as outdated", func() {
+			refreshed := delivery.Result{
+				Outcome:    delivery.Pending,
+				Receipt:    "7",
+				Reason:     "refreshed, waiting again",
+				URL:        "https://h/d/8",
+				CheckAfter: 11 * time.Second,
+			}
+
+			reconcileOnce := func() (ctrl.Result, error) {
+				return reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&workPlacement)})
+			}
+
+			read := func() v1alpha1.WorkPlacementStatus {
+				latest := &v1alpha1.WorkPlacement{}
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), latest)).To(Succeed())
+				return latest.Status
+			}
+
+			BeforeEach(func() {
+				deferredWriter.deliverResult = delivery.Result{
+					Outcome:    delivery.Pending,
+					Receipt:    "7",
+					Reason:     "waiting for the write to be accepted",
+					URL:        "https://h/d/7",
+					CheckAfter: 3 * time.Second,
+				}
+				reconcileTimes(2)
+				Expect(deferredWriter.deliverCalls).To(Equal(1))
+				Expect(read().DeliveryReceipt).To(Equal("7"))
+				deferredWriter.checkResult = delivery.Result{Outcome: delivery.Outdated}
+				deferredWriter.deliverResult = refreshed
+			})
+
+			It("delivers the current files again to refresh the receipt and records the result", func() {
+				result, err := reconcileOnce()
+
+				Expect(deferredWriter.checkReceipts).To(Equal([]string{"7"}))
+				Expect(deferredWriter.delivered).To(HaveLen(2))
+				refresh := deferredWriter.delivered[1]
+				Expect(refresh.target.Refreshes).To(Equal("7"))
+				Expect(refresh.target.Removing).To(BeFalse())
+				Expect(refresh.target.Supersedes).To(BeEmpty())
+				Expect(refresh.target.Dir).To(Equal(deferredWriter.delivered[0].target.Dir))
+				Expect(refresh.create).To(ConsistOf(decompressedWorkloads))
+				Expect(refresh.remove).To(BeEmpty())
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).To(Equal(11 * time.Second))
+				status := read()
+				Expect(status.DeliveryReceipt).To(Equal("7"))
+				Expect(status.DeliveryURL).To(Equal("https://h/d/8"))
+				Expect(apiMeta.FindStatusCondition(status.Conditions, v1alpha1.WriteSucceededConditionType).Message).
+					To(Equal("refreshed, waiting again"))
+			})
+
+			It("keeps the receipt saved while the refresh runs", func() {
+				var during []string
+				deferredWriter.onDeliver = func() { during = append(during, read().DeliveryReceipt) }
+
+				_, _ = reconcileOnce()
+
+				Expect(during).To(Equal([]string{"7"}))
+			})
+
+			It("records a refresh the writer delivered at once", func() {
+				deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "v2"}
+
+				_, err := reconcileOnce()
+
+				Expect(deferredWriter.deliverCalls).To(Equal(2))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(read().DeliveryReceipt).To(BeEmpty())
+				Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
+			})
+
+			It("drops a receipt the writer cannot refresh", func() {
+				deferredWriter.deliverErr = fmt.Errorf("%w: x", delivery.ErrUnknownReceipt)
+
+				result, err := reconcileOnce()
+
+				Expect(deferredWriter.deliverCalls).To(Equal(2))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+				status := read()
+				Expect(status.DeliveryReceipt).To(BeEmpty())
+				Expect(status.DeliveryURL).To(BeEmpty())
+			})
+
+			It("keeps the receipt to check again when the refresh fails", func() {
+				deferredWriter.deliverErr = fmt.Errorf("host down")
+
+				_, err := reconcileOnce()
+
+				Expect(deferredWriter.deliverCalls).To(Equal(2))
+				Expect(err).To(MatchError("host down"))
+				Expect(read().DeliveryReceipt).To(Equal("7"))
+				written := readCondition(v1alpha1.WriteSucceededConditionType)
+				Expect(written.Status).To(Equal(metav1.ConditionFalse))
+				Expect(written.Message).To(ContainSubstring("host down"))
+			})
+		})
+
+		It("refreshes an outdated delivery with the files the target's state file lists that the WorkPlacement no longer writes", func() {
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&destination), &destination)).To(Succeed())
+			destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNone
+			Expect(fakeK8sClient.Update(ctx, &destination)).To(Succeed())
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			workPlacement.Spec.Workloads = []v1alpha1.Workload{{Filepath: "a.yaml", Content: workloads[0].Content}}
+			Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+			deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Pending, Receipt: "7"}
+			reconcileTimes(2)
+			Expect(deferredWriter.deliverCalls).To(Equal(1))
+
+			deferredWriter.ReadFileReturns([]byte("files:\n- test-path/a.yaml\n- test-path/b.yaml\n"), nil)
+			deferredWriter.checkResult = delivery.Result{Outcome: delivery.Outdated}
+			_, _ = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&workPlacement)})
+
+			Expect(deferredWriter.delivered).To(HaveLen(2))
+			refresh := deferredWriter.delivered[1]
+			Expect(refresh.target.Refreshes).To(Equal("7"))
+			Expect(refresh.remove).To(ConsistOf("test-path/b.yaml"))
+			Expect(refresh.create).To(ConsistOf(
+				v1alpha1.Workload{Filepath: "test-path/a.yaml", Content: "{someApi: foo, someValue: bar}"},
+				v1alpha1.Workload{
+					Filepath: "test-path/.kratix/default-test-work-placement.yaml",
+					Content:  "files:\n- test-path/a.yaml\n",
+				},
+			))
+		})
+
 		When("a delivery was rejected", func() {
 			BeforeEach(func() {
 				reconcileTimes(2)
@@ -2205,6 +2345,97 @@ files:
 					Expect(deferredWriter.checkReceipts).To(Equal([]string{"removal-1"}))
 					Expect(removalsDelivered()).To(HaveLen(1))
 					Expect(read(workPlacementName).Status.DeliveryReceipt).To(Equal("removal-2"))
+				})
+			})
+
+			When("the writer reports an outstanding removal as outdated", func() {
+				reconcileOnce := func() (ctrl.Result, error) {
+					return reconciler.Reconcile(ctx, ctrl.Request{
+						NamespacedName: types.NamespacedName{Name: workPlacementName, Namespace: "default"},
+					})
+				}
+
+				BeforeEach(func() {
+					deliverThenDelete()
+					deferredWriter.deliverResult = delivery.Result{
+						Outcome: delivery.Pending, Receipt: "9", Reason: "waiting to remove", URL: "https://h/d/9",
+					}
+					reconcileTimes(1)
+					Expect(read(workPlacementName).Status.DeliveryReceipt).To(Equal("9"))
+					Expect(read(workPlacementName).Status.DeliveryRemoval).To(BeTrue())
+					bumpGenerationAsTheAPIServerDoes()
+					deferredWriter.checkResult = delivery.Result{Outcome: delivery.Outdated}
+					deferredWriter.deliverResult = delivery.Result{
+						Outcome: delivery.Pending, Receipt: "9", Reason: "removal refreshed", URL: "https://h/d/12",
+						CheckAfter: 13 * time.Second,
+					}
+				})
+
+				It("delivers the removal again to refresh the receipt and records the result", func() {
+					result, err := reconcileOnce()
+
+					Expect(deferredWriter.checkReceipts).To(Equal([]string{"9"}))
+					Expect(removalsDelivered()).To(HaveLen(2))
+					refresh := removalsDelivered()[1].target
+					Expect(refresh.Refreshes).To(Equal("9"))
+					Expect(refresh.Supersedes).To(BeEmpty())
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result.RequeueAfter).To(Equal(13 * time.Second))
+					latest := read(workPlacementName)
+					Expect(latest.Status.DeliveryReceipt).To(Equal("9"))
+					Expect(latest.Status.DeliveryRemoval).To(BeTrue())
+					Expect(latest.Status.DeliveryURL).To(Equal("https://h/d/12"))
+					Expect(apiMeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.WriteSucceededConditionType).Message).
+						To(Equal("removal refreshed"))
+				})
+
+				It("does not refresh when the API server holds a different removal receipt", func() {
+					stale := read(workPlacementName)
+					saved := read(workPlacementName)
+					saved.Status.DeliveryReceipt = "10"
+					Expect(fakeK8sClient.Status().Update(ctx, saved)).To(Succeed())
+
+					servedStale := false
+					reconciler.Client = interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+						Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+							if wp, ok := obj.(*v1alpha1.WorkPlacement); ok && !servedStale {
+								servedStale = true
+								stale.DeepCopyInto(wp)
+								return nil
+							}
+							return c.Get(ctx, key, obj, opts...)
+						},
+					})
+
+					_, err := reconcileOnce()
+
+					Expect(servedStale).To(BeTrue())
+					Expect(deferredWriter.checkReceipts).To(Equal([]string{"9"}))
+					Expect(removalsDelivered()).To(HaveLen(1))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(read(workPlacementName).Status.DeliveryReceipt).To(Equal("10"))
+				})
+
+				It("drops a receipt the writer cannot refresh and delivers the removal afresh", func() {
+					deferredWriter.deliverResult.Receipt = "11"
+					deferredWriter.onDeliver = func() {
+						deferredWriter.deliverErr = nil
+						if deferredWriter.delivered[len(deferredWriter.delivered)-1].target.Refreshes != "" {
+							deferredWriter.deliverErr = fmt.Errorf("%w: x", delivery.ErrUnknownReceipt)
+						}
+					}
+
+					_, err := reconcileOnce()
+
+					Expect(removalsDelivered()).To(HaveLen(3))
+					Expect(removalsDelivered()[1].target.Refreshes).To(Equal("9"))
+					fresh := removalsDelivered()[2].target
+					Expect(fresh.Refreshes).To(BeEmpty())
+					Expect(fresh.Supersedes).To(BeEmpty())
+					Expect(err).NotTo(HaveOccurred())
+					latest := read(workPlacementName)
+					Expect(latest.Status.DeliveryReceipt).To(Equal("11"))
+					Expect(latest.Status.DeliveryRemoval).To(BeTrue())
 				})
 			})
 

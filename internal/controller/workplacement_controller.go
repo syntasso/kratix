@@ -275,7 +275,7 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 		return ctrl.Result{}, err
 	}
 
-	written, err := w.writeToStateStore(repo)
+	written, err := w.writeToStateStore(repo, "")
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -684,7 +684,24 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	if result.Outcome == delivery.Outdated {
+		return w.refreshDelivery(repo, receipt)
+	}
 	w.markRedeliveryDone()
+	return w.recordDeliveryResult(repo.DeliveryMode, result)
+}
+
+// refreshDelivery delivers the current workloads again under receipt, which stays saved until the writer answers.
+func (w *workPlacementReconcileContext) refreshDelivery(repo *Repository, receipt string) (ctrl.Result, error) {
+	result, err := w.writeToStateStore(repo, receipt)
+	if errors.Is(err, delivery.ErrUnknownReceipt) {
+		w.clearOutstandingDelivery()
+		w.workPlacement.Status.DeliveryURL = ""
+		return fastRequeue, w.client.Status().Update(w.ctx, w.workPlacement)
+	}
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	return w.recordDeliveryResult(repo.DeliveryMode, result)
 }
 
@@ -815,7 +832,7 @@ func (w *workPlacementReconcileContext) recordPendingDelivery(mode string, resul
 	return ctrl.Result{RequeueAfter: checkInterval(result)}, nil
 }
 
-func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (delivery.Result, error) {
+func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository, refreshes string) (delivery.Result, error) {
 	metricAttrs := telemetry.WorkPlacementWriteAttributes(
 		w.workPlacement.Spec.PromiseName,
 		w.workPlacement.Spec.ResourceName,
@@ -824,7 +841,10 @@ func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (del
 	)
 
 	logging.Debug(w.logger, "writing files to state store")
-	result, workloadErr := w.writeWorkloadsToStateStore(repo)
+	result, workloadErr := w.writeWorkloadsToStateStore(repo, refreshes)
+	if refreshes != "" && errors.Is(workloadErr, delivery.ErrUnknownReceipt) {
+		return delivery.Result{}, workloadErr
+	}
 	if workloadErr != nil {
 		telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
 		w.logAndRecordError(workloadErr, "FailedWriteToDestination", "error writing to destination; check kubectl get destination for more info")
@@ -840,7 +860,7 @@ func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (del
 	return result, nil
 }
 
-func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Repository) (delivery.Result, error) {
+func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Repository, refreshes string) (delivery.Result, error) {
 	var workloadsToDelete []string
 	var workloadsToCreate []v1alpha1.Workload
 	dir := getDir(w.destination.Spec.Path, *w.workPlacement) + "/"
@@ -893,7 +913,9 @@ func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Reposit
 		return delivery.Result{}, fmt.Errorf("unsupported file path mode: %s", w.destination.GetFilepathMode())
 	}
 
-	result, err := repo.Writer.Deliver(w.ctx, w.deliveryTarget(dir, false), workloadsToCreate, workloadsToDelete)
+	target := w.deliveryTarget(dir, false)
+	target.Refreshes = refreshes
+	result, err := repo.Writer.Deliver(w.ctx, target, workloadsToCreate, workloadsToDelete)
 	if err != nil {
 		logging.Error(w.logger, err, "error writing resources to repository")
 		return delivery.Result{}, err
@@ -921,7 +943,7 @@ func (w *workPlacementReconcileContext) deleteWorkPlacement(repo *Repository) (c
 		if dropped, err := w.dropDeliveryForRemoval(status.DeliveryReceipt); !dropped || err != nil {
 			return fastRequeue, err
 		}
-		return w.deliverRemoval(repo, status.DeliveryReceipt)
+		return w.deliverRemoval(repo, status.DeliveryReceipt, "")
 	}
 
 	if status.DeliveryReceipt != "" {
@@ -931,7 +953,7 @@ func (w *workPlacementReconcileContext) deleteWorkPlacement(repo *Repository) (c
 	if status.DeliveryRemoval && !w.redeliverRequested && w.writeRejected() {
 		return ctrl.Result{}, nil
 	}
-	return w.deliverRemoval(repo, "")
+	return w.deliverRemoval(repo, "", "")
 }
 
 // dropDeliveryForRemoval forgets receipt so the removal can be delivered. It returns false when the
@@ -955,17 +977,20 @@ func (w *workPlacementReconcileContext) resolveOutstandingRemoval(repo *Reposito
 		if dropped, err := w.dropDeliveryForRemoval(receipt); !dropped || err != nil {
 			return fastRequeue, err
 		}
-		return w.deliverRemoval(repo, "")
+		return w.deliverRemoval(repo, "", "")
 	}
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+	if result.Outcome == delivery.Outdated {
+		return w.deliverRemoval(repo, "", receipt)
 	}
 	w.markRedeliveryDone()
 	return w.recordRemovalResult(repo.DeliveryMode, result)
 }
 
-func (w *workPlacementReconcileContext) deliverRemoval(repo *Repository, supersedes string) (ctrl.Result, error) {
-	if held, err := w.removalHeldOnServer(); held || err != nil {
+func (w *workPlacementReconcileContext) deliverRemoval(repo *Repository, supersedes, refreshes string) (ctrl.Result, error) {
+	if held, err := w.removalHeldOnServer(refreshes); held || err != nil {
 		return fastRequeue, err
 	}
 
@@ -977,7 +1002,14 @@ func (w *workPlacementReconcileContext) deliverRemoval(repo *Repository, superse
 
 	target := w.deliveryTarget(dir, true)
 	target.Supersedes = supersedes
+	target.Refreshes = refreshes
 	result, err := repo.Writer.Deliver(w.ctx, target, create, remove)
+	if refreshes != "" && errors.Is(err, delivery.ErrUnknownReceipt) {
+		if dropped, err := w.dropDeliveryForRemoval(refreshes); !dropped || err != nil {
+			return fastRequeue, err
+		}
+		return w.deliverRemoval(repo, "", "")
+	}
 	if err != nil {
 		w.logAndRecordError(err, "FailedDeleteFilesFromRepository", "failed to delete files from repository")
 		if err := w.updateWriteFailedStatus(err); err != nil && !apierrors.IsConflict(err) {
@@ -989,8 +1021,8 @@ func (w *workPlacementReconcileContext) deliverRemoval(repo *Repository, superse
 	return w.recordRemovalResult(repo.DeliveryMode, result)
 }
 
-// removalHeldOnServer is true when the API server holds a pending or rejected removal that the cached copy missed
-func (w *workPlacementReconcileContext) removalHeldOnServer() (bool, error) {
+// removalHeldOnServer is true when the API server holds a pending or rejected removal, other than refreshes, that the cached copy missed
+func (w *workPlacementReconcileContext) removalHeldOnServer(refreshes string) (bool, error) {
 	latest := &v1alpha1.WorkPlacement{}
 	if err := w.apiReader.Get(w.ctx, client.ObjectKeyFromObject(w.workPlacement), latest); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -999,7 +1031,8 @@ func (w *workPlacementReconcileContext) removalHeldOnServer() (bool, error) {
 		return false, err
 	}
 	rejected := !w.redeliverRequested && removalWasRejected(*latest)
-	return latest.Status.DeliveryRemoval && (latest.Status.DeliveryReceipt != "" || rejected), nil
+	heldReceipt := latest.Status.DeliveryReceipt != "" && latest.Status.DeliveryReceipt != refreshes
+	return latest.Status.DeliveryRemoval && (heldReceipt || rejected), nil
 }
 
 // removal lists what to deliver so the WorkPlacement's files leave the state store.
