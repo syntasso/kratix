@@ -105,8 +105,9 @@ type workPlacementReconcileContext struct {
 
 	stateStoreReconciliationInterval time.Duration
 
-	redeliver   bool
-	redelivered bool
+	// redeliveryDone is set once the writer accepts the requested redelivery, which is when the label can go.
+	redeliverRequested bool
+	redeliveryDone     bool
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements,verbs=get;list;watch;create;update;patch;delete
@@ -172,7 +173,7 @@ func (r *WorkPlacementReconciler) newReconcileContext(ctx context.Context, logge
 
 		stateStoreReconciliationInterval: r.StateStoreReconciliationInterval,
 
-		redeliver: workPlacement.GetLabels()[v1alpha1.RedeliverLabel] == "true",
+		redeliverRequested: workPlacement.GetLabels()[v1alpha1.RedeliverLabel] == "true",
 	}, nil
 }
 
@@ -194,7 +195,7 @@ func (w *workPlacementReconcileContext) reconcileWithSpanAttributes() (result ct
 	}
 
 	result, err := w.Reconcile()
-	if err == nil && w.redelivered {
+	if err == nil && w.redeliveryDone {
 		err = w.clearRedeliverLabel()
 	}
 	return result, err
@@ -214,12 +215,12 @@ func (w *workPlacementReconcileContext) clearRedeliverLabel() error {
 	return client.IgnoreNotFound(w.client.Patch(w.ctx, latest, patch))
 }
 
-func (w *workPlacementReconcileContext) markRedelivered() {
-	w.redelivered = w.redeliver
+func (w *workPlacementReconcileContext) markRedeliveryDone() {
+	w.redeliveryDone = w.redeliverRequested
 }
 
 func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr error) {
-	if w.workPlacement.DeletionTimestamp.IsZero() && !w.redeliver && w.rejectedWorkloadsUnchanged() {
+	if w.workPlacement.DeletionTimestamp.IsZero() && !w.redeliverRequested && w.rejectedWorkloadsUnchanged() {
 		return w.reconcileUnchangedRejection()
 	}
 
@@ -682,7 +683,7 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	w.markRedelivered()
+	w.markRedeliveryDone()
 	return w.recordDeliveryResult(repo.DeliveryMode, result)
 }
 
@@ -792,7 +793,7 @@ func (w *workPlacementReconcileContext) recordPendingDelivery(mode string, resul
 	deliveredGeneration := w.workPlacement.GetGeneration()
 	deliveredHash := w.currentWorkloadsHash()
 	applied, err := w.persistDeliveryStatus(func() bool {
-		if !w.redeliver && removalWasRejected(*w.workPlacement) {
+		if !w.redeliverRequested && removalWasRejected(*w.workPlacement) {
 			return false
 		}
 		w.workPlacement.Status.DeliveryReceipt = result.Receipt
@@ -896,7 +897,7 @@ func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Reposit
 		logging.Error(w.logger, err, "error writing resources to repository")
 		return delivery.Result{}, err
 	}
-	w.markRedelivered()
+	w.markRedeliveryDone()
 	return result, nil
 }
 
@@ -926,7 +927,7 @@ func (w *workPlacementReconcileContext) deleteWorkPlacement(repo *Repository) (c
 		return w.resolveOutstandingRemoval(repo, status.DeliveryReceipt)
 	}
 
-	if status.DeliveryRemoval && !w.redeliver && w.writeRejected() {
+	if status.DeliveryRemoval && !w.redeliverRequested && w.writeRejected() {
 		return ctrl.Result{}, nil
 	}
 	return w.deliverRemoval(repo, "")
@@ -958,7 +959,7 @@ func (w *workPlacementReconcileContext) resolveOutstandingRemoval(repo *Reposito
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	w.markRedelivered()
+	w.markRedeliveryDone()
 	return w.recordRemovalResult(repo.DeliveryMode, result)
 }
 
@@ -983,7 +984,7 @@ func (w *workPlacementReconcileContext) deliverRemoval(repo *Repository, superse
 		}
 		return defaultRequeue, nil
 	}
-	w.markRedelivered()
+	w.markRedeliveryDone()
 	return w.recordRemovalResult(repo.DeliveryMode, result)
 }
 
@@ -996,7 +997,7 @@ func (w *workPlacementReconcileContext) removalHeldOnServer() (bool, error) {
 		}
 		return false, err
 	}
-	rejected := !w.redeliver && removalWasRejected(*latest)
+	rejected := !w.redeliverRequested && removalWasRejected(*latest)
 	return latest.Status.DeliveryRemoval && (latest.Status.DeliveryReceipt != "" || rejected), nil
 }
 
