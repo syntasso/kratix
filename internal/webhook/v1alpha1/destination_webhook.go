@@ -117,9 +117,9 @@ func (v *DestinationCustomValidator) validateStateStoreRef(ctx context.Context, 
 
 	var stateStore client.Object
 	switch ref.Kind {
-	case v1alpha1.BucketStateStoreKind:
+	case "BucketStateStore":
 		stateStore = &v1alpha1.BucketStateStore{}
-	case v1alpha1.GitStateStoreKind:
+	case "GitStateStore":
 		stateStore = &v1alpha1.GitStateStore{}
 	default:
 		return nil, nil
