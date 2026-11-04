@@ -32,7 +32,7 @@ func refuseDeliveryModeUnderAggregatedYAML(ctx context.Context, c client.Client,
 
 	destinations := &v1alpha1.DestinationList{}
 	if err := c.List(ctx, destinations, client.MatchingFields{
-		"stateStoreRef": fmt.Sprintf("%s.%s", kind, stateStore.GetName()),
+		v1alpha1.DestinationStateStoreRefIndex: fmt.Sprintf("%s.%s", kind, stateStore.GetName()),
 	}); err != nil {
 		return fmt.Errorf("failed to list destinations: %w", err)
 	}

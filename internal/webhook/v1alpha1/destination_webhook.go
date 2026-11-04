@@ -91,7 +91,7 @@ func (v *DestinationCustomValidator) ValidateCreate(ctx context.Context, destina
 	// Check for path clashes with other destinations using the same state store
 	destinationList := &v1alpha1.DestinationList{}
 	err = v.Client.List(ctx, destinationList, client.MatchingFields{
-		"stateStoreRef": fmt.Sprintf("%s.%s", destination.Spec.StateStoreRef.Kind, destination.Spec.StateStoreRef.Name),
+		v1alpha1.DestinationStateStoreRefIndex: fmt.Sprintf("%s.%s", destination.Spec.StateStoreRef.Kind, destination.Spec.StateStoreRef.Name),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list destinations: %w", err)

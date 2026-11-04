@@ -20,7 +20,7 @@ func newFakeClientWithStateStoreRefIndex() client.Client {
 	Expect(v1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
 
 	return clientfake.NewClientBuilder().WithScheme(scheme.Scheme).
-		WithIndex(&v1alpha1.Destination{}, "stateStoreRef", func(obj client.Object) []string {
+		WithIndex(&v1alpha1.Destination{}, v1alpha1.DestinationStateStoreRefIndex, func(obj client.Object) []string {
 			dst := obj.(*v1alpha1.Destination)
 			return []string{fmt.Sprintf("%s.%s", dst.Spec.StateStoreRef.Kind, dst.Spec.StateStoreRef.Name)}
 		}).
