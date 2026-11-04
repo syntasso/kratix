@@ -66,7 +66,7 @@ type Target struct {
 	// Supersedes is the receipt of an outstanding delivery Kratix dropped in favour of this one; the writer should withdraw it.
 	Supersedes string
 	// Refreshes is the receipt of an outstanding delivery to update in place; never set with Supersedes.
-	// Deliver then returns Pending with that receipt, Delivered, or ErrUnknownReceipt to have it dropped.
+	// Deliver then returns Pending with that receipt, Delivered or Rejected if it already finished, or ErrUnknownReceipt to drop it.
 	Refreshes string
 }
 

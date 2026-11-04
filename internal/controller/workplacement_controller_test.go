@@ -1837,6 +1837,40 @@ files:
 				Expect(status.DeliveryURL).To(BeEmpty())
 			})
 
+			It("records no write failure for a receipt the writer cannot refresh", func() {
+				before := readCondition(v1alpha1.WriteSucceededConditionType)
+				Expect(before.Status).NotTo(Equal(metav1.ConditionFalse))
+				for len(workplacementRecorder.Events) > 0 {
+					<-workplacementRecorder.Events
+				}
+				deferredWriter.deliverErr = fmt.Errorf("%w: x", delivery.ErrUnknownReceipt)
+
+				_, err := reconcileOnce()
+
+				Expect(err).NotTo(HaveOccurred())
+				var recorded []string
+				for len(workplacementRecorder.Events) > 0 {
+					recorded = append(recorded, <-workplacementRecorder.Events)
+				}
+				Expect(recorded).NotTo(ContainElement(ContainSubstring("FailedWriteToDestination")))
+				after := readCondition(v1alpha1.WriteSucceededConditionType)
+				Expect(after.Status).To(Equal(before.Status))
+				Expect(after.Reason).To(Equal(before.Reason))
+			})
+
+			It("records a refresh the writer rejected and drops the receipt", func() {
+				deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Rejected, Reason: "refused on refresh"}
+
+				_, err := reconcileOnce()
+
+				Expect(deferredWriter.deliverCalls).To(Equal(2))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(read().DeliveryReceipt).To(BeEmpty())
+				written := readCondition(v1alpha1.WriteSucceededConditionType)
+				Expect(written.Status).To(Equal(metav1.ConditionFalse))
+				Expect(written.Message).To(ContainSubstring("refused on refresh"))
+			})
+
 			It("keeps the receipt to check again when the refresh fails", func() {
 				deferredWriter.deliverErr = fmt.Errorf("host down")
 
@@ -2387,6 +2421,22 @@ files:
 					Expect(latest.Status.DeliveryURL).To(Equal("https://h/d/12"))
 					Expect(apiMeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.WriteSucceededConditionType).Message).
 						To(Equal("removal refreshed"))
+				})
+
+				It("records a removal the writer rejected on refresh", func() {
+					deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Rejected, Reason: "refused on refresh"}
+
+					_, err := reconcileOnce()
+
+					Expect(removalsDelivered()).To(HaveLen(2))
+					Expect(err).NotTo(HaveOccurred())
+					latest := read(workPlacementName)
+					Expect(latest.Status.DeliveryReceipt).To(BeEmpty())
+					Expect(latest.Status.DeliveryRemoval).To(BeTrue())
+					written := apiMeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+					Expect(written.Status).To(Equal(metav1.ConditionFalse))
+					Expect(written.Message).To(Equal(
+						"Removal rejected; the workloads are still on test-destination. refused on refresh"))
 				})
 
 				It("does not refresh when the API server holds a different removal receipt", func() {
