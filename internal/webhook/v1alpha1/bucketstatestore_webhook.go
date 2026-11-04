@@ -20,6 +20,7 @@ import (
 	"context"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -28,9 +29,9 @@ import (
 
 var bucketstatestorelog = logf.Log.WithName("bucketstatestore-resource")
 
-func SetupBucketStateStoreWebhookWithManager(mgr ctrl.Manager) error {
+func SetupBucketStateStoreWebhookWithManager(mgr ctrl.Manager, c client.Client) error {
 	return ctrl.NewWebhookManagedBy(mgr, &v1alpha1.BucketStateStore{}).
-		WithValidator(&BucketStateStoreCustomValidator{}).
+		WithValidator(&BucketStateStoreCustomValidator{Client: c}).
 		Complete()
 }
 
@@ -39,6 +40,7 @@ func SetupBucketStateStoreWebhookWithManager(mgr ctrl.Manager) error {
 // NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
 // as this struct is used only for temporary operations and does not need to be deeply copied.
 type BucketStateStoreCustomValidator struct {
+	Client client.Client
 }
 
 var _ admission.Validator[*v1alpha1.BucketStateStore] = &BucketStateStoreCustomValidator{}
@@ -50,6 +52,10 @@ func (v *BucketStateStoreCustomValidator) ValidateCreate(ctx context.Context, bu
 		return nil, err
 	}
 
+	if err := refuseDeliveryModeUnderAggregatedYAML(ctx, v.Client, "BucketStateStore", bucket); err != nil {
+		return nil, err
+	}
+
 	return nil, nil
 }
 
@@ -57,6 +63,10 @@ func (v *BucketStateStoreCustomValidator) ValidateUpdate(ctx context.Context, ol
 	bucketstatestorelog.Info("Validation for BucketStateStore upon update", "name", newObj.GetName())
 
 	if err := newObj.ValidateSecretRef(); err != nil {
+		return nil, err
+	}
+
+	if err := refuseDeliveryModeUnderAggregatedYAML(ctx, v.Client, "BucketStateStore", newObj); err != nil {
 		return nil, err
 	}
 

@@ -445,11 +445,11 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
 		os.Exit(1)
 	}
-	if err = kratixWebhook.SetupBucketStateStoreWebhookWithManager(mgr); err != nil {
+	if err = kratixWebhook.SetupBucketStateStoreWebhookWithManager(mgr, mgr.GetClient()); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "BucketStateStore")
 		os.Exit(1)
 	}
-	if err = kratixWebhook.SetupGitStateStoreWebhookWithManager(mgr); err != nil {
+	if err = kratixWebhook.SetupGitStateStoreWebhookWithManager(mgr, mgr.GetClient()); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "GitStateStore")
 		os.Exit(1)
 	}

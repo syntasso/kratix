@@ -9,6 +9,9 @@ import (
 
 	v1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 var _ = Describe("GitStateStore Webhook", func() {
@@ -62,6 +65,18 @@ var _ = Describe("GitStateStore Webhook", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(warnings).To(BeEmpty())
 	})
+
+	describeDeliveryModeUnderAggregatedYAML("GitStateStore",
+		func(name string, delivery *v1alpha1.Delivery) *v1alpha1.GitStateStore {
+			return &v1alpha1.GitStateStore{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec:       v1alpha1.GitStateStoreSpec{StateStoreCoreFields: v1alpha1.StateStoreCoreFields{Delivery: delivery}},
+			}
+		},
+		func(c client.Client) admission.Validator[*v1alpha1.GitStateStore] {
+			return &kratixWebhook.GitStateStoreCustomValidator{Client: c}
+		},
+	)
 
 	It("does not warn on delete", func() {
 		obj.Spec.URL = "ssh://git@github.com/syntasso/kratix.git"
