@@ -105,7 +105,8 @@ type workPlacementReconcileContext struct {
 
 	stateStoreReconciliationInterval time.Duration
 
-	// redeliveryDone is set once the writer accepts the requested redelivery, which is when the label can go.
+	// redeliveryDone is set once the writer accepts the requested redelivery
+	// the controller then removes the redelivery label
 	redeliverRequested bool
 	redeliveryDone     bool
 }
