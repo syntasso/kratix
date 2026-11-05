@@ -83,7 +83,7 @@ func (v *DestinationCustomValidator) ValidateCreate(ctx context.Context, destina
 		return nil, stderror.New("path field is required")
 	}
 
-	warnings, err := v.validateStateStoreRef(ctx, destination.Spec.StateStoreRef)
+	stateStore, warnings, err := v.validateStateStoreRef(ctx, destination.Spec.StateStoreRef)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (v *DestinationCustomValidator) ValidateCreate(ctx context.Context, destina
 	// Check for path clashes with other destinations using the same state store
 	destinationList := &v1alpha1.DestinationList{}
 	err = v.Client.List(ctx, destinationList, client.MatchingFields{
-		"stateStoreRef": fmt.Sprintf("%s.%s", destination.Spec.StateStoreRef.Kind, destination.Spec.StateStoreRef.Name),
+		v1alpha1.DestinationStateStoreRefIndex: fmt.Sprintf("%s.%s", destination.Spec.StateStoreRef.Kind, destination.Spec.StateStoreRef.Name),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list destinations: %w", err)
@@ -107,34 +107,44 @@ func (v *DestinationCustomValidator) ValidateCreate(ctx context.Context, destina
 		}
 	}
 
+	if destination.DeletionTimestamp == nil && stateStore != nil &&
+		destination.Spec.Filepath.Mode == v1alpha1.FilepathModeAggregatedYAML {
+		if mode := deliveryMode(stateStore); mode != "" {
+			return nil, fmt.Errorf("filepath.mode aggregatedYAML cannot be used with a state store that has a delivery mode "+
+				"(%s/%s has delivery.mode %q)",
+				destination.Spec.StateStoreRef.Kind, stateStore.GetName(), mode)
+		}
+	}
+
 	return warnings, nil
 }
 
-func (v *DestinationCustomValidator) validateStateStoreRef(ctx context.Context, ref *v1alpha1.StateStoreReference) (admission.Warnings, error) {
+// validateStateStoreRef returns the referenced state store, or nil when it does not exist or its kind is unknown.
+func (v *DestinationCustomValidator) validateStateStoreRef(ctx context.Context, ref *v1alpha1.StateStoreReference) (stateStoreWithDelivery, admission.Warnings, error) {
 	if ref == nil {
-		return nil, stderror.New("stateStoreRef field is required")
+		return nil, nil, stderror.New("stateStoreRef field is required")
 	}
 
-	var stateStore client.Object
+	var stateStore stateStoreWithDelivery
 	switch ref.Kind {
 	case "BucketStateStore":
 		stateStore = &v1alpha1.BucketStateStore{}
 	case "GitStateStore":
 		stateStore = &v1alpha1.GitStateStore{}
 	default:
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	if err := v.Client.Get(ctx, client.ObjectKey{Name: ref.Name}, stateStore); err != nil {
 		if errors.IsNotFound(err) {
-			return admission.Warnings{
+			return nil, admission.Warnings{
 				fmt.Sprintf("Warning: referenced %s %q does not exist", ref.Kind, ref.Name),
 			}, nil
 		}
-		return nil, fmt.Errorf("failed to get state store %s/%s: %w", ref.Kind, ref.Name, err)
+		return nil, nil, fmt.Errorf("failed to get state store %s/%s: %w", ref.Kind, ref.Name, err)
 	}
 
-	return nil, nil
+	return stateStore, nil, nil
 }
 
 // ValidateUpdate implements a validating webhook for the Destination resource.

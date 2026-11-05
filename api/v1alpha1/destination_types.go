@@ -109,6 +109,9 @@ const (
 	DestinationCleanupNone       = "none"
 )
 
+// DestinationStateStoreRefIndex is the field index that finds Destinations by "<kind>.<name>" of their state store.
+const DestinationStateStoreRefIndex = "stateStoreRef"
+
 type Filepath struct {
 	// +kubebuilder:validation:Enum:={nestedByMetadata,aggregatedYAML,none}
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="filepath.mode is immutable"

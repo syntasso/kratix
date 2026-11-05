@@ -22,6 +22,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	v1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
@@ -107,6 +110,18 @@ var _ = Describe("BucketStateStore Webhook", func() {
 			})
 		})
 	})
+
+	describeDeliveryModeUnderAggregatedYAML("BucketStateStore",
+		func(name string, delivery *v1alpha1.Delivery) *v1alpha1.BucketStateStore {
+			return &v1alpha1.BucketStateStore{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec:       v1alpha1.BucketStateStoreSpec{StateStoreCoreFields: v1alpha1.StateStoreCoreFields{Delivery: delivery}},
+			}
+		},
+		func(c client.Client) admission.Validator[*v1alpha1.BucketStateStore] {
+			return &kratixWebhook.BucketStateStoreCustomValidator{Client: c}
+		},
+	)
 
 	Context("IAM", func() {
 		It("succeed with no secretRef", func() {

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -14,9 +15,9 @@ import (
 
 var gitstatestorelog = logf.Log.WithName("gitstatestore-resource")
 
-func SetupGitStateStoreWebhookWithManager(mgr ctrl.Manager) error {
+func SetupGitStateStoreWebhookWithManager(mgr ctrl.Manager, c client.Client) error {
 	return ctrl.NewWebhookManagedBy(mgr, &v1alpha1.GitStateStore{}).
-		WithValidator(&GitStateStoreCustomValidator{}).
+		WithValidator(&GitStateStoreCustomValidator{Client: c}).
 		Complete()
 }
 
@@ -25,6 +26,7 @@ func SetupGitStateStoreWebhookWithManager(mgr ctrl.Manager) error {
 // NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
 // as this struct is used only for temporary operations and does not need to be deeply copied.
 type GitStateStoreCustomValidator struct {
+	Client client.Client
 }
 
 var _ admission.Validator[*v1alpha1.GitStateStore] = &GitStateStoreCustomValidator{}
@@ -32,11 +34,19 @@ var _ admission.Validator[*v1alpha1.GitStateStore] = &GitStateStoreCustomValidat
 func (v *GitStateStoreCustomValidator) ValidateCreate(ctx context.Context, gitStateStore *v1alpha1.GitStateStore) (admission.Warnings, error) {
 	gitstatestorelog.Info("Validation for GitStateStore upon creation", "name", gitStateStore.GetName())
 
+	if err := refuseDeliveryModeUnderAggregatedYAML(ctx, v.Client, "GitStateStore", gitStateStore); err != nil {
+		return nil, err
+	}
+
 	return warnOnInsecureWithoutHTTPS(gitStateStore), nil
 }
 
 func (v *GitStateStoreCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj *v1alpha1.GitStateStore) (admission.Warnings, error) {
 	gitstatestorelog.Info("Validation for GitStateStore upon update", "name", newObj.GetName())
+
+	if err := refuseDeliveryModeUnderAggregatedYAML(ctx, v.Client, "GitStateStore", newObj); err != nil {
+		return nil, err
+	}
 
 	return warnOnInsecureWithoutHTTPS(newObj), nil
 }

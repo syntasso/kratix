@@ -48,8 +48,6 @@ const (
 	canaryNamespacePath         = "kratix-canary-namespace.yaml"
 	canaryConfigMapPath         = "kratix-canary-configmap.yaml"
 	destinationCleanupFinalizer = v1alpha1.KratixPrefix + "destination-cleanup"
-
-	stateStoreReference = "stateStoreRef"
 )
 
 // DestinationReconciler reconciles a Destination object
@@ -236,7 +234,7 @@ func (r *DestinationReconciler) findDestinationsForStateStore(stateStoreType str
 	return func(ctx context.Context, stateStore client.Object) []reconcile.Request {
 		destinationList := &v1alpha1.DestinationList{}
 		if err := r.Client.List(ctx, destinationList, client.MatchingFields{
-			stateStoreReference: r.stateStoreRefKey(stateStoreType, stateStore.GetName()),
+			v1alpha1.DestinationStateStoreRefIndex: r.stateStoreRefKey(stateStoreType, stateStore.GetName()),
 		}); err != nil {
 			logging.Error(r.Log, err, "error listing destinations for state store")
 			return nil
@@ -262,7 +260,7 @@ func (r *DestinationReconciler) stateStoreRefKey(stateStoreKind, stateStoreName 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DestinationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Create an index on the state store reference
-	err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1alpha1.Destination{}, stateStoreReference,
+	err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1alpha1.Destination{}, v1alpha1.DestinationStateStoreRefIndex,
 		func(rawObj client.Object) []string {
 			destination := rawObj.(*v1alpha1.Destination)
 			return []string{r.stateStoreRefKey(destination.Spec.StateStoreRef.Kind, destination.Spec.StateStoreRef.Name)}

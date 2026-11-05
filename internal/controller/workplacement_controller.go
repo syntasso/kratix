@@ -684,7 +684,32 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	if result.Outcome == delivery.NeedsRedelivery {
+		return w.deliverAgain(repo, receipt)
+	}
 	w.markRedeliveryDone()
+	return w.recordDeliveryResult(repo.DeliveryMode, result)
+}
+
+// deliverAgain forgets receipt, keeping status.deliveryURL, and delivers the current workloads.
+func (w *workPlacementReconcileContext) deliverAgain(repo *Repository, receipt string) (ctrl.Result, error) {
+	forgotten, err := w.persistDeliveryStatus(func() bool {
+		if w.workPlacement.Status.DeliveryReceipt != receipt {
+			return false
+		}
+		w.clearOutstandingDelivery()
+		return true
+	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !forgotten {
+		return fastRequeue, nil
+	}
+	result, err := w.writeToStateStore(repo)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	return w.recordDeliveryResult(repo.DeliveryMode, result)
 }
 
@@ -951,7 +976,7 @@ func (w *workPlacementReconcileContext) dropDeliveryForRemoval(receipt string) (
 
 func (w *workPlacementReconcileContext) resolveOutstandingRemoval(repo *Repository, receipt string) (ctrl.Result, error) {
 	result, err := repo.Writer.Check(w.ctx, receipt)
-	if errors.Is(err, delivery.ErrUnknownReceipt) {
+	if errors.Is(err, delivery.ErrUnknownReceipt) || (err == nil && result.Outcome == delivery.NeedsRedelivery) {
 		if dropped, err := w.dropDeliveryForRemoval(receipt); !dropped || err != nil {
 			return fastRequeue, err
 		}

@@ -2,17 +2,14 @@ package v1alpha1_test
 
 import (
 	"context"
-	"fmt"
 
 	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes/scheme"
 )
 
 var _ = Describe("Destination Webhook", func() {
@@ -26,21 +23,7 @@ var _ = Describe("Destination Webhook", func() {
 	ctx := context.TODO()
 
 	BeforeEach(func() {
-		err := v1alpha1.AddToScheme(scheme.Scheme)
-		Expect(err).NotTo(HaveOccurred())
-
-		// Create a fake client builder with indexing
-		fakeClient = clientfake.NewClientBuilder().WithScheme(scheme.Scheme).
-			WithIndex(&v1alpha1.Destination{}, "stateStoreRef", func(obj client.Object) []string {
-				dst := obj.(*v1alpha1.Destination)
-				return []string{
-					fmt.Sprintf("%s.%s",
-						dst.Spec.StateStoreRef.Kind,
-						dst.Spec.StateStoreRef.Name,
-					),
-				}
-			}).
-			Build()
+		fakeClient = newFakeClientWithStateStoreRefIndex()
 
 		defaulter = &kratixWebhook.DestinationCustomDefaulter{
 			Client: fakeClient,
@@ -213,6 +196,101 @@ var _ = Describe("Destination Webhook", func() {
 				`Warning: referenced GitStateStore "missing-git-state-store" does not exist`,
 			))
 		})
+	})
+
+	Describe("validating filepath.mode against the state store's delivery mode", func() {
+		BeforeEach(func() {
+			destination.Spec.Path = "destination-path"
+			destination.Spec.Filepath.Mode = v1alpha1.FilepathModeAggregatedYAML
+		})
+
+		for _, kind := range []string{"GitStateStore", "BucketStateStore"} {
+			When("the referenced "+kind+" has a delivery mode", func() {
+				BeforeEach(func() {
+					createStateStore(ctx, fakeClient, kind, "mode-store", &v1alpha1.Delivery{Mode: "x"})
+					destination.Spec.StateStoreRef = &v1alpha1.StateStoreReference{Name: "mode-store", Kind: kind}
+				})
+
+				It("refuses an aggregatedYAML Destination on create", func() {
+					warnings, err := validator.ValidateCreate(ctx, destination)
+
+					Expect(err).To(MatchError(
+						`filepath.mode aggregatedYAML cannot be used with a state store that has a delivery mode (` +
+							kind + `/mode-store has delivery.mode "x")`,
+					))
+					Expect(warnings).To(BeEmpty())
+				})
+
+				It("refuses an update into aggregatedYAML", func() {
+					oldDestination := destination.DeepCopy()
+					oldDestination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
+
+					_, err := validator.ValidateUpdate(ctx, oldDestination, destination)
+
+					Expect(err).To(MatchError(ContainSubstring(
+						`filepath.mode aggregatedYAML cannot be used with a state store that has a delivery mode (` + kind + `/mode-store`,
+					)))
+				})
+
+				It("allows the update of an aggregatedYAML Destination that is being deleted", func() {
+					beingDeleted := destination.DeepCopy()
+					beingDeleted.DeletionTimestamp = &metav1.Time{}
+					beingDeleted.Finalizers = []string{"kratix.io/test"}
+
+					_, err := validator.ValidateUpdate(ctx, destination, beingDeleted)
+					Expect(err).NotTo(HaveOccurred())
+
+					_, err = validator.ValidateUpdate(ctx, destination, destination)
+					Expect(err).To(MatchError(ContainSubstring("filepath.mode aggregatedYAML cannot be used")))
+				})
+
+				for _, mode := range []string{v1alpha1.FilepathModeNestedByMetadata, v1alpha1.FilepathModeNone} {
+					It("allows a "+mode+" Destination", func() {
+						destination.Spec.Filepath.Mode = mode
+
+						warnings, err := validator.ValidateCreate(ctx, destination)
+
+						Expect(err).NotTo(HaveOccurred())
+						Expect(warnings).To(BeEmpty())
+					})
+				}
+			})
+
+			When("the referenced "+kind+" does not exist", func() {
+				It("only warns about an aggregatedYAML Destination", func() {
+					destination.Spec.StateStoreRef = &v1alpha1.StateStoreReference{Name: "missing-store", Kind: kind}
+
+					warnings, err := validator.ValidateCreate(ctx, destination)
+
+					Expect(err).NotTo(HaveOccurred())
+					Expect(warnings).To(ConsistOf(`Warning: referenced ` + kind + ` "missing-store" does not exist`))
+				})
+			})
+
+			When("the referenced "+kind+" has no delivery", func() {
+				It("allows an aggregatedYAML Destination", func() {
+					createStateStore(ctx, fakeClient, kind, "plain-store", nil)
+					destination.Spec.StateStoreRef = &v1alpha1.StateStoreReference{Name: "plain-store", Kind: kind}
+
+					warnings, err := validator.ValidateCreate(ctx, destination)
+
+					Expect(err).NotTo(HaveOccurred())
+					Expect(warnings).To(BeEmpty())
+				})
+			})
+
+			When("the referenced "+kind+" has a delivery with no mode", func() {
+				It("allows an aggregatedYAML Destination", func() {
+					createStateStore(ctx, fakeClient, kind, "empty-delivery-store", &v1alpha1.Delivery{})
+					destination.Spec.StateStoreRef = &v1alpha1.StateStoreReference{Name: "empty-delivery-store", Kind: kind}
+
+					warnings, err := validator.ValidateCreate(ctx, destination)
+
+					Expect(err).NotTo(HaveOccurred())
+					Expect(warnings).To(BeEmpty())
+				})
+			})
+		}
 	})
 
 	Describe("defaulting filename", func() {

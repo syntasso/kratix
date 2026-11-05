@@ -1739,6 +1739,145 @@ files:
 			})
 		})
 
+		It("errors if Deliver returns NeedsRedelivery", func() {
+			deferredWriter.deliverResult = delivery.Result{Outcome: delivery.NeedsRedelivery}
+			reconcileTimes(1)
+
+			_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&workPlacement)})
+
+			Expect(deferredWriter.deliverCalls).To(Equal(1))
+			Expect(err).To(MatchError(ContainSubstring("unknown delivery outcome")))
+		})
+
+		When("Check returns NeedsRedelivery", func() {
+			reconcileOnce := func() (ctrl.Result, error) {
+				return reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&workPlacement)})
+			}
+
+			read := func() v1alpha1.WorkPlacementStatus {
+				latest := &v1alpha1.WorkPlacement{}
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), latest)).To(Succeed())
+				return latest.Status
+			}
+
+			BeforeEach(func() {
+				deferredWriter.deliverResult = delivery.Result{
+					Outcome:    delivery.Pending,
+					Receipt:    "7",
+					Reason:     "waiting for the write to be accepted",
+					URL:        "https://h/d/7",
+					CheckAfter: 3 * time.Second,
+				}
+				reconcileTimes(2)
+				Expect(deferredWriter.deliverCalls).To(Equal(1))
+				Expect(read().DeliveryReceipt).To(Equal("7"))
+				deferredWriter.checkResult = delivery.Result{Outcome: delivery.NeedsRedelivery}
+				deferredWriter.deliverResult = delivery.Result{
+					Outcome:    delivery.Pending,
+					Receipt:    "8",
+					Reason:     "delivered again, waiting",
+					URL:        "https://h/d/8",
+					CheckAfter: 11 * time.Second,
+				}
+			})
+
+			It("forgets status.deliveryReceipt and calls Deliver again with the current files", func() {
+				result, err := reconcileOnce()
+
+				Expect(deferredWriter.checkReceipts).To(Equal([]string{"7"}))
+				Expect(deferredWriter.delivered).To(HaveLen(2))
+				again := deferredWriter.delivered[1]
+				Expect(again.target.Removing).To(BeFalse())
+				Expect(again.target.Supersedes).To(BeEmpty())
+				Expect(again.target.Dir).To(Equal(deferredWriter.delivered[0].target.Dir))
+				Expect(again.create).To(ConsistOf(decompressedWorkloads))
+				Expect(again.remove).To(BeEmpty())
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).To(Equal(11 * time.Second))
+				status := read()
+				Expect(status.DeliveryReceipt).To(Equal("8"))
+				Expect(apiMeta.FindStatusCondition(status.Conditions, v1alpha1.WriteSucceededConditionType).Message).
+					To(Equal("delivered again, waiting"))
+			})
+
+			It("does not call Deliver when the re-read WorkPlacement holds a different receipt", func() {
+				conflicted := false
+				reconciler.Client = interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+					SubResourceUpdate: func(ctx context.Context, c client.Client, sub string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+						if conflicted {
+							return c.SubResource(sub).Update(ctx, obj, opts...)
+						}
+						conflicted = true
+						saved := &v1alpha1.WorkPlacement{}
+						Expect(c.Get(ctx, client.ObjectKeyFromObject(obj), saved)).To(Succeed())
+						saved.Status.DeliveryReceipt = "9"
+						Expect(c.SubResource(sub).Update(ctx, saved)).To(Succeed())
+						return errors.NewConflict(
+							schema.GroupResource{Group: "platform.kratix.io", Resource: "workplacements"},
+							obj.GetName(), fmt.Errorf("the object has been modified"))
+					},
+				})
+
+				_, err := reconcileOnce()
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(conflicted).To(BeTrue())
+				Expect(deferredWriter.deliverCalls).To(Equal(1))
+				Expect(read().DeliveryReceipt).To(Equal("9"))
+			})
+
+			It("keeps status.deliveryURL while Deliver runs", func() {
+				var during []v1alpha1.WorkPlacementStatus
+				deferredWriter.onDeliver = func() { during = append(during, read()) }
+
+				_, err := reconcileOnce()
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(during).To(HaveLen(1))
+				Expect(during[0].DeliveryReceipt).To(BeEmpty())
+				Expect(during[0].DeliveryURL).To(Equal("https://h/d/7"))
+			})
+
+			It("marks the WorkPlacement written when Deliver returns Delivered", func() {
+				deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "v2"}
+
+				_, err := reconcileOnce()
+
+				Expect(deferredWriter.deliverCalls).To(Equal(2))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(read().DeliveryReceipt).To(BeEmpty())
+				Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
+			})
+		})
+
+		It("in none mode, deletes a file the WorkPlacement no longer writes when Check returns NeedsRedelivery", func() {
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&destination), &destination)).To(Succeed())
+			destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNone
+			Expect(fakeK8sClient.Update(ctx, &destination)).To(Succeed())
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+			workPlacement.Spec.Workloads = []v1alpha1.Workload{{Filepath: "a.yaml", Content: workloads[0].Content}}
+			Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+			deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Pending, Receipt: "7"}
+			reconcileTimes(2)
+			Expect(deferredWriter.deliverCalls).To(Equal(1))
+
+			deferredWriter.ReadFileReturns([]byte("files:\n- test-path/a.yaml\n- test-path/b.yaml\n"), nil)
+			deferredWriter.checkResult = delivery.Result{Outcome: delivery.NeedsRedelivery}
+			_, _ = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&workPlacement)})
+
+			Expect(deferredWriter.delivered).To(HaveLen(2))
+			again := deferredWriter.delivered[1]
+			Expect(again.target.Supersedes).To(BeEmpty())
+			Expect(again.remove).To(ConsistOf("test-path/b.yaml"))
+			Expect(again.create).To(ConsistOf(
+				v1alpha1.Workload{Filepath: "test-path/a.yaml", Content: "{someApi: foo, someValue: bar}"},
+				v1alpha1.Workload{
+					Filepath: "test-path/.kratix/default-test-work-placement.yaml",
+					Content:  "files:\n- test-path/a.yaml\n",
+				},
+			))
+		})
+
 		When("a delivery was rejected", func() {
 			BeforeEach(func() {
 				reconcileTimes(2)
@@ -2205,6 +2344,57 @@ files:
 					Expect(deferredWriter.checkReceipts).To(Equal([]string{"removal-1"}))
 					Expect(removalsDelivered()).To(HaveLen(1))
 					Expect(read(workPlacementName).Status.DeliveryReceipt).To(Equal("removal-2"))
+				})
+			})
+
+			When("Check returns NeedsRedelivery for a removal", func() {
+				reconcileOnce := func() (ctrl.Result, error) {
+					return reconciler.Reconcile(ctx, ctrl.Request{
+						NamespacedName: types.NamespacedName{Name: workPlacementName, Namespace: "default"},
+					})
+				}
+
+				BeforeEach(func() {
+					deliverThenDelete()
+					deferredWriter.deliverResult = delivery.Result{
+						Outcome: delivery.Pending, Receipt: "9", Reason: "waiting to remove", URL: "https://h/d/9",
+					}
+					reconcileTimes(1)
+					Expect(read(workPlacementName).Status.DeliveryReceipt).To(Equal("9"))
+					Expect(read(workPlacementName).Status.DeliveryRemoval).To(BeTrue())
+					deferredWriter.checkResult = delivery.Result{Outcome: delivery.NeedsRedelivery}
+					deferredWriter.deliverResult = delivery.Result{
+						Outcome: delivery.Pending, Receipt: "12", Reason: "removal delivered again", URL: "https://h/d/12",
+						CheckAfter: 13 * time.Second,
+					}
+				})
+
+				It("forgets the receipt and calls Deliver again for the removal", func() {
+					result, err := reconcileOnce()
+
+					Expect(deferredWriter.checkReceipts).To(Equal([]string{"9"}))
+					Expect(removalsDelivered()).To(HaveLen(2))
+					again := removalsDelivered()[1].target
+					Expect(again.Removing).To(BeTrue())
+					Expect(again.Supersedes).To(BeEmpty())
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result.RequeueAfter).To(Equal(13 * time.Second))
+					latest := read(workPlacementName)
+					Expect(latest.Status.DeliveryReceipt).To(Equal("12"))
+					Expect(latest.Status.DeliveryRemoval).To(BeTrue())
+					Expect(apiMeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.WriteSucceededConditionType).Message).
+						To(Equal("removal delivered again"))
+				})
+
+				It("forgets status.deliveryReceipt before Deliver runs", func() {
+					var during []v1alpha1.WorkPlacementStatus
+					deferredWriter.onDeliver = func() { during = append(during, read(workPlacementName).Status) }
+
+					_, err := reconcileOnce()
+
+					Expect(err).NotTo(HaveOccurred())
+					Expect(during).To(HaveLen(1))
+					Expect(during[0].DeliveryReceipt).To(BeEmpty())
 				})
 			})
 

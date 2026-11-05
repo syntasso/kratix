@@ -22,6 +22,8 @@ const (
 	Delivered Outcome = "Delivered"
 	Pending   Outcome = "Pending"
 	Rejected  Outcome = "Rejected"
+	// NeedsRedelivery is returned by Check only: Kratix forgets the receipt and delivers the workloads again.
+	NeedsRedelivery Outcome = "NeedsRedelivery"
 )
 
 // BuiltIn is the mode of a state store with no delivery block. It cannot be registered.
