@@ -1800,6 +1800,32 @@ files:
 					To(Equal("delivered again, waiting"))
 			})
 
+			It("does not call Deliver when the re-read WorkPlacement holds a different receipt", func() {
+				conflicted := false
+				reconciler.Client = interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+					SubResourceUpdate: func(ctx context.Context, c client.Client, sub string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+						if conflicted {
+							return c.SubResource(sub).Update(ctx, obj, opts...)
+						}
+						conflicted = true
+						saved := &v1alpha1.WorkPlacement{}
+						Expect(c.Get(ctx, client.ObjectKeyFromObject(obj), saved)).To(Succeed())
+						saved.Status.DeliveryReceipt = "9"
+						Expect(c.SubResource(sub).Update(ctx, saved)).To(Succeed())
+						return errors.NewConflict(
+							schema.GroupResource{Group: "platform.kratix.io", Resource: "workplacements"},
+							obj.GetName(), fmt.Errorf("the object has been modified"))
+					},
+				})
+
+				_, err := reconcileOnce()
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(conflicted).To(BeTrue())
+				Expect(deferredWriter.deliverCalls).To(Equal(1))
+				Expect(read().DeliveryReceipt).To(Equal("9"))
+			})
+
 			It("keeps status.deliveryURL while Deliver runs", func() {
 				var during []v1alpha1.WorkPlacementStatus
 				deferredWriter.onDeliver = func() { during = append(during, read()) }
