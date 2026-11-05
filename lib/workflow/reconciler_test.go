@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -259,9 +260,14 @@ var _ = Describe("Workflow Reconciler", func() {
 			Expect(requeue).To(BeFalse())
 			Expect(listJobs(namespace)).To(BeEmpty())
 			if key != "configure" {
-				if key != "delete" {
-					Expect(uPromise.Object["status"].(map[string]any)["conditions"]).To(Equal(originalStatus["conditions"]))
+				conditions, _ := uPromise.Object["status"].(map[string]any)["conditions"].([]any)
+				if key == "delete" && workflowType == "promise" {
+					Expect(deleteWorkflowCompletedCondition(uPromise)).To(HaveField("Reason", resourceutil.PipelinesExecutedSuccessfully))
+					conditions = slices.DeleteFunc(slices.Clone(conditions), func(c any) bool {
+						return c.(map[string]any)["type"] == "DeleteWorkflowCompleted"
+					})
 				}
+				Expect(conditions).To(Equal(originalStatus["conditions"]))
 				configure, _, err := unstructured.NestedMap(uPromise.Object, "status", "kratix", "workflows", "configure")
 				Expect(err).NotTo(HaveOccurred())
 				originalConfigure, _, err := unstructured.NestedMap(originalStatus, "kratix", "workflows", "configure")
@@ -273,6 +279,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			Entry("delete", v1alpha1.WorkflowActionDelete, "delete", "promise"),
 			Entry("embedded configure", v1alpha1.WorkflowActionConfigure, "example", "promise-example"),
 			Entry("embedded delete", v1alpha1.WorkflowActionDelete, "example-delete", "promise-example"),
+			Entry("embedded delete keyed as delete", v1alpha1.WorkflowActionDelete, "delete", "promise-example"),
 		)
 
 		When("list of pipeline resources are empty", func() {
@@ -3166,6 +3173,37 @@ var _ = Describe("Workflow Reconciler", func() {
 						HaveField("Reason", resourceutil.PipelinesExecutedSuccessfully),
 					))
 				})
+
+				It("does not write status again once the condition is set", func() {
+					statusUpdates := 0
+					countingClient := interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+						SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string,
+							obj client.Object, opts ...client.SubResourceUpdateOption) error {
+							statusUpdates++
+							return c.SubResource(subResourceName).Update(ctx, obj, opts...)
+						},
+					})
+					opts := workflow.NewOpts(ctx, countingClient, eventRecorder, logger, uPromise, workflowPipelines[:1], "promise", 5, namespace)
+					_, err := workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(statusUpdates).To(Equal(1))
+
+					_, err = workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(statusUpdates).To(Equal(1))
+				})
+
+				It("returns the error when the condition cannot be written", func() {
+					failingClient := interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+						SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string,
+							obj client.Object, opts ...client.SubResourceUpdateOption) error {
+							return apierrors.NewConflict(schema.GroupResource{Resource: "promises"}, obj.GetName(), nil)
+						},
+					})
+					opts := workflow.NewOpts(ctx, failingClient, eventRecorder, logger, uPromise, workflowPipelines[:1], "promise", 5, namespace)
+					_, err := workflow.ReconcileDelete(opts)
+					Expect(apierrors.IsConflict(err)).To(BeTrue())
+				})
 			})
 
 			When("the pipeline job completes having set the workflow-suspended label", func() {
@@ -3179,6 +3217,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					requeue, err := workflow.ReconcileDelete(opts)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(requeue).To(BeTrue())
+					Expect(deleteWorkflowCompletedCondition(uPromise)).To(BeNil())
 				})
 			})
 
@@ -3196,6 +3235,18 @@ var _ = Describe("Workflow Reconciler", func() {
 					requeue, err := workflow.ReconcileDelete(opts)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(requeue).To(BeTrue())
+				})
+
+				It("marks the delete workflow as in progress again", func() {
+					resourceutil.MarkDeleteWorkflowSuspended(logger, uPromise)
+					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					_, err := workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(deleteWorkflowCompletedCondition(uPromise)).To(SatisfyAll(
+						HaveField("Status", v1.ConditionFalse),
+						HaveField("Reason", "PipelinesInProgress"),
+					))
 				})
 
 				It("resumes the pipeline in place, preserving existing retry attempts", func() {
