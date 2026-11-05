@@ -259,7 +259,9 @@ var _ = Describe("Workflow Reconciler", func() {
 			Expect(requeue).To(BeFalse())
 			Expect(listJobs(namespace)).To(BeEmpty())
 			if key != "configure" {
-				Expect(uPromise.Object["status"].(map[string]any)["conditions"]).To(Equal(originalStatus["conditions"]))
+				if key != "delete" {
+					Expect(uPromise.Object["status"].(map[string]any)["conditions"]).To(Equal(originalStatus["conditions"]))
+				}
 				configure, _, err := unstructured.NestedMap(uPromise.Object, "status", "kratix", "workflows", "configure")
 				Expect(err).NotTo(HaveOccurred())
 				originalConfigure, _, err := unstructured.NestedMap(originalStatus, "kratix", "workflows", "configure")
@@ -1266,6 +1268,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					HaveKeyWithValue("reason", resourceutil.PipelinesInProgressReason),
 					HaveKeyWithValue("lastTransitionTime", Not(BeEmpty())),
 				))
+				Expect(resourceutil.GetCondition(updatedResource, resourceutil.DeleteWorkflowCompletedCondition)).To(BeNil())
 			})
 
 			It("fires an event for the new pipeline", func() {
@@ -3018,6 +3021,35 @@ var _ = Describe("Workflow Reconciler", func() {
 				))
 			})
 
+			It("shows a resource request's delete workflow in progress, then completed", func() {
+				api, err := json.Marshal(fakeCRD)
+				Expect(err).NotTo(HaveOccurred())
+				promise.Spec.API = &runtime.RawExtension{Raw: api}
+				rr := &unstructured.Unstructured{}
+				rr.SetAPIVersion("mygroup.example/v1")
+				rr.SetKind("TheKind")
+				rr.SetName("request")
+				rr.SetNamespace(namespace)
+				rr.SetLabels(map[string]string{v1alpha1.PromiseNameLabel: promise.Name})
+				Expect(fakeK8sClient.Create(ctx, rr)).To(Succeed())
+				resource, err := pipelines[0].ForResource(&promise, "", v1alpha1.WorkflowActionDelete, rr).Resources(nil)
+				Expect(err).NotTo(HaveOccurred())
+
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, rr, []v1alpha1.PipelineJobResources{resource}, "resource", 5, namespace)
+				_, err = workflow.ReconcileDelete(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(deleteWorkflowCompletedCondition(rr)).To(HaveField("Reason", resourceutil.PipelinesInProgressReason))
+
+				markJobAsComplete(resource.Job.Name)
+				requeue, err := workflow.ReconcileDelete(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeue).To(BeFalse())
+				Expect(deleteWorkflowCompletedCondition(rr)).To(SatisfyAll(
+					HaveField("Status", v1.ConditionTrue),
+					HaveField("Reason", resourceutil.PipelinesExecutedSuccessfully),
+				))
+			})
+
 			When("the delete workflow was suspended and is resumed", func() {
 				BeforeEach(func() {
 					resourceutil.MarkDeleteWorkflowSuspended(logger, uPromise)
@@ -3192,6 +3224,14 @@ var _ = Describe("Workflow Reconciler", func() {
 					requeue, err := workflow.ReconcileDelete(opts)
 					Expect(err).To(MatchError(workflow.ErrDeletePipelineFailed))
 					Expect(requeue).To(BeFalse())
+				})
+
+				It("does not mark the delete workflow as completed", func() {
+					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					_, err := workflow.ReconcileDelete(opts)
+					Expect(err).To(MatchError(workflow.ErrDeletePipelineFailed))
+
+					Expect(deleteWorkflowCompletedCondition(uPromise)).To(BeNil())
 				})
 
 				When("the resource is later manually reconciled", func() {
