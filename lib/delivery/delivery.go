@@ -22,8 +22,8 @@ const (
 	Delivered Outcome = "Delivered"
 	Pending   Outcome = "Pending"
 	Rejected  Outcome = "Rejected"
-	// Outdated is returned by Check only; call Deliver again with Target.Refreshes set to the receipt.
-	Outdated Outcome = "Outdated"
+	// NeedsRedelivery is returned by Check only: Kratix forgets the receipt and delivers the workloads again.
+	NeedsRedelivery Outcome = "NeedsRedelivery"
 )
 
 // BuiltIn is the mode of a state store with no delivery block. It cannot be registered.
@@ -65,9 +65,6 @@ type Target struct {
 	Removing bool
 	// Supersedes is the receipt of an outstanding delivery Kratix dropped in favour of this one; the writer should withdraw it.
 	Supersedes string
-	// Refreshes is the receipt of a delivery that Check reported as Outdated; never set with Supersedes.
-	// Deliver then returns Pending, Delivered, Rejected, or ErrUnknownReceipt if the writer does not know the receipt.
-	Refreshes string
 }
 
 // Writer is the interface to write to the state store
