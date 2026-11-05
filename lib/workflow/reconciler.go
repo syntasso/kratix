@@ -76,8 +76,15 @@ func (o *Opts) workflowKey() string {
 }
 
 func (o *Opts) coreConfigure() bool {
-	return o.workflowKey() == "configure" &&
-		(o.workflowType == "promise" || o.workflowType == "resource")
+	return o.workflowKey() == "configure" && o.coreWorkflowType()
+}
+
+func (o *Opts) coreDelete() bool {
+	return o.workflowKey() == "delete" && o.coreWorkflowType()
+}
+
+func (o *Opts) coreWorkflowType() bool {
+	return o.workflowType == "promise" || o.workflowType == "resource"
 }
 
 // ReconcileDelete returns true while the delete pipeline needs further reconciliation.
@@ -161,6 +168,11 @@ func reconcileWorkflow(opts Opts) (bool, error) {
 		return true, nil
 	case FinishWorkflow:
 		if opts.Resources[0].WorkflowAction == v1alpha1.WorkflowActionDelete {
+			if opts.coreDelete() && resourceutil.MarkDeleteWorkflowAsCompleted(opts.parentObject) {
+				if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+					return false, err
+				}
+			}
 			return false, cleanupJobs(opts, opts.namespace)
 		}
 		return false, cleanup(opts, opts.namespace)
@@ -380,6 +392,9 @@ func recordPipelineJobOutcome(opts Opts, decision Decision) (bool, error) {
 	}
 	if err := resourceutil.MarkCurrentPipelineAs(phase, opts.parentObject, opts.logger, decision.JobToRecord, opts.workflowKey()); err != nil {
 		return false, err
+	}
+	if opts.coreDelete() && phase == v1alpha1.WorkflowPhaseSucceeded {
+		resourceutil.MarkDeleteWorkflowAsCompleted(opts.parentObject)
 	}
 	if err := opts.client.Status().Patch(opts.ctx, opts.parentObject, patch); err != nil {
 		return false, err
@@ -670,6 +685,9 @@ func setPipelineStartingStatus(opts Opts, obj *unstructured.Unstructured, job *b
 		resourceutil.SetStatus(obj, opts.logger, "message", "Pending")
 		resourceutil.MarkReconciledPending(obj, "WorkflowPending")
 		resourceutil.MarkConfigureWorkflowAsRunning(opts.logger, obj)
+	}
+	if opts.coreDelete() {
+		resourceutil.MarkDeleteWorkflowAsRunning(opts.logger, obj)
 	}
 	if err := resourceutil.MarkCurrentPipelineAsRunning(obj, opts.logger, job, opts.workflowKey()); err != nil {
 		return err

@@ -206,6 +206,29 @@ func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructur
 	return true
 }
 
+func MarkDeleteWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstructured) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               DeleteWorkflowCompletedCondition,
+		Status:             v1.ConditionFalse,
+		Message:            "Pipelines are still in progress",
+		Reason:             PipelinesInProgressReason,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+	logging.Info(logger, "marking delete workflow as running", "condition", DeleteWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", PipelinesInProgressReason)
+}
+
+// MarkDeleteWorkflowAsCompleted reports whether the condition changed, so callers
+// only write status when it did.
+func MarkDeleteWorkflowAsCompleted(obj *unstructured.Unstructured) bool {
+	return SetConditionIfChanged(obj, &clusterv1.Condition{
+		Type:               DeleteWorkflowCompletedCondition,
+		Status:             v1.ConditionTrue,
+		Message:            "Pipelines completed",
+		Reason:             PipelinesExecutedSuccessfully,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
 func MarkDeleteWorkflowSuspended(logger logr.Logger, obj *unstructured.Unstructured) {
 	condition := clusterv1.Condition{
 		Type:               DeleteWorkflowCompletedCondition,
