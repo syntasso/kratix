@@ -199,8 +199,6 @@ var _ = Describe("Destination Webhook", func() {
 	})
 
 	Describe("validating filepath.mode against the state store's delivery mode", func() {
-		const docsURL = "see https://docs.kratix.io/main/reference/destinations/intro"
-
 		BeforeEach(func() {
 			destination.Spec.Path = "destination-path"
 			destination.Spec.Filepath.Mode = v1alpha1.FilepathModeAggregatedYAML
@@ -218,7 +216,7 @@ var _ = Describe("Destination Webhook", func() {
 
 					Expect(err).To(MatchError(
 						`filepath.mode aggregatedYAML cannot be used with a state store that has a delivery mode (` +
-							kind + `/mode-store has delivery.mode "x"); ` + docsURL,
+							kind + `/mode-store has delivery.mode "x")`,
 					))
 					Expect(warnings).To(BeEmpty())
 				})

@@ -18,7 +18,7 @@ func describeDeliveryModeUnderAggregatedYAML[T client.Object](
 ) {
 	Describe("setting a delivery mode", func() {
 		const refusal = `delivery.mode cannot be set while Destination "a-aggregated" uses filepath.mode aggregatedYAML ` +
-			`on this state store; see https://docs.kratix.io/main/reference/destinations/intro`
+			`on this state store`
 
 		var (
 			ctx        = context.TODO()

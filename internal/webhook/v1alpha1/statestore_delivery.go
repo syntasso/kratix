@@ -9,8 +9,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const destinationDocsURL = "https://docs.kratix.io/main/reference/destinations/intro"
-
 type stateStoreWithDelivery interface {
 	client.Object
 	GetDelivery() *v1alpha1.Delivery
@@ -48,6 +46,6 @@ func refuseDeliveryModeUnderAggregatedYAML(ctx context.Context, c client.Client,
 	}
 
 	sort.Strings(names)
-	return fmt.Errorf("delivery.mode cannot be set while Destination %q uses filepath.mode aggregatedYAML on this state store; see %s",
-		names[0], destinationDocsURL)
+	return fmt.Errorf("delivery.mode cannot be set while Destination %q uses filepath.mode aggregatedYAML on this state store",
+		names[0])
 }

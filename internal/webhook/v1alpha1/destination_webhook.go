@@ -111,8 +111,8 @@ func (v *DestinationCustomValidator) ValidateCreate(ctx context.Context, destina
 		destination.Spec.Filepath.Mode == v1alpha1.FilepathModeAggregatedYAML {
 		if mode := deliveryMode(stateStore); mode != "" {
 			return nil, fmt.Errorf("filepath.mode aggregatedYAML cannot be used with a state store that has a delivery mode "+
-				"(%s/%s has delivery.mode %q); see %s",
-				destination.Spec.StateStoreRef.Kind, stateStore.GetName(), mode, destinationDocsURL)
+				"(%s/%s has delivery.mode %q)",
+				destination.Spec.StateStoreRef.Kind, stateStore.GetName(), mode)
 		}
 	}
 
