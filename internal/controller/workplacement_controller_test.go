@@ -1739,7 +1739,7 @@ files:
 			})
 		})
 
-		It("fails a first delivery the writer reports as outdated", func() {
+		It("errors if Deliver returns Outdated", func() {
 			deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Outdated}
 			reconcileTimes(1)
 
@@ -1749,7 +1749,7 @@ files:
 			Expect(err).To(MatchError(ContainSubstring("unknown delivery outcome")))
 		})
 
-		When("the writer reports an outstanding delivery as outdated", func() {
+		When("Check returns Outdated", func() {
 			refreshed := delivery.Result{
 				Outcome:    delivery.Pending,
 				Receipt:    "7",
@@ -1783,7 +1783,7 @@ files:
 				deferredWriter.deliverResult = refreshed
 			})
 
-			It("delivers the current files again to refresh the receipt and records the result", func() {
+			It("calls Deliver again with the current files and Refreshes set", func() {
 				result, err := reconcileOnce()
 
 				Expect(deferredWriter.checkReceipts).To(Equal([]string{"7"}))
@@ -1804,7 +1804,7 @@ files:
 					To(Equal("refreshed, waiting again"))
 			})
 
-			It("keeps the receipt saved while the refresh runs", func() {
+			It("keeps status.deliveryReceipt while Deliver runs", func() {
 				var during []string
 				deferredWriter.onDeliver = func() { during = append(during, read().DeliveryReceipt) }
 
@@ -1813,7 +1813,7 @@ files:
 				Expect(during).To(Equal([]string{"7"}))
 			})
 
-			It("records a refresh the writer delivered at once", func() {
+			It("marks the WorkPlacement written when Deliver returns Delivered", func() {
 				deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Delivered, VersionID: "v2"}
 
 				_, err := reconcileOnce()
@@ -1824,7 +1824,7 @@ files:
 				Expect(readCondition(v1alpha1.WriteSucceededConditionType).Status).To(Equal(metav1.ConditionTrue))
 			})
 
-			It("drops a receipt the writer cannot refresh", func() {
+			It("clears status.deliveryReceipt when Deliver returns ErrUnknownReceipt", func() {
 				deferredWriter.deliverErr = fmt.Errorf("%w: x", delivery.ErrUnknownReceipt)
 
 				result, err := reconcileOnce()
@@ -1837,7 +1837,7 @@ files:
 				Expect(status.DeliveryURL).To(BeEmpty())
 			})
 
-			It("records no write failure for a receipt the writer cannot refresh", func() {
+			It("records no write failure when Deliver returns ErrUnknownReceipt", func() {
 				before := readCondition(v1alpha1.WriteSucceededConditionType)
 				Expect(before.Status).NotTo(Equal(metav1.ConditionFalse))
 				for len(workplacementRecorder.Events) > 0 {
@@ -1858,7 +1858,7 @@ files:
 				Expect(after.Reason).To(Equal(before.Reason))
 			})
 
-			It("records a refresh the writer rejected and drops the receipt", func() {
+			It("marks the WorkPlacement rejected when Deliver returns Rejected", func() {
 				deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Rejected, Reason: "refused on refresh"}
 
 				_, err := reconcileOnce()
@@ -1871,7 +1871,7 @@ files:
 				Expect(written.Message).To(ContainSubstring("refused on refresh"))
 			})
 
-			It("keeps the receipt to check again when the refresh fails", func() {
+			It("keeps status.deliveryReceipt when Deliver errors", func() {
 				deferredWriter.deliverErr = fmt.Errorf("host down")
 
 				_, err := reconcileOnce()
@@ -1885,7 +1885,7 @@ files:
 			})
 		})
 
-		It("refreshes an outdated delivery with the files the target's state file lists that the WorkPlacement no longer writes", func() {
+		It("in none mode, deletes a file the WorkPlacement no longer writes", func() {
 			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&destination), &destination)).To(Succeed())
 			destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNone
 			Expect(fakeK8sClient.Update(ctx, &destination)).To(Succeed())
@@ -2382,7 +2382,7 @@ files:
 				})
 			})
 
-			When("the writer reports an outstanding removal as outdated", func() {
+			When("Check returns Outdated for a removal", func() {
 				reconcileOnce := func() (ctrl.Result, error) {
 					return reconciler.Reconcile(ctx, ctrl.Request{
 						NamespacedName: types.NamespacedName{Name: workPlacementName, Namespace: "default"},
@@ -2400,12 +2400,12 @@ files:
 					bumpGenerationAsTheAPIServerDoes()
 					deferredWriter.checkResult = delivery.Result{Outcome: delivery.Outdated}
 					deferredWriter.deliverResult = delivery.Result{
-						Outcome: delivery.Pending, Receipt: "9", Reason: "removal refreshed", URL: "https://h/d/12",
+						Outcome: delivery.Pending, Receipt: "9", Reason: "removal delivered again", URL: "https://h/d/12",
 						CheckAfter: 13 * time.Second,
 					}
 				})
 
-				It("delivers the removal again to refresh the receipt and records the result", func() {
+				It("calls Deliver again for the removal with Refreshes set", func() {
 					result, err := reconcileOnce()
 
 					Expect(deferredWriter.checkReceipts).To(Equal([]string{"9"}))
@@ -2420,10 +2420,10 @@ files:
 					Expect(latest.Status.DeliveryRemoval).To(BeTrue())
 					Expect(latest.Status.DeliveryURL).To(Equal("https://h/d/12"))
 					Expect(apiMeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.WriteSucceededConditionType).Message).
-						To(Equal("removal refreshed"))
+						To(Equal("removal delivered again"))
 				})
 
-				It("records a removal the writer rejected on refresh", func() {
+				It("marks the removal rejected when Deliver returns Rejected", func() {
 					deferredWriter.deliverResult = delivery.Result{Outcome: delivery.Rejected, Reason: "refused on refresh"}
 
 					_, err := reconcileOnce()
@@ -2439,7 +2439,7 @@ files:
 						"Removal rejected; the workloads are still on test-destination. refused on refresh"))
 				})
 
-				It("does not refresh when the API server holds a different removal receipt", func() {
+				It("does not call Deliver when the API server has a different receipt", func() {
 					stale := read(workPlacementName)
 					saved := read(workPlacementName)
 					saved.Status.DeliveryReceipt = "10"
@@ -2466,7 +2466,7 @@ files:
 					Expect(read(workPlacementName).Status.DeliveryReceipt).To(Equal("10"))
 				})
 
-				It("drops a receipt the writer cannot refresh and delivers the removal afresh", func() {
+				It("starts the removal over when Deliver returns ErrUnknownReceipt", func() {
 					deferredWriter.deliverResult.Receipt = "11"
 					deferredWriter.onDeliver = func() {
 						deferredWriter.deliverErr = nil

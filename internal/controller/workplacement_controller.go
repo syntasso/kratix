@@ -691,7 +691,7 @@ func (w *workPlacementReconcileContext) resolveOutstandingDelivery(repo *Reposit
 	return w.recordDeliveryResult(repo.DeliveryMode, result)
 }
 
-// refreshDelivery delivers the current workloads again under receipt, which stays saved until the writer answers.
+// refreshDelivery calls Deliver again with the current workloads and Refreshes set to receipt.
 func (w *workPlacementReconcileContext) refreshDelivery(repo *Repository, receipt string) (ctrl.Result, error) {
 	result, err := w.writeToStateStore(repo, receipt)
 	if errors.Is(err, delivery.ErrUnknownReceipt) {
@@ -1021,7 +1021,7 @@ func (w *workPlacementReconcileContext) deliverRemoval(repo *Repository, superse
 	return w.recordRemovalResult(repo.DeliveryMode, result)
 }
 
-// removalHeldOnServer is true when the API server holds a pending or rejected removal, other than refreshes, that the cached copy missed
+// removalHeldOnServer is true when the API server has a pending or rejected removal with a receipt other than refreshes.
 func (w *workPlacementReconcileContext) removalHeldOnServer(refreshes string) (bool, error) {
 	latest := &v1alpha1.WorkPlacement{}
 	if err := w.apiReader.Get(w.ctx, client.ObjectKeyFromObject(w.workPlacement), latest); err != nil {

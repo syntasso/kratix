@@ -22,7 +22,7 @@ const (
 	Delivered Outcome = "Delivered"
 	Pending   Outcome = "Pending"
 	Rejected  Outcome = "Rejected"
-	// Outdated is returned by Check only: the delivery cannot finish as it is, so deliver it again with Target.Refreshes.
+	// Outdated is returned by Check only; call Deliver again with Target.Refreshes set to the receipt.
 	Outdated Outcome = "Outdated"
 )
 
@@ -65,8 +65,8 @@ type Target struct {
 	Removing bool
 	// Supersedes is the receipt of an outstanding delivery Kratix dropped in favour of this one; the writer should withdraw it.
 	Supersedes string
-	// Refreshes is the receipt of an outstanding delivery to update in place; never set with Supersedes.
-	// Deliver then returns Pending with that receipt, Delivered or Rejected if it already finished, or ErrUnknownReceipt to drop it.
+	// Refreshes is the receipt of a delivery that Check reported as Outdated; never set with Supersedes.
+	// Deliver then returns Pending, Delivered, Rejected, or ErrUnknownReceipt if the writer does not know the receipt.
 	Refreshes string
 }
 
