@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
@@ -258,7 +260,14 @@ var _ = Describe("Workflow Reconciler", func() {
 			Expect(requeue).To(BeFalse())
 			Expect(listJobs(namespace)).To(BeEmpty())
 			if key != "configure" {
-				Expect(uPromise.Object["status"].(map[string]any)["conditions"]).To(Equal(originalStatus["conditions"]))
+				conditions, _ := uPromise.Object["status"].(map[string]any)["conditions"].([]any)
+				if key == "delete" && workflowType == "promise" {
+					Expect(deleteWorkflowCompletedCondition(uPromise)).To(HaveField("Reason", resourceutil.PipelinesExecutedSuccessfully))
+					conditions = slices.DeleteFunc(slices.Clone(conditions), func(c any) bool {
+						return c.(map[string]any)["type"] == "DeleteWorkflowCompleted"
+					})
+				}
+				Expect(conditions).To(Equal(originalStatus["conditions"]))
 				configure, _, err := unstructured.NestedMap(uPromise.Object, "status", "kratix", "workflows", "configure")
 				Expect(err).NotTo(HaveOccurred())
 				originalConfigure, _, err := unstructured.NestedMap(originalStatus, "kratix", "workflows", "configure")
@@ -270,6 +279,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			Entry("delete", v1alpha1.WorkflowActionDelete, "delete", "promise"),
 			Entry("embedded configure", v1alpha1.WorkflowActionConfigure, "example", "promise-example"),
 			Entry("embedded delete", v1alpha1.WorkflowActionDelete, "example-delete", "promise-example"),
+			Entry("embedded delete keyed as delete", v1alpha1.WorkflowActionDelete, "delete", "promise-example"),
 		)
 
 		When("list of pipeline resources are empty", func() {
@@ -1265,6 +1275,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					HaveKeyWithValue("reason", resourceutil.PipelinesInProgressReason),
 					HaveKeyWithValue("lastTransitionTime", Not(BeEmpty())),
 				))
+				Expect(resourceutil.GetCondition(updatedResource, resourceutil.DeleteWorkflowCompletedCondition)).To(BeNil())
 			})
 
 			It("fires an event for the new pipeline", func() {
@@ -3006,6 +3017,66 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(pipelines).NotTo(ContainElement(HaveKeyWithValue("name", "configure-pipe")))
 			})
 
+			It("marks the delete workflow as in progress", func() {
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+				_, err := workflow.ReconcileDelete(opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(deleteWorkflowCompletedCondition(uPromise)).To(SatisfyAll(
+					HaveField("Status", v1.ConditionFalse),
+					HaveField("Reason", resourceutil.PipelinesInProgressReason),
+				))
+			})
+
+			It("shows a resource request's delete workflow in progress, then completed", func() {
+				api, err := json.Marshal(fakeCRD)
+				Expect(err).NotTo(HaveOccurred())
+				promise.Spec.API = &runtime.RawExtension{Raw: api}
+				rr := &unstructured.Unstructured{}
+				rr.SetAPIVersion("mygroup.example/v1")
+				rr.SetKind("TheKind")
+				rr.SetName("request")
+				rr.SetNamespace(namespace)
+				rr.SetLabels(map[string]string{v1alpha1.PromiseNameLabel: promise.Name})
+				Expect(fakeK8sClient.Create(ctx, rr)).To(Succeed())
+				resource, err := pipelines[0].ForResource(&promise, "", v1alpha1.WorkflowActionDelete, rr).Resources(nil)
+				Expect(err).NotTo(HaveOccurred())
+
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, rr, []v1alpha1.PipelineJobResources{resource}, "resource", 5, namespace)
+				_, err = workflow.ReconcileDelete(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(deleteWorkflowCompletedCondition(rr)).To(HaveField("Reason", resourceutil.PipelinesInProgressReason))
+
+				markJobAsComplete(resource.Job.Name)
+				requeue, err := workflow.ReconcileDelete(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeue).To(BeFalse())
+				Expect(deleteWorkflowCompletedCondition(rr)).To(SatisfyAll(
+					HaveField("Status", v1.ConditionTrue),
+					HaveField("Reason", resourceutil.PipelinesExecutedSuccessfully),
+				))
+			})
+
+			When("the delete workflow was suspended and is resumed", func() {
+				BeforeEach(func() {
+					resourceutil.MarkDeleteWorkflowSuspended(logger, uPromise)
+					Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
+					uPromise.SetLabels(map[string]string{resourceutil.ManualReconciliationLabel: "true"})
+					Expect(fakeK8sClient.Update(ctx, uPromise)).To(Succeed())
+				})
+
+				It("marks the delete workflow as in progress again", func() {
+					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					_, err := workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(deleteWorkflowCompletedCondition(uPromise)).To(SatisfyAll(
+						HaveField("Status", v1.ConditionFalse),
+						HaveField("Reason", resourceutil.PipelinesInProgressReason),
+					))
+				})
+			})
+
 			It("initialises the pipeline status to Running so the status-writer can update it", func() {
 				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 				_, err := workflow.ReconcileDelete(opts)
@@ -3071,6 +3142,68 @@ var _ = Describe("Workflow Reconciler", func() {
 
 					Expect(findByName(jobList, workflowPipelines[0].Job.Name)).To(BeTrue())
 				})
+
+				It("marks the delete workflow as completed when it records the job's success", func() {
+					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					requeue, err := workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeue).To(BeFalse())
+
+					Expect(deleteWorkflowCompletedCondition(uPromise)).To(SatisfyAll(
+						HaveField("Status", v1.ConditionTrue),
+						HaveField("Reason", resourceutil.PipelinesExecutedSuccessfully),
+					))
+				})
+			})
+
+			When("every delete pipeline succeeded before the condition was written", func() {
+				BeforeEach(func() {
+					Expect(resourceutil.MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseSucceeded, uPromise, logger, workflowPipelines[0].Job, "delete")).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
+				})
+
+				It("marks the delete workflow as completed", func() {
+					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines[:1], "promise", 5, namespace)
+					requeue, err := workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeue).To(BeFalse())
+
+					Expect(deleteWorkflowCompletedCondition(uPromise)).To(SatisfyAll(
+						HaveField("Status", v1.ConditionTrue),
+						HaveField("Reason", resourceutil.PipelinesExecutedSuccessfully),
+					))
+				})
+
+				It("does not write status again once the condition is set", func() {
+					statusUpdates := 0
+					countingClient := interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+						SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string,
+							obj client.Object, opts ...client.SubResourceUpdateOption) error {
+							statusUpdates++
+							return c.SubResource(subResourceName).Update(ctx, obj, opts...)
+						},
+					})
+					opts := workflow.NewOpts(ctx, countingClient, eventRecorder, logger, uPromise, workflowPipelines[:1], "promise", 5, namespace)
+					_, err := workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(statusUpdates).To(Equal(1))
+
+					_, err = workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(statusUpdates).To(Equal(1))
+				})
+
+				It("returns the error when the condition cannot be written", func() {
+					failingClient := interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+						SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string,
+							obj client.Object, opts ...client.SubResourceUpdateOption) error {
+							return apierrors.NewConflict(schema.GroupResource{Resource: "promises"}, obj.GetName(), nil)
+						},
+					})
+					opts := workflow.NewOpts(ctx, failingClient, eventRecorder, logger, uPromise, workflowPipelines[:1], "promise", 5, namespace)
+					_, err := workflow.ReconcileDelete(opts)
+					Expect(apierrors.IsConflict(err)).To(BeTrue())
+				})
 			})
 
 			When("the pipeline job completes having set the workflow-suspended label", func() {
@@ -3084,6 +3217,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					requeue, err := workflow.ReconcileDelete(opts)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(requeue).To(BeTrue())
+					Expect(deleteWorkflowCompletedCondition(uPromise)).To(BeNil())
 				})
 			})
 
@@ -3101,6 +3235,18 @@ var _ = Describe("Workflow Reconciler", func() {
 					requeue, err := workflow.ReconcileDelete(opts)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(requeue).To(BeTrue())
+				})
+
+				It("marks the delete workflow as in progress again", func() {
+					resourceutil.MarkDeleteWorkflowSuspended(logger, uPromise)
+					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					_, err := workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(deleteWorkflowCompletedCondition(uPromise)).To(SatisfyAll(
+						HaveField("Status", v1.ConditionFalse),
+						HaveField("Reason", "PipelinesInProgress"),
+					))
 				})
 
 				It("resumes the pipeline in place, preserving existing retry attempts", func() {
@@ -3129,6 +3275,14 @@ var _ = Describe("Workflow Reconciler", func() {
 					requeue, err := workflow.ReconcileDelete(opts)
 					Expect(err).To(MatchError(workflow.ErrDeletePipelineFailed))
 					Expect(requeue).To(BeFalse())
+				})
+
+				It("does not mark the delete workflow as completed", func() {
+					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					_, err := workflow.ReconcileDelete(opts)
+					Expect(err).To(MatchError(workflow.ErrDeletePipelineFailed))
+
+					Expect(deleteWorkflowCompletedCondition(uPromise)).To(BeNil())
 				})
 
 				When("the resource is later manually reconciled", func() {
@@ -3569,4 +3723,11 @@ func clientWithEmptyJobCache() client.Client {
 			return c.List(ctx, list, opts...)
 		},
 	})
+}
+
+func deleteWorkflowCompletedCondition(obj *unstructured.Unstructured) *clusterv1.Condition {
+	stored := &unstructured.Unstructured{}
+	stored.SetGroupVersionKind(obj.GroupVersionKind())
+	ExpectWithOffset(1, fakeK8sClient.Get(ctx, types.NamespacedName{Name: obj.GetName(), Namespace: obj.GetNamespace()}, stored)).To(Succeed())
+	return resourceutil.GetCondition(stored, resourceutil.DeleteWorkflowCompletedCondition)
 }

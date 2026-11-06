@@ -1478,6 +1478,30 @@ var _ = Describe("PromiseController", func() {
 					})
 				})
 
+				When("the delete pipeline fails after the workflow wrote the Promise's status", func() {
+					BeforeEach(func() {
+						controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+							reconcileDeleteOptsArg = w
+							obj := w.ParentObject()
+							resourceutil.MarkDeleteWorkflowAsRunning(GinkgoLogr, obj)
+							Expect(fakeK8sClient.Status().Update(ctx, obj)).To(Succeed())
+							return false, workflow.ErrDeletePipelineFailed
+						})
+						Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+					})
+
+					It("sets the DeleteWorkflowCompleted condition to Failed in the same reconcile", func() {
+						_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+						Expect(err).NotTo(HaveOccurred())
+
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						condition := apimeta.FindStatusCondition(promise.Status.Conditions, string(resourceutil.DeleteWorkflowCompletedCondition))
+						Expect(condition).NotTo(BeNil())
+						Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+						Expect(condition.Reason).To(Equal(resourceutil.DeleteWorkflowCompletedFailedReason))
+					})
+				})
+
 				When("the delete pipeline is actively suspended", func() {
 					BeforeEach(func() {
 						Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
