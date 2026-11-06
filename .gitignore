@@ -52,3 +52,6 @@ config/manager/pipeline-adapter-config.properties
 # ai rules
 .cursor
 .claude
+
+# Perf rig run artefacts
+/test/perf/results/*/
