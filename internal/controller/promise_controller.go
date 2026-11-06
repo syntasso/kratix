@@ -1628,6 +1628,13 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		jobOpts.SetAPIReader(r.APIReader)
 
 		requeue, err := reconcileDelete(jobOpts)
+		// The workflow writes status through the unstructured copy. Sync it back
+		// so the writes below do not use a stale resourceVersion.
+		synced := &v1alpha1.Promise{}
+		if convErr := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredPromise.Object, synced); convErr != nil {
+			return ctrl.Result{}, convErr
+		}
+		*promise = *synced
 		if stderrors.Is(err, workflow.ErrDeletePipelineFailed) {
 			r.handlePromiseDeletePipelineFailure(o, promise, err)
 			logging.Info(o.logger, "promise delete workflow failed; waiting for a manual reconciliation")

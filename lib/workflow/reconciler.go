@@ -46,6 +46,12 @@ func (o *Opts) SetParentObject(parentObj *unstructured.Unstructured) {
 	o.parentObject = parentObj
 }
 
+// ParentObject returns the object the workflow reconciles. Status writes made
+// by the workflow are applied to it in place.
+func (o *Opts) ParentObject() *unstructured.Unstructured {
+	return o.parentObject
+}
+
 // SetAPIReader sets a reader that bypasses the cache. It is used to read a Job
 // that status says is running but the cache has not seen yet.
 func (o *Opts) SetAPIReader(reader client.Reader) {
