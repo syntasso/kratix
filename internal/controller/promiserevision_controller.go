@@ -74,7 +74,7 @@ func (r *PromiseRevisionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.reconcileDelete(ctx, logger, revision)
 	}
 
-	if !revision.SkipResourceRequestCleanupOnDelete() && resourceutil.FinalizersAreMissing(revision, []string{resourceRequestCleanupFinalizer}) {
+	if resourceutil.FinalizersAreMissing(revision, []string{resourceRequestCleanupFinalizer}) {
 		controllerutil.AddFinalizer(revision, resourceRequestCleanupFinalizer)
 		if err := r.Update(ctx, revision); err != nil {
 			if apierrors.IsConflict(err) {
@@ -175,10 +175,6 @@ func (r *PromiseRevisionReconciler) UnsetPreviousLatestRevision(
 }
 
 func (r *PromiseRevisionReconciler) reconcileDelete(ctx context.Context, logger logr.Logger, revision *v1alpha1.PromiseRevision) (ctrl.Result, error) {
-	if revision.SkipResourceRequestCleanupOnDelete() {
-		return r.removeCleanupFinalizer(ctx, revision)
-	}
-
 	if err := r.syncLatestStatus(ctx, logger, revision); err != nil {
 		return ctrl.Result{}, err
 	}
