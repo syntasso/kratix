@@ -24,13 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// SkipResourceRequestCleanupOnDeleteAnnotation is set on a PromiseRevision that is being removed
-// only to replace its object (for example legacy DNS name → deterministic name) while keeping the
-// same promise version. When present, the PromiseRevision controller drops its cleanup finalizer
-// straight away: it does not wait for resources to leave the version, and it keeps the version's
-// pipeline RBAC.
-const SkipResourceRequestCleanupOnDeleteAnnotation = KratixPrefix + "skip-resource-request-cleanup-on-delete"
-
 // LatestRevisionLabel marks the PromiseRevision that is currently latest for the promise (at most
 // one revision per promise should carry this label).
 const LatestRevisionLabel = KratixPrefix + "latest-revision"
@@ -104,21 +97,6 @@ func init() {
 
 func (pr *PromiseRevision) GetPromiseName() string {
 	return pr.Spec.PromiseRef.Name
-}
-
-func (pr *PromiseRevision) SetSkipResourceRequestCleanupOnDelete() {
-	ann := pr.GetAnnotations()
-	if ann == nil {
-		pr.SetAnnotations(map[string]string{
-			SkipResourceRequestCleanupOnDeleteAnnotation: MetadataBoolTrue,
-		})
-		return
-	}
-	ann[SkipResourceRequestCleanupOnDeleteAnnotation] = MetadataBoolTrue
-}
-
-func (pr *PromiseRevision) SkipResourceRequestCleanupOnDelete() bool {
-	return pr.GetAnnotations()[SkipResourceRequestCleanupOnDeleteAnnotation] == MetadataBoolTrue
 }
 
 // HasLatestRevisionLabel reports whether this revision carries the latest-revision label.

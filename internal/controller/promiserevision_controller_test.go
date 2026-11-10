@@ -312,16 +312,6 @@ var _ = Describe("PromiseRevisionController", func() {
 				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(rro), rro)).To(Succeed())
 			})
 
-			It("removes the revision straight away when skip-resource-request-cleanup-on-delete is set", func() {
-				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(revision), revision)).To(Succeed())
-				revision.SetSkipResourceRequestCleanupOnDelete()
-				Expect(fakeK8sClient.Update(ctx, revision)).To(Succeed())
-
-				Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
-				expectRevisionGone()
-				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resourceBinding), resourceBinding)).To(Succeed())
-			})
-
 			When("the revision waiting to be removed becomes the latest again", func() {
 				BeforeEach(func() {
 					Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
@@ -423,22 +413,6 @@ var _ = Describe("PromiseRevisionController", func() {
 					for _, obj := range versionObjects {
 						Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed(), obj.GetName())
 					}
-				})
-
-				When("skip-resource-request-cleanup-on-delete is set on the revision", func() {
-					It("keeps that version's pipeline objects at delete", func() {
-						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: revision.Name}, revision)).To(Succeed())
-						revision.SetSkipResourceRequestCleanupOnDelete()
-						Expect(fakeK8sClient.Update(ctx, revision)).To(Succeed())
-
-						Expect(fakeK8sClient.Delete(ctx, resourceBinding)).To(Succeed())
-						Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
-						expectRevisionGone()
-
-						for _, obj := range versionObjects {
-							Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed(), obj.GetName())
-						}
-					})
 				})
 			})
 		})

@@ -37,25 +37,6 @@ var _ = Describe("PromiseRevision", func() {
 	})
 
 	Describe("Label and annotation helpers", func() {
-		It("sets and reads skip-resource-request-cleanup-on-delete", func() {
-			revision := &platformv1alpha1.PromiseRevision{}
-			Expect(revision.SkipResourceRequestCleanupOnDelete()).To(BeFalse())
-			revision.SetSkipResourceRequestCleanupOnDelete()
-			Expect(revision.SkipResourceRequestCleanupOnDelete()).To(BeTrue())
-			Expect(revision.Annotations[platformv1alpha1.SkipResourceRequestCleanupOnDeleteAnnotation]).To(Equal(platformv1alpha1.MetadataBoolTrue))
-		})
-
-		It("sets skip annotation when annotations already exist", func() {
-			revision := &platformv1alpha1.PromiseRevision{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{"other": "x"},
-				},
-			}
-			revision.SetSkipResourceRequestCleanupOnDelete()
-			Expect(revision.Annotations["other"]).To(Equal("x"))
-			Expect(revision.SkipResourceRequestCleanupOnDelete()).To(BeTrue())
-		})
-
 		It("sets and clears the latest revision label", func() {
 			revision := &platformv1alpha1.PromiseRevision{}
 			revision.SetLatestRevisionLabel()
