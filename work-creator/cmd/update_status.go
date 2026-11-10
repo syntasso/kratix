@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/yaml"
 )
 
@@ -52,6 +53,13 @@ func runUpdateStatus(ctx context.Context) error {
 }
 
 func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameters, objectClient dynamic.ResourceInterface) error {
+	// Re-read and merge on every attempt so concurrent controller status writes survive.
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		return updateStatusOnce(ctx, baseDir, params, objectClient)
+	})
+}
+
+func updateStatusOnce(ctx context.Context, baseDir string, params *helpers.Parameters, objectClient dynamic.ResourceInterface) error {
 	statusFile := filepath.Join(baseDir, "status.yaml")
 
 	existingObj, err := objectClient.Get(ctx, params.ObjectName, metav1.GetOptions{})
