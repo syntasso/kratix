@@ -1,0 +1,62 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: statustest
+spec:
+  destinationSelectors:
+    - matchLabels:
+        environment: dev
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: statustests.compound.kratix.io
+    spec:
+      group: compound.kratix.io
+      names:
+        kind: StatusTest
+        plural: statustests
+        singular: statustest
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          served: true
+          storage: true
+          schema:
+            openAPIV3Schema:
+              type: object
+              properties:
+                spec:
+                  type: object
+                  properties:
+                    color:
+                      type: string
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: write-status
+          spec:
+            containers:
+              - name: write-status
+                image: busybox:1.36
+                command:
+                  - sh
+                  - -c
+                  - |
+                    set -e
+                    NAME=$(cat /kratix/input/object.yaml | grep '^  name:' | head -1 | awk '{print $2}')
+                    COLOR=$(grep 'color:' /kratix/input/object.yaml | awk '{print $2}' || echo "unknown")
+
+                    cat > /kratix/metadata/status.yaml <<EOF
+                    message: "Hello from pipeline for ${NAME}"
+                    color: "${COLOR}"
+                    builtAt: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                    answer: 42
+                    EOF
+
+                    echo "wrote status.yaml:"
+                    cat /kratix/metadata/status.yaml
+                    exit 0

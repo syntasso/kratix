@@ -1,0 +1,98 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: dbservice
+spec:
+  destinationSelectors:
+    - matchLabels:
+        environment: dev
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: dbservices.compound.kratix.io
+    spec:
+      group: compound.kratix.io
+      names:
+        kind: DBService
+        plural: dbservices
+        singular: dbservice
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          served: true
+          storage: true
+          schema:
+            openAPIV3Schema:
+              type: object
+              properties:
+                spec:
+                  type: object
+                  properties:
+                    engine:
+                      type: string
+                    size:
+                      type: string
+                    replicas:
+                      type: integer
+                      default: 1
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: provision
+          spec:
+            containers:
+              - name: provision
+                image: busybox:1.36
+                command:
+                  - sh
+                  - -c
+                  - |
+                    set -e
+                    NAME=$(awk '/^metadata:/{flag=1; next} flag && /^[a-z]/{flag=0} flag && /^  name:/{print $2; exit}' /kratix/input/object.yaml)
+                    ENGINE=$(awk '/^spec:/{flag=1; next} flag && /^[a-z]/{flag=0} flag && /^  engine:/{print $2; exit}' /kratix/input/object.yaml)
+                    SIZE=$(awk '/^spec:/{flag=1; next} flag && /^[a-z]/{flag=0} flag && /^  size:/{print $2; exit}' /kratix/input/object.yaml)
+                    REPLICAS=$(awk '/^spec:/{flag=1; next} flag && /^[a-z]/{flag=0} flag && /^  replicas:/{print $2; exit}' /kratix/input/object.yaml)
+                    [ -z "$ENGINE" ] && ENGINE=postgres
+                    [ -z "$SIZE" ] && SIZE=small
+                    [ -z "$REPLICAS" ] && REPLICAS=1
+                    PROVISIONED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+                    cat > /kratix/metadata/status.yaml <<EOF
+                    message: "${ENGINE} ${SIZE} cluster provisioned for ${NAME}"
+                    phase: Ready
+                    engine: "${ENGINE}"
+                    size: "${SIZE}"
+                    replicas: ${REPLICAS}
+                    provisionedAt: "${PROVISIONED_AT}"
+                    version: "v16.2"
+                    connection:
+                      host: "${NAME}.compound.svc.cluster.local"
+                      port: 5432
+                      database: "${NAME}_db"
+                      sslMode: require
+                      credentialsSecret: "${NAME}-creds"
+                    endpoints:
+                      - role: primary
+                        host: "${NAME}-primary.compound.svc.cluster.local"
+                        port: 5432
+                      - role: replica
+                        host: "${NAME}-replica.compound.svc.cluster.local"
+                        port: 5432
+                      - role: readonly
+                        host: "${NAME}-ro.compound.svc.cluster.local"
+                        port: 5432
+                    resources:
+                      cpu: "500m"
+                      memory: "1Gi"
+                      storageGiB: 20
+                    backupSchedule: "0 2 * * *"
+                    metricsURL: "http://prometheus.compound.svc.cluster.local:9090/${NAME}"
+                    EOF
+
+                    echo "wrote status.yaml:"
+                    cat /kratix/metadata/status.yaml
+                    exit 0
