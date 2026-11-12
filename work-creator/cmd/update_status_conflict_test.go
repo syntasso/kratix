@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"testing"
 
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/work-creator/cmd"
 	"github.com/syntasso/kratix/work-creator/lib/helpers"
@@ -19,14 +20,14 @@ import (
 	ktesting "k8s.io/client-go/testing"
 )
 
-func TestUpdateStatusSuspensionConflict(t *testing.T) {
-	for _, subresource := range []string{"", "status"} {
-		t.Run("conflict-"+subresource, func(t *testing.T) {
-			t.Setenv(v1alpha1.KratixActionEnvVar, "configure")
-			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, "workflow-control.yaml"), []byte("retryAfter: 1m\nmessage: waiting\n"), 0600); err != nil {
-				t.Fatal(err)
-			}
+var _ = Describe("updateStatus when the object is modified concurrently", func() {
+	for _, sub := range []string{"", "status"} {
+		subresource := sub
+		It(fmt.Sprintf("retries and keeps the concurrent write on a conflict (subresource %q)", subresource), func() {
+			GinkgoT().Setenv(v1alpha1.KratixActionEnvVar, "configure")
+			dir := GinkgoT().TempDir()
+			Expect(os.WriteFile(filepath.Join(dir, "workflow-control.yaml"), []byte("retryAfter: 1m\nmessage: waiting\n"), 0o600)).To(Succeed())
+
 			gvr := schema.GroupVersionResource{Group: "example.io", Version: "v1", Resource: "databases"}
 			obj := &unstructured.Unstructured{Object: map[string]any{
 				"apiVersion": "example.io/v1", "kind": "Database",
@@ -45,40 +46,29 @@ func TestUpdateStatusSuspensionConflict(t *testing.T) {
 				}
 				// Simulate an independent controller writing status while this update is in flight.
 				latest, err := client.Tracker().Get(gvr, "default", "db")
-				if err != nil {
-					t.Fatal(err)
-				}
+				Expect(err).NotTo(HaveOccurred())
 				concurrent := latest.(*unstructured.Unstructured).DeepCopy()
-				_ = unstructured.SetNestedField(concurrent.Object, "preserved", "status", "concurrent")
-				if err := client.Tracker().Update(gvr, concurrent, "default"); err != nil {
-					t.Fatal(err)
-				}
+				Expect(unstructured.SetNestedField(concurrent.Object, "preserved", "status", "concurrent")).To(Succeed())
+				Expect(client.Tracker().Update(gvr, concurrent, "default")).To(Succeed())
 				return true, nil, apierrors.NewConflict(gvr.GroupResource(), "db", fmt.Errorf("concurrent update"))
 			})
 			resource := client.Resource(gvr).Namespace("default")
 			params := &helpers.Parameters{ObjectName: "db", PipelineName: "pipeline", WorkflowType: v1alpha1.WorkflowTypeResource}
-			if err := cmd.UpdateStatus(context.Background(), dir, params, resource); err != nil {
-				t.Fatal(err)
-			}
+
+			Expect(cmd.UpdateStatus(context.Background(), dir, params, resource)).To(Succeed())
+
 			stored, err := resource.Get(context.Background(), "db", metav1.GetOptions{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if attempts != 2 {
-				t.Fatalf("attempts = %d, want 2", attempts)
-			}
-			if stored.GetLabels()[v1alpha1.WorkflowSuspendedLabel] != "true" {
-				t.Fatal("missing suspension label")
-			}
-			value, _, _ := unstructured.NestedString(stored.Object, "status", "concurrent")
-			if value != "preserved" {
-				t.Fatal("lost concurrent status")
-			}
+			Expect(err).NotTo(HaveOccurred())
+			Expect(attempts).To(Equal(2))
+			Expect(stored.GetLabels()).To(HaveKeyWithValue(v1alpha1.WorkflowSuspendedLabel, "true"))
+			concurrent, _, _ := unstructured.NestedString(stored.Object, "status", "concurrent")
+			Expect(concurrent).To(Equal("preserved"))
 			pipelines, _, _ := unstructured.NestedSlice(stored.Object, "status", "kratix", "workflows", "configure", "pipelines")
+			Expect(pipelines).To(HaveLen(1))
 			pipeline := pipelines[0].(map[string]any)
-			if pipeline["phase"] != "Suspended" || pipeline["nextRetryAt"] == nil || pipeline["attempts"] != int64(1) {
-				t.Fatalf("unexpected pipeline status: %v", pipeline)
-			}
+			Expect(pipeline).To(HaveKeyWithValue("phase", "Suspended"))
+			Expect(pipeline).To(HaveKey("nextRetryAt"))
+			Expect(pipeline).To(HaveKeyWithValue("attempts", int64(1)))
 		})
 	}
-}
+})
