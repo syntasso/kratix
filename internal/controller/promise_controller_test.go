@@ -1545,6 +1545,35 @@ var _ = Describe("PromiseController", func() {
 					})
 				})
 
+				When("the Job that suspended the delete pipeline failed before recording the suspension", func() {
+					var deleteWorkflowCalled bool
+
+					BeforeEach(func() {
+						Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+						suspendingJobFailed(promise, "delete", "promise-delete", v1alpha1.SystemNamespace, map[string]string{
+							v1alpha1.WorkflowTypeLabel: "promise",
+							v1alpha1.PromiseNameLabel:  promise.GetName(),
+						}, batchv1.JobFailed)
+
+						deleteWorkflowCalled = false
+						controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+							deleteWorkflowCalled = true
+							return true, nil
+						})
+					})
+
+					It("removes the label so the delete workflow records the failure", func() {
+						_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						Expect(promise.GetLabels()).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+
+						_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+						Expect(err).NotTo(HaveOccurred())
+						Expect(deleteWorkflowCalled).To(BeTrue())
+					})
+				})
+
 				When("the configure pipeline was suspended when the delete was requested", func() {
 					var deleteWorkflowCalled bool
 
@@ -2133,6 +2162,27 @@ var _ = Describe("PromiseController", func() {
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 				promise.Labels[v1alpha1.WorkflowSuspendedLabel] = "true"
 				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+			})
+
+			It("removes the label when the Job that suspended it failed before recording the suspension", func() {
+				var configureWorkflowCalled bool
+				controller.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
+					configureWorkflowCalled = true
+					return true, nil
+				})
+				suspendingJobFailed(promise, "configure", "first-pipeline", v1alpha1.SystemNamespace, map[string]string{
+					v1alpha1.WorkflowTypeLabel: "promise",
+					v1alpha1.PromiseNameLabel:  promise.GetName(),
+				}, batchv1.JobFailed)
+
+				_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				Expect(promise.Labels).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+
+				_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(configureWorkflowCalled).To(BeTrue())
 			})
 
 			It("stops reconciliation and set status correctly", func() {

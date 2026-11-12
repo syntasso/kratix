@@ -1078,12 +1078,6 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return true, &result, err
 	}
 
-	if shouldRequeue, result, suspendErr := r.reconcileSuspendedWorkflow(o, promise,
-		promiseSpecChanged); shouldRequeue || result != nil || suspendErr != nil {
-
-		return shouldRequeue, result, suspendErr
-	}
-
 	pipelineResources, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionConfigure, o.logger)
 	if err != nil {
 		return false, nil, err
@@ -1096,6 +1090,16 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep, namespace)
 	jobOpts.SetAPIReader(r.APIReader)
+
+	if cleared, err := workflow.ClearFailedSuspension(jobOpts); cleared || err != nil {
+		return cleared, nil, err
+	}
+
+	if shouldRequeue, result, suspendErr := r.reconcileSuspendedWorkflow(o, promise,
+		promiseSpecChanged); shouldRequeue || result != nil || suspendErr != nil {
+
+		return shouldRequeue, result, suspendErr
+	}
 
 	logging.Debug(o.logger, "reconciling configure workflow")
 	passiveRequeue, err := reconcileConfigure(jobOpts)
@@ -1602,11 +1606,6 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 			return *result, err
 		}
 
-		if handled, result, err := r.handleSuspendedDeleteWorkflow(o, promise); handled {
-			return result, err
-		}
-
-		logging.Info(o.logger, "running promise delete workflows")
 		unstructuredPromise, err := promise.ToUnstructured()
 		if err != nil {
 			return ctrl.Result{}, err
@@ -1622,6 +1621,16 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		}
 		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelines, "promise", r.NumberOfJobsToKeep, namespace)
 		jobOpts.SetAPIReader(r.APIReader)
+
+		if cleared, err := workflow.ClearFailedSuspension(jobOpts); cleared || err != nil {
+			return ctrl.Result{}, err
+		}
+
+		if handled, result, err := r.handleSuspendedDeleteWorkflow(o, promise); handled {
+			return result, err
+		}
+
+		logging.Info(o.logger, "running promise delete workflows")
 
 		requeue, err := reconcileDelete(jobOpts)
 		// The workflow writes status through the unstructured copy. Sync it back
