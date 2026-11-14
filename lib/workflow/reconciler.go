@@ -654,7 +654,9 @@ func createPipeline(opts Opts, decision Decision) (passiveRequeue bool, err erro
 	}
 
 	deleteResources(opts, objectToDelete...)
-	applyResources(opts, append(resources.GetObjects(), resources.Job)...)
+	if err := applyResources(opts, append(resources.GetObjects(), resources.Job)...); err != nil {
+		return false, err
+	}
 
 	action := "Configure"
 	if resources.WorkflowAction == v1alpha1.WorkflowActionDelete {
@@ -789,8 +791,10 @@ func isLabelSetToTrue(labels map[string]string, labelKey string) bool {
 	return exists && val == "true"
 }
 
-// TODO return error info (summary of errors from resources?) to the caller, instead of just logging
-func applyResources(opts Opts, resources ...client.Object) {
+// applyResources creates or updates the given resources. Failures are logged
+// and returned to the caller as a single aggregated error.
+func applyResources(opts Opts, resources ...client.Object) error {
+	var errs []error
 	logging.Debug(opts.logger, "reconciling pipeline resources")
 
 	for _, resource := range resources {
@@ -800,12 +804,16 @@ func applyResources(opts Opts, resources ...client.Object) {
 		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", gvk.String(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
 
 		logging.Debug(logger, "reconciling resource")
+		// A resourceVersion left over from an earlier Create/Update would make
+		// this Create fail with a validation error rather than AlreadyExists.
+		resource.SetResourceVersion("")
 		if err := opts.client.Create(opts.ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
 				if gvk.Kind == rbacv1.ServiceAccountKind {
 					serviceAccount := &v1.ServiceAccount{}
 					if err := opts.client.Get(opts.ctx, client.ObjectKey{Namespace: resource.GetNamespace(), Name: resource.GetName()}, serviceAccount); err != nil {
 						logging.Error(logger, err, "error getting service account")
+						errs = append(errs, err)
 						continue
 					}
 
@@ -814,6 +822,11 @@ func applyResources(opts Opts, resources ...client.Object) {
 						continue
 					}
 
+				}
+				if gvk.Kind == "Job" {
+					// Job specs are immutable, so an existing Job is left as is.
+					logging.Debug(logger, "job already exists; skipping update")
+					continue
 				}
 				logging.Debug(logger, "resource already exists; updating")
 				if err = opts.client.Update(opts.ctx, resource); err == nil {
@@ -824,10 +837,13 @@ func applyResources(opts Opts, resources ...client.Object) {
 			logging.Error(logger, err, "error reconciling resource")
 			y, _ := yaml.Marshal(&resource)
 			logging.Error(logger, err, string(y))
+			errs = append(errs, err)
 		} else {
 			logging.Debug(logger, "resource created")
 		}
 	}
+
+	return stderrors.Join(errs...)
 }
 
 func deleteResources(opts Opts, resources ...client.Object) {

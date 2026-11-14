@@ -1524,6 +1524,23 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
+		When("creating the pipeline resources fails", func() {
+			It("returns the error instead of reporting the pipeline as started", func() {
+				failingClient := interceptor.NewClient(fakeK8sClient.(client.WithWatch), interceptor.Funcs{
+					Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
+						opts ...client.CreateOption) error {
+						if _, ok := obj.(*batchv1.Job); ok {
+							return fmt.Errorf("cannot create job")
+						}
+						return c.Create(ctx, obj, opts...)
+					},
+				})
+				opts := workflow.NewOpts(ctx, failingClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+				_, err := workflow.ReconcileConfigure(opts)
+				Expect(err).To(MatchError(ContainSubstring("cannot create job")))
+			})
+		})
+
 		When("all pipelines have executed", func() {
 			var updatedWorkflows []v1alpha1.PipelineJobResources
 
