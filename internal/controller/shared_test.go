@@ -10,8 +10,12 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -194,4 +198,38 @@ func (w *bindingHealthConflictWriter) Update(ctx context.Context, obj client.Obj
 		}
 	}
 	return w.SubResourceWriter.Update(ctx, obj, opts...)
+}
+
+// suspendingJobFailed records the parent's current pipeline as Running against a
+// Job with the given condition, as the status-writer leaves it when it fails after
+// adding the workflow-suspended label but before writing the Suspended phase.
+func suspendingJobFailed(parent client.Object, workflowKey, pipelineName, namespace string, jobLabels map[string]string, condition batchv1.JobConditionType) {
+	GinkgoHelper()
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: "suspending-job", Namespace: namespace, Labels: jobLabels},
+	}
+	Expect(fakeK8sClient.Create(context.TODO(), job)).To(Succeed())
+	if condition == "" {
+		job.Status.Active = 1
+	} else {
+		job.Status.Conditions = []batchv1.JobCondition{{Type: condition, Status: corev1.ConditionTrue}}
+	}
+	Expect(fakeK8sClient.Status().Update(context.TODO(), job)).To(Succeed())
+
+	uParent := &unstructured.Unstructured{}
+	gvk, err := apiutil.GVKForObject(parent, fakeK8sClient.Scheme())
+	Expect(err).NotTo(HaveOccurred())
+	uParent.SetGroupVersionKind(gvk)
+	Expect(fakeK8sClient.Get(context.TODO(), client.ObjectKeyFromObject(parent), uParent)).To(Succeed())
+	uParent.SetLabels(labels.Merge(uParent.GetLabels(), map[string]string{v1alpha1.WorkflowSuspendedLabel: "true"}))
+	Expect(fakeK8sClient.Update(context.TODO(), uParent)).To(Succeed())
+	pipelines, _, err := unstructured.NestedSlice(uParent.Object, "status", "kratix", "workflows", workflowKey, "pipelines")
+	Expect(err).NotTo(HaveOccurred())
+	if len(pipelines) == 0 {
+		pipelines = []any{map[string]any{}}
+	}
+	current := pipelines[0].(map[string]any)
+	current["name"], current["phase"], current["job"] = pipelineName, v1alpha1.WorkflowPhaseRunning, job.Name
+	Expect(unstructured.SetNestedSlice(uParent.Object, pipelines, "status", "kratix", "workflows", workflowKey, "pipelines")).To(Succeed())
+	Expect(fakeK8sClient.Status().Update(context.TODO(), uParent)).To(Succeed())
 }

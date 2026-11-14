@@ -18,13 +18,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	ktesting "k8s.io/client-go/testing"
+	"k8s.io/client-go/util/retry"
 )
 
 var _ = Describe("updateStatus when the object is modified concurrently", func() {
-	for _, sub := range []string{"", "status"} {
-		subresource := sub
-		It(fmt.Sprintf("retries and keeps the concurrent write on a conflict (subresource %q)", subresource), func() {
-			GinkgoT().Setenv(v1alpha1.KratixActionEnvVar, "configure")
+	for _, testCase := range []struct{ action, subresource string }{
+		{"configure", ""}, {"configure", "status"}, {"delete", ""}, {"delete", "status"},
+	} {
+		action, subresource := testCase.action, testCase.subresource
+		It(fmt.Sprintf("retries and keeps the concurrent write on a conflict (%s, subresource %q)", action, subresource), func() {
+			GinkgoT().Setenv(v1alpha1.KratixActionEnvVar, action)
 			dir := GinkgoT().TempDir()
 			Expect(os.WriteFile(filepath.Join(dir, "workflow-control.yaml"), []byte("retryAfter: 1m\nmessage: waiting\n"), 0o600)).To(Succeed())
 
@@ -32,7 +35,7 @@ var _ = Describe("updateStatus when the object is modified concurrently", func()
 			obj := &unstructured.Unstructured{Object: map[string]any{
 				"apiVersion": "example.io/v1", "kind": "Database",
 				"metadata": map[string]any{"name": "db", "namespace": "default"},
-				"status":   map[string]any{"kratix": map[string]any{"workflows": map[string]any{"configure": map[string]any{"pipelines": []any{map[string]any{"name": "pipeline", "phase": "Running"}}}}}},
+				"status":   map[string]any{"kratix": map[string]any{"workflows": map[string]any{action: map[string]any{"pipelines": []any{map[string]any{"name": "pipeline", "phase": "Running"}}}}}},
 			}}
 			client := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), obj)
 			attempts := 0
@@ -63,7 +66,7 @@ var _ = Describe("updateStatus when the object is modified concurrently", func()
 			Expect(stored.GetLabels()).To(HaveKeyWithValue(v1alpha1.WorkflowSuspendedLabel, "true"))
 			concurrent, _, _ := unstructured.NestedString(stored.Object, "status", "concurrent")
 			Expect(concurrent).To(Equal("preserved"))
-			pipelines, _, _ := unstructured.NestedSlice(stored.Object, "status", "kratix", "workflows", "configure", "pipelines")
+			pipelines, _, _ := unstructured.NestedSlice(stored.Object, "status", "kratix", "workflows", action, "pipelines")
 			Expect(pipelines).To(HaveLen(1))
 			pipeline := pipelines[0].(map[string]any)
 			Expect(pipeline).To(HaveKeyWithValue("phase", "Suspended"))
@@ -71,4 +74,28 @@ var _ = Describe("updateStatus when the object is modified concurrently", func()
 			Expect(pipeline).To(HaveKeyWithValue("attempts", int64(1)))
 		})
 	}
+
+	It("gives up with an error when every update conflicts", func() {
+		GinkgoT().Setenv(v1alpha1.KratixActionEnvVar, "configure")
+		dir := GinkgoT().TempDir()
+		Expect(os.WriteFile(filepath.Join(dir, "workflow-control.yaml"), []byte("retryAfter: 1m\n"), 0o600)).To(Succeed())
+
+		gvr := schema.GroupVersionResource{Group: "example.io", Version: "v1", Resource: "databases"}
+		obj := &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "example.io/v1", "kind": "Database",
+			"metadata": map[string]any{"name": "db", "namespace": "default"},
+		}}
+		client := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), obj)
+		attempts := 0
+		client.PrependReactor("update", "databases", func(action ktesting.Action) (bool, runtime.Object, error) {
+			attempts++
+			return true, nil, apierrors.NewConflict(gvr.GroupResource(), "db", fmt.Errorf("concurrent update"))
+		})
+		params := &helpers.Parameters{ObjectName: "db", PipelineName: "pipeline", WorkflowType: v1alpha1.WorkflowTypeResource}
+
+		err := cmd.UpdateStatus(context.Background(), dir, params, client.Resource(gvr).Namespace("default"))
+
+		Expect(apierrors.IsConflict(err)).To(BeTrue())
+		Expect(attempts).To(Equal(retry.DefaultRetry.Steps))
+	})
 })
