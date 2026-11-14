@@ -13,11 +13,13 @@ import (
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -315,9 +317,26 @@ func (s *Scheduler) updateWorkPlacement(ctx context.Context, workloadGroup v1alp
 		s.labelWorkplacementAsMisplaced(workPlacement)
 	}
 
-	workPlacement.Spec.WorkGeneration = workGeneration
-	workPlacement.Spec.Workloads = workloadGroup.Workloads
-	if err := s.Client.Update(ctx, workPlacement); err != nil {
+	// The WorkPlacement controller writes this same object. Retry so a 409 does not
+	// drop the workload update and fail the reconcile.
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		workPlacement.Spec.WorkGeneration = workGeneration
+		workPlacement.Spec.Workloads = workloadGroup.Workloads
+		updateErr := s.Client.Update(ctx, workPlacement)
+		if !apierrors.IsConflict(updateErr) {
+			return updateErr
+		}
+		latest := &v1alpha1.WorkPlacement{}
+		if getErr := s.Client.Get(ctx, client.ObjectKeyFromObject(workPlacement), latest); getErr != nil {
+			return getErr
+		}
+		if misplaced {
+			s.labelWorkplacementAsMisplaced(latest)
+		}
+		*workPlacement = *latest
+		return updateErr
+	})
+	if err != nil {
 		logging.Error(s.Log, err, "error updating WorkPlacement", "workplacement", workPlacement.Name)
 		return false, err
 	}

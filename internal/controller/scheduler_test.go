@@ -19,12 +19,15 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 var _ = Describe("Controllers/Scheduler", func() {
@@ -394,6 +397,75 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(err).ToNot(HaveOccurred())
 					Expect(newResourceVersion).To(BeNumerically(">", previousResourceVersion))
 					Expect(workPlacement.Spec.WorkGeneration).To(BeNumerically(">", previousWorkGeneration))
+				})
+			})
+
+			When("another controller updates the WorkPlacement while the scheduler writes it", func() {
+				const concurrentAnnotation = "kratix.io/concurrent-writer"
+
+				BeforeEach(func() {
+					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+					Expect(workPlacements.Items).To(HaveLen(1))
+
+					base, ok := fakeK8sClient.(client.WithWatch)
+					Expect(ok).To(BeTrue())
+					conflicted := false
+					scheduler.Client = interceptor.NewClient(base, interceptor.Funcs{
+						Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+							wp, isWorkPlacement := obj.(*v1alpha1.WorkPlacement)
+							if !isWorkPlacement {
+								return c.Update(ctx, obj, opts...)
+							}
+							// One 409, after a concurrent metadata write, the same conflict the
+							// WorkPlacement controller produces when both reconcilers save this object.
+							if !conflicted {
+								conflicted = true
+								latest := &v1alpha1.WorkPlacement{}
+								if err := c.Get(ctx, client.ObjectKeyFromObject(wp), latest); err != nil {
+									return err
+								}
+								annotations := latest.GetAnnotations()
+								if annotations == nil {
+									annotations = map[string]string{}
+								}
+								annotations[concurrentAnnotation] = "workplacement-controller"
+								latest.SetAnnotations(annotations)
+								if err := c.Update(ctx, latest); err != nil {
+									return err
+								}
+								return apierrors.NewConflict(
+									schema.GroupResource{Group: v1alpha1.GroupVersion.Group, Resource: "workplacements"},
+									wp.GetName(),
+									fmt.Errorf("the object has been modified; please apply your changes to the latest version and try again"),
+								)
+							}
+							return c.Update(ctx, obj, opts...)
+						},
+					})
+				})
+
+				It("retries the spec update and keeps the concurrent annotation", func() {
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
+					resourceWork.Spec.WorkloadGroups[0].Workloads = append(resourceWork.Spec.WorkloadGroups[0].Workloads, v1alpha1.Workload{
+						Content: string(fakeCompressedContent),
+					})
+					resourceWork.SetGeneration(int64(2))
+
+					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+					Expect(workPlacements.Items).To(HaveLen(1))
+					workPlacement := workPlacements.Items[0]
+					Expect(workPlacement.Spec.Workloads).To(HaveLen(2))
+					Expect(workPlacement.Spec.Workloads).To(ContainElement(v1alpha1.Workload{
+						Content: string(fakeCompressedContent),
+					}))
+					Expect(workPlacement.GetAnnotations()).To(HaveKeyWithValue(concurrentAnnotation, "workplacement-controller"))
+					Expect(workPlacement.Spec.WorkGeneration).To(Equal(int64(2)))
 				})
 			})
 
