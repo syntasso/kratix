@@ -401,7 +401,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 			})
 
 			When("another controller updates the WorkPlacement while the scheduler writes it", func() {
-				const concurrentAnnotation = "kratix.io/concurrent-writer"
+				const concurrentAnnotation = "test-only/simulated-concurrent-write"
 
 				BeforeEach(func() {
 					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
@@ -419,8 +419,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 							if !isWorkPlacement {
 								return c.Update(ctx, obj, opts...)
 							}
-							// One 409, after a concurrent metadata write, the same conflict the
-							// WorkPlacement controller produces when both reconcilers save this object.
+							// Simulate another controller updating WorkPlacement between
+							// the scheduler's read and write and return a Conflict error.
 							if !conflicted {
 								conflicted = true
 								latest := &v1alpha1.WorkPlacement{}
@@ -431,7 +431,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 								if annotations == nil {
 									annotations = map[string]string{}
 								}
-								annotations[concurrentAnnotation] = "workplacement-controller"
+								annotations[concurrentAnnotation] = "simulated"
 								latest.SetAnnotations(annotations)
 								if err := c.Update(ctx, latest); err != nil {
 									return err
@@ -464,7 +464,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacement.Spec.Workloads).To(ContainElement(v1alpha1.Workload{
 						Content: string(fakeCompressedContent),
 					}))
-					Expect(workPlacement.GetAnnotations()).To(HaveKeyWithValue(concurrentAnnotation, "workplacement-controller"))
+					Expect(workPlacement.GetAnnotations()).To(HaveKeyWithValue(concurrentAnnotation, "simulated"))
 					Expect(workPlacement.Spec.WorkGeneration).To(Equal(int64(2)))
 				})
 			})

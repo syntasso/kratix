@@ -326,14 +326,12 @@ func (s *Scheduler) updateWorkPlacement(ctx context.Context, workloadGroup v1alp
 		if !apierrors.IsConflict(updateErr) {
 			return updateErr
 		}
-		latest := &v1alpha1.WorkPlacement{}
-		if getErr := s.Client.Get(ctx, client.ObjectKeyFromObject(workPlacement), latest); getErr != nil {
+		if getErr := s.Client.Get(ctx, client.ObjectKeyFromObject(workPlacement), workPlacement); getErr != nil {
 			return getErr
 		}
 		if misplaced {
-			s.labelWorkplacementAsMisplaced(latest)
+			s.labelWorkplacementAsMisplaced(workPlacement)
 		}
-		*workPlacement = *latest
 		return updateErr
 	})
 	if err != nil {
@@ -463,15 +461,23 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(ctx context.Context
 // updateWorkPlacementStatus re-reads the WorkPlacement and retries on conflict, since
 // the WorkPlacement controller writes the same object's status.
 func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, misplaced bool) error {
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		return s.updateWorkPlacementStatusOnce(ctx, workPlacement, misplaced)
+	var updatedwp *v1alpha1.WorkPlacement
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var attemptErr error
+		updatedwp, attemptErr = s.updateWorkPlacementStatusOnce(ctx, workPlacement, misplaced)
+		return attemptErr
 	})
+	// Publish once, outside the retry loop, so a conflict retry does not repeat the event.
+	if misplaced && updatedwp != nil {
+		s.EventRecorder.Eventf(updatedwp, nil, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason, scheduleSucceededConditionMismatchReason, "labels for destination: %s no longer match the expected labels, marking this workplacement as misplaced", updatedwp.Spec.TargetDestinationName)
+	}
+	return err
 }
 
-func (s *Scheduler) updateWorkPlacementStatusOnce(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, misplaced bool) error {
+func (s *Scheduler) updateWorkPlacementStatusOnce(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, misplaced bool) (*v1alpha1.WorkPlacement, error) {
 	updatedwp := &v1alpha1.WorkPlacement{}
 	if err := s.Client.Get(ctx, client.ObjectKeyFromObject(workPlacement), updatedwp); err != nil {
-		return err
+		return nil, err
 	}
 
 	var desiredScheduleCond metav1.Condition
@@ -492,11 +498,10 @@ func (s *Scheduler) updateWorkPlacementStatusOnce(ctx context.Context, workPlace
 			ObservedGeneration: updatedwp.GetGeneration(),
 		})
 		scheduleUpdated := apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond)
-		s.EventRecorder.Eventf(updatedwp, nil, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason, scheduleSucceededConditionMismatchReason, "labels for destination: %s no longer match the expected labels, marking this workplacement as misplaced", updatedwp.Spec.TargetDestinationName)
 		if scheduleUpdated || readyUpdated {
-			return s.Client.Status().Update(ctx, updatedwp)
+			return updatedwp, s.Client.Status().Update(ctx, updatedwp)
 		}
-		return nil
+		return updatedwp, nil
 	}
 
 	desiredScheduleCond = metav1.Condition{
@@ -524,9 +529,9 @@ func (s *Scheduler) updateWorkPlacementStatusOnce(ctx context.Context, workPlace
 	}
 
 	if scheduleUpdated || readyUpdated {
-		return s.Client.Status().Update(ctx, updatedwp)
+		return updatedwp, s.Client.Status().Update(ctx, updatedwp)
 	}
-	return nil
+	return updatedwp, nil
 }
 
 // Where Work is a Resource Request return one random Destination name, where Work is a
