@@ -460,7 +460,15 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(ctx context.Context
 	return containsMischeduledWorkplacement, nil
 }
 
+// updateWorkPlacementStatus re-reads the WorkPlacement and retries on conflict, since
+// the WorkPlacement controller writes the same object's status.
 func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, misplaced bool) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		return s.updateWorkPlacementStatusOnce(ctx, workPlacement, misplaced)
+	})
+}
+
+func (s *Scheduler) updateWorkPlacementStatusOnce(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, misplaced bool) error {
 	updatedwp := &v1alpha1.WorkPlacement{}
 	if err := s.Client.Get(ctx, client.ObjectKeyFromObject(workPlacement), updatedwp); err != nil {
 		return err

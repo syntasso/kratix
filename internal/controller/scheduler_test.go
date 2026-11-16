@@ -469,6 +469,51 @@ var _ = Describe("Controllers/Scheduler", func() {
 				})
 			})
 
+			When("the WorkPlacement status update hits a conflict", func() {
+				var statusConflicts int
+
+				BeforeEach(func() {
+					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
+					Expect(err).ToNot(HaveOccurred())
+
+					base, ok := fakeK8sClient.(client.WithWatch)
+					Expect(ok).To(BeTrue())
+					statusConflicts = 0
+					scheduler.Client = interceptor.NewClient(base, interceptor.Funcs{
+						SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+							if _, isWorkPlacement := obj.(*v1alpha1.WorkPlacement); isWorkPlacement && statusConflicts < 1 {
+								statusConflicts++
+								return apierrors.NewConflict(
+									schema.GroupResource{Group: v1alpha1.GroupVersion.Group, Resource: "workplacements"},
+									obj.GetName(),
+									fmt.Errorf("the object has been modified; please apply your changes to the latest version and try again"),
+								)
+							}
+							return c.SubResource(subResourceName).Update(ctx, obj, opts...)
+						},
+					})
+				})
+
+				It("retries the status update instead of failing the reconcile", func() {
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
+					resourceWork.SetGeneration(int64(2))
+
+					// drop the conditions so the scheduler has a status change to write
+					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+					Expect(workPlacements.Items).To(HaveLen(1))
+					wp := workPlacements.Items[0]
+					wp.Status.Conditions = nil
+					Expect(fakeK8sClient.Status().Update(context.Background(), &wp)).To(Succeed())
+
+					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(statusConflicts).To(Equal(1))
+
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&wp), &wp)).To(Succeed())
+					Expect(wp.Status.Conditions).ToNot(BeEmpty())
+				})
+			})
+
 			When("an update to the resource Work deletes the only WorkloadGroup", func() {
 				BeforeEach(func() {
 					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
