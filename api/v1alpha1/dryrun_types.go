@@ -86,12 +86,12 @@ type DryRunStatus struct {
 	// distinguishes "the run finished" from "the preview is complete".
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// Components reports all components DryRun created by this DryRun.
+	// Components reports all component previews discovered by this DryRun.
 	// Empty for a non-compound request.
 	Components []DryRunComponentStatus `json:"components,omitempty"`
 }
 
-// DryRunComponentStatus reports a single component dry run raised by a compound one.
+// DryRunComponentStatus reports a component preview discovered by a compound DryRun.
 type DryRunComponentStatus struct {
 	// Promise serving the component request.
 	Promise string `json:"promise"`
@@ -99,8 +99,9 @@ type DryRunComponentStatus struct {
 	Request string `json:"request"`
 	// Namespace of the component resource request.
 	Namespace string `json:"namespace,omitempty"`
-	// DryRun is the name of the DryRun raised for this component.
-	DryRun string `json:"dryRun"`
+	// DryRun is the name of the DryRun raised for this component. It is empty when
+	// the component Promise does not support dry runs.
+	DryRun string `json:"dryRun,omitempty"`
 	// Phase is Pending, Succeeded or Failed.
 	Phase string `json:"phase"`
 	// Message carries the detail when Phase is Failed.

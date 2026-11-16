@@ -2,12 +2,14 @@ package controller_test
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	v1 "k8s.io/api/core/v1"
@@ -31,6 +33,7 @@ var _ = Describe("DryRun", func() {
 
 		BeforeEach(func() {
 			promise = createPromise(promisePath)
+			promise.Spec.Workflows.Config.DryRun = &v1alpha1.DryRunWorkflowConfig{Supported: true}
 			createPromiseRevision(fakeK8sClient, promise, "v1.0.0")
 			createPromiseRevision(fakeK8sClient, promise, "v2.0.0")
 
@@ -114,6 +117,126 @@ var _ = Describe("DryRun", func() {
 			result, err := reconciler.Reconcile(ctx, request)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+		})
+
+		It("creates no side effects if the selected revision becomes unsupported after admission", func() {
+			dryRun.Spec.PromiseRef.Version = "v1.0.0"
+			Expect(fakeK8sClient.Create(ctx, dryRun)).To(Succeed())
+
+			revisions := &v1alpha1.PromiseRevisionList{}
+			Expect(fakeK8sClient.List(ctx, revisions, client.MatchingLabels{
+				v1alpha1.PromiseNameLabel: promise.Name,
+			})).To(Succeed())
+			for i := range revisions.Items {
+				if revisions.Items[i].Spec.Version == "v1.0.0" {
+					revisions.Items[i].Spec.PromiseSpec.Workflows.Config.DryRun = nil
+					Expect(fakeK8sClient.Update(ctx, &revisions.Items[i])).To(Succeed())
+				}
+			}
+
+			reconciler := &controller.DryRunReconciler{
+				Client: fakeK8sClient,
+				Scheme: scheme.Scheme,
+				Log:    ctrl.Log.WithName("DryRun"),
+			}
+			request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(dryRun)}
+			_, err := reconciler.Reconcile(ctx, request)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = reconciler.Reconcile(ctx, request)
+			Expect(err).NotTo(HaveOccurred())
+
+			bindings := &v1alpha1.ResourceBindingList{}
+			Expect(fakeK8sClient.List(ctx, bindings, client.InNamespace(dryRun.Namespace))).To(Succeed())
+			Expect(bindings.Items).To(BeEmpty())
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(dryRun), dryRun)).To(Succeed())
+			Expect(dryRun.Status.PromiseVersion).To(Equal("v1.0.0"))
+			Expect(dryRun.Status.Conditions).To(ContainElement(SatisfyAll(
+				HaveField("Type", "Completed"),
+				HaveField("Status", metav1.ConditionFalse),
+				HaveField("Message", ContainSubstring("does not support dry runs")),
+			)))
+		})
+
+		Describe("compound components", func() {
+			createComponentOutput := func() string {
+				gvk, _, err := promise.GetAPI()
+				Expect(err).NotTo(HaveOccurred())
+				manifest := []byte(fmt.Sprintf(`apiVersion: %s
+kind: %s
+metadata:
+  name: component
+  namespace: default
+  labels:
+    %s: preview
+spec:
+  size: small
+`, gvk.GroupVersion().String(), gvk.Kind, v1alpha1.ParentResourceNameLabel))
+				compressed, err := compression.CompressContent(manifest)
+				Expect(err).NotTo(HaveOccurred())
+				requestName := objectutil.GenerateDeterministicObjectName("kratix-dry-run-" + dryRun.Name)
+				work := &v1alpha1.Work{
+					ObjectMeta: metav1.ObjectMeta{Name: "component-output", Namespace: dryRun.Namespace, Labels: map[string]string{
+						v1alpha1.PromiseNameLabel:  promise.Name,
+						v1alpha1.ResourceNameLabel: requestName,
+						v1alpha1.DryRunLabel:       "true",
+					}},
+					Spec: v1alpha1.WorkSpec{WorkloadGroups: []v1alpha1.WorkloadGroup{{
+						Workloads: []v1alpha1.Workload{{Filepath: "component.yaml", Content: string(compressed)}},
+					}}},
+				}
+				Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+				return requestName
+			}
+
+			It("creates a supported component DryRun pinned to the checked revision", func() {
+				requestName := createComponentOutput()
+				reconciler := &controller.DryRunReconciler{Client: fakeK8sClient, Scheme: scheme.Scheme}
+				ensured, unsupported, err := controller.EnsureComponentDryRuns(
+					ctx, reconciler, dryRun, promise.Name, requestName, dryRun.Namespace)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ensured).To(HaveLen(1))
+				Expect(unsupported).To(BeEmpty())
+
+				child := &v1alpha1.DryRun{}
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKey{Name: ensured[0], Namespace: dryRun.Namespace}, child)).To(Succeed())
+				Expect(child.Spec.PromiseRef).To(Equal(v1alpha1.DryRunPromiseRef{Name: promise.Name, Version: "v2.0.0"}))
+
+				createPromiseRevision(fakeK8sClient, promise, "v3.0.0")
+				_, _, err = controller.EnsureComponentDryRuns(
+					ctx, reconciler, dryRun, promise.Name, requestName, dryRun.Namespace)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(child), child)).To(Succeed())
+				Expect(child.Spec.PromiseRef.Version).To(Equal("v2.0.0"))
+			})
+
+			It("reports an unsupported component without creating a child DryRun", func() {
+				revisions := &v1alpha1.PromiseRevisionList{}
+				Expect(fakeK8sClient.List(ctx, revisions, client.MatchingLabels{
+					v1alpha1.PromiseNameLabel: promise.Name,
+				})).To(Succeed())
+				for i := range revisions.Items {
+					if revisions.Items[i].Spec.Version == "v2.0.0" {
+						revisions.Items[i].Spec.PromiseSpec.Workflows.Config.DryRun = nil
+						Expect(fakeK8sClient.Update(ctx, &revisions.Items[i])).To(Succeed())
+					}
+				}
+
+				requestName := createComponentOutput()
+				reconciler := &controller.DryRunReconciler{Client: fakeK8sClient, Scheme: scheme.Scheme}
+				ensured, unsupported, err := controller.EnsureComponentDryRuns(
+					ctx, reconciler, dryRun, promise.Name, requestName, dryRun.Namespace)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ensured).To(BeEmpty())
+				Expect(unsupported).To(ConsistOf(SatisfyAll(
+					HaveField("Promise", promise.Name),
+					HaveField("Request", "component"),
+					HaveField("Phase", v1alpha1.DryRunComponentFailed),
+					HaveField("Message", ContainSubstring("does not support dry runs")),
+				)))
+				children := &v1alpha1.DryRunList{}
+				Expect(fakeK8sClient.List(ctx, children, client.InNamespace(dryRun.Namespace))).To(Succeed())
+				Expect(children.Items).To(BeEmpty())
+			})
 		})
 	})
 
