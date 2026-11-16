@@ -48,9 +48,17 @@ spec:
                 properties:
                   name:
                     type: string
+                  version:
+                    default: latest
+                    description: Version selects the PromiseRevision used to execute
+                      the DryRun. It defaults to latest.
+                    type: string
                 required:
                 - name
                 type: object
+                x-kubernetes-validations:
+                - message: promiseRef is immutable
+                  rule: self == oldSelf
               resource:
                 description: Resource is the spec to dry-run, in the shape expected
                   by the Promise's resource API.
@@ -178,6 +186,10 @@ spec:
                   - type
                   type: object
                 type: array
+              promiseVersion:
+                description: PromiseVersion is the exact PromiseRevision selected
+                  for this DryRun.
+                type: string
             type: object
         type: object
     served: true

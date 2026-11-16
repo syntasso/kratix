@@ -106,6 +106,7 @@ var _ = BeforeEach(func() {
 		WithScheme(scheme.Scheme).
 		WithIndex(&v1alpha1.HealthRecord{}, controller.HealthRecordResourceIndex, controller.HealthRecordResourceKeys).
 		WithStatusSubresource(
+			&v1alpha1.DryRun{},
 			&v1alpha1.PromiseRelease{},
 			&v1alpha1.Promise{},
 			&v1alpha1.Work{},

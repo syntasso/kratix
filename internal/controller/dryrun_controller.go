@@ -79,12 +79,37 @@ func (r *DryRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, fmt.Errorf("fetching promise %q: %w", dryRun.Spec.PromiseRef.Name, err)
 	}
 
-	gvk, _, err := promise.GetAPI()
+	version := dryRun.Status.PromiseVersion
+	if version == "" {
+		version = dryRun.Spec.PromiseRef.Version
+	}
+	revision, err := r.promiseRevision(ctx, promise, version)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("getting GVK from promise %q: %w", promise.Name, err)
+		return ctrl.Result{}, fmt.Errorf("resolving promise revision for dry run: %w", err)
+	}
+
+	if dryRun.Status.PromiseVersion == "" {
+		dryRun.Status.PromiseVersion = revision.Spec.Version
+		if err := r.Client.Status().Update(ctx, dryRun); err != nil {
+			return ctrl.Result{}, fmt.Errorf("recording dry run promise version: %w", err)
+		}
+	}
+
+	revisionPromise := promise.DeepCopy()
+	revisionPromise.Spec = revision.Spec.PromiseSpec
+	gvk, _, err := revisionPromise.GetAPI()
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("getting GVK from promise revision %q: %w", revision.Name, err)
 	}
 
 	ephemeralName := objectutil.GenerateDeterministicObjectName("kratix-dry-run-" + dryRun.Name)
+	bindingChanged, err := r.ensureEphemeralResourceBinding(ctx, dryRun, promise.Name, ephemeralName, revision.Spec.Version)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("ensuring ephemeral ResourceBinding: %w", err)
+	}
+	if bindingChanged {
+		return ctrl.Result{Requeue: true}, nil
+	}
 
 	if err := r.ensureEphemeralRR(ctx, dryRun, gvk, ephemeralName); err != nil {
 		return ctrl.Result{}, fmt.Errorf("ensuring ephemeral RR: %w", err)
@@ -165,6 +190,55 @@ func (r *DryRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	return ctrl.Result{}, r.markDryRunCompleted(ctx, dryRun, children)
+}
+
+func (r *DryRunReconciler) promiseRevision(
+	ctx context.Context, promise *v1alpha1.Promise, version string,
+) (*v1alpha1.PromiseRevision, error) {
+	if version == "" || version == LatestVersion {
+		return latestRevision(ctx, r.Client, promise)
+	}
+	return promiseRevisionByExactVersion(ctx, r.Client, promise, version)
+}
+
+func (r *DryRunReconciler) ensureEphemeralResourceBinding(
+	ctx context.Context,
+	dryRun *v1alpha1.DryRun,
+	promiseName, ephemeralName, version string,
+) (bool, error) {
+	binding := &v1alpha1.ResourceBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", ephemeralName, promiseName)),
+			Namespace: dryRun.Namespace,
+		},
+	}
+
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, binding, func() error {
+		bindingLabels := binding.GetLabels()
+		if bindingLabels == nil {
+			bindingLabels = map[string]string{}
+		}
+		for key, value := range resourceBindingLabelsFor(ephemeralName, promiseName) {
+			bindingLabels[key] = value
+		}
+		binding.SetLabels(bindingLabels)
+		binding.Spec = v1alpha1.ResourceBindingSpec{
+			Version:    version,
+			PromiseRef: v1alpha1.PromiseRef{Name: promiseName},
+			ResourceRef: v1alpha1.ResourceRef{
+				Name:      ephemeralName,
+				Namespace: dryRun.Namespace,
+			},
+		}
+		return controllerutil.SetControllerReference(dryRun, binding, r.Scheme)
+	})
+	if err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	return op != controllerutil.OperationResultNone, nil
 }
 
 func (r *DryRunReconciler) ensureEphemeralRR(
