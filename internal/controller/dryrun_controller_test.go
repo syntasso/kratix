@@ -110,7 +110,7 @@ var _ = Describe("DryRun Promise version", func() {
 		reconciler.Client = &staleResourceBindingClient{Client: fakeK8sClient, hideBindingOnce: true}
 		result, err := reconciler.Reconcile(ctx, request)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(result.Requeue).To(BeTrue())
+		Expect(result.RequeueAfter).To(BeNumerically(">", 0))
 	})
 })
 

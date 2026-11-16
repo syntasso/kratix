@@ -108,7 +108,7 @@ func (r *DryRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, fmt.Errorf("ensuring ephemeral ResourceBinding: %w", err)
 	}
 	if bindingChanged {
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 
 	if err := r.ensureEphemeralRR(ctx, dryRun, gvk, ephemeralName); err != nil {
