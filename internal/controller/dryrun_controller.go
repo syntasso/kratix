@@ -88,38 +88,36 @@ func (r *DryRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, fmt.Errorf("resolving promise revision for dry run: %w", err)
 	}
 
-	if dryRun.Status.PromiseVersion == "" {
-		dryRun.Status.PromiseVersion = revision.Spec.Version
-		if err := r.Client.Status().Update(ctx, dryRun); err != nil {
-			return ctrl.Result{}, fmt.Errorf("recording dry run promise version: %w", err)
-		}
-	}
-
-	revisionPromise := promise.DeepCopy()
-	revisionPromise.Spec = revision.Spec.PromiseSpec
-	gvk, _, err := revisionPromise.GetAPI()
+	versionedPromise := promise.DeepCopy()
+	versionedPromise.Spec = revision.Spec.PromiseSpec
+	gvk, _, err := versionedPromise.GetAPI()
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("getting GVK from promise revision %q: %w", revision.Name, err)
 	}
 
-	ephemeralName := objectutil.GenerateDeterministicObjectName("kratix-dry-run-" + dryRun.Name)
-	bindingChanged, err := r.ensureEphemeralResourceBinding(ctx, dryRun, promise.Name, ephemeralName, revision.Spec.Version)
+	if dryRun.Status.PromiseVersion == "" {
+		dryRun.Status.PromiseVersion = revision.Spec.Version
+		return ctrl.Result{}, r.Client.Status().Update(ctx, dryRun)
+	}
+
+	requestName := objectutil.GenerateDeterministicObjectName("kratix-dry-run-" + dryRun.Name)
+	bindingChanged, err := r.ensureDryRunBinding(ctx, dryRun, promise.Name, requestName, revision.Spec.Version)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("ensuring ephemeral ResourceBinding: %w", err)
+		return ctrl.Result{}, fmt.Errorf("failed to create DryRun ResourceBinding: %w", err)
 	}
 	if bindingChanged {
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 
-	if err := r.ensureEphemeralRR(ctx, dryRun, gvk, ephemeralName); err != nil {
-		return ctrl.Result{}, fmt.Errorf("ensuring ephemeral RR: %w", err)
+	if err := r.ensureDryRunRequest(ctx, dryRun, gvk, requestName); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to create DryRun request: %w", err)
 	}
 
 	rrObj := &unstructured.Unstructured{}
 	rrObj.SetGroupVersionKind(*gvk)
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: ephemeralName, Namespace: dryRun.Namespace}, rrObj); err != nil {
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: requestName, Namespace: dryRun.Namespace}, rrObj); err != nil {
 		if apierrors.IsNotFound(err) {
-			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+			return fastRequeue, nil
 		}
 		return ctrl.Result{}, err
 	}
@@ -139,7 +137,7 @@ func (r *DryRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		if reason := worksFailure(configureCompleted, worksSucceeded, time.Now()); reason != "" {
 			return ctrl.Result{}, r.markDryRunFailed(ctx, dryRun, reason)
 		}
-		logger.Info("waiting for ephemeral RR WorksSucceeded", "ephemeralRR", ephemeralName)
+		logger.Info("waiting for Request WorksSucceeded", "requestName", requestName)
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
@@ -151,7 +149,7 @@ func (r *DryRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Compound Promises: the pipeline output may contain component resource
 	// requests, labelled by the compound workflow. Raise a DryRun for each so the
 	// preview covers what the components would change, not just the request YAML.
-	expected, err := r.ensureComponentDryRuns(ctx, logger, dryRun, promise.GetName(), ephemeralName, namespace)
+	expected, err := r.ensureComponentDryRuns(ctx, logger, dryRun, promise.GetName(), requestName, namespace)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("ensuring component dry runs: %w", err)
 	}
@@ -185,7 +183,7 @@ func (r *DryRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		logger.Info("component dry run timeout; writing partial summary", "pending", pending)
 	}
 
-	if err := r.writeSummary(ctx, logger, dryRun, promise.GetName(), ephemeralName, namespace, children); err != nil {
+	if err := r.writeSummary(ctx, logger, dryRun, promise.GetName(), requestName, namespace, children); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -201,14 +199,14 @@ func (r *DryRunReconciler) promiseRevision(
 	return promiseRevisionByExactVersion(ctx, r.Client, promise, version)
 }
 
-func (r *DryRunReconciler) ensureEphemeralResourceBinding(
+func (r *DryRunReconciler) ensureDryRunBinding(
 	ctx context.Context,
 	dryRun *v1alpha1.DryRun,
-	promiseName, ephemeralName, version string,
+	promiseName, requestName, version string,
 ) (bool, error) {
 	binding := &v1alpha1.ResourceBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", ephemeralName, promiseName)),
+			Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", requestName, promiseName)),
 			Namespace: dryRun.Namespace,
 		},
 	}
@@ -218,7 +216,7 @@ func (r *DryRunReconciler) ensureEphemeralResourceBinding(
 		if bindingLabels == nil {
 			bindingLabels = map[string]string{}
 		}
-		for key, value := range resourceBindingLabelsFor(ephemeralName, promiseName) {
+		for key, value := range resourceBindingLabelsFor(requestName, promiseName) {
 			bindingLabels[key] = value
 		}
 		binding.SetLabels(bindingLabels)
@@ -226,11 +224,11 @@ func (r *DryRunReconciler) ensureEphemeralResourceBinding(
 			Version:    version,
 			PromiseRef: v1alpha1.PromiseRef{Name: promiseName},
 			ResourceRef: v1alpha1.ResourceRef{
-				Name:      ephemeralName,
+				Name:      requestName,
 				Namespace: dryRun.Namespace,
 			},
 		}
-		return controllerutil.SetControllerReference(dryRun, binding, r.Scheme)
+		return nil
 	})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
@@ -241,15 +239,15 @@ func (r *DryRunReconciler) ensureEphemeralResourceBinding(
 	return op != controllerutil.OperationResultNone, nil
 }
 
-func (r *DryRunReconciler) ensureEphemeralRR(
+func (r *DryRunReconciler) ensureDryRunRequest(
 	ctx context.Context,
 	dryRun *v1alpha1.DryRun,
 	gvk *schema.GroupVersionKind,
-	ephemeralName string,
+	requestName string,
 ) error {
 	rrObj := &unstructured.Unstructured{}
 	rrObj.SetGroupVersionKind(*gvk)
-	rrObj.SetName(ephemeralName)
+	rrObj.SetName(requestName)
 	rrObj.SetNamespace(dryRun.Namespace)
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, rrObj, func() error {
@@ -298,13 +296,13 @@ func (r *DryRunReconciler) ensureEphemeralRR(
 // from an ordinary workload, so this label is the whole contract.
 func (r *DryRunReconciler) componentRequests(
 	ctx context.Context,
-	promiseName, ephemeralName, namespace string,
+	promiseName, requestName, namespace string,
 ) ([]*unstructured.Unstructured, error) {
 	workList := &v1alpha1.WorkList{}
 	if err := r.Client.List(ctx, workList, &client.ListOptions{
 		LabelSelector: labels.SelectorFromSet(labels.Set{
 			v1alpha1.PromiseNameLabel:  promiseName,
-			v1alpha1.ResourceNameLabel: ephemeralName,
+			v1alpha1.ResourceNameLabel: requestName,
 			v1alpha1.DryRunLabel:       "true",
 		}),
 		Namespace: namespace,
@@ -348,9 +346,9 @@ func (r *DryRunReconciler) ensureComponentDryRuns(
 	ctx context.Context,
 	logger logr.Logger,
 	dryRun *v1alpha1.DryRun,
-	promiseName, ephemeralName, namespace string,
+	promiseName, requestName, namespace string,
 ) ([]string, error) {
-	requests, err := r.componentRequests(ctx, promiseName, ephemeralName, namespace)
+	requests, err := r.componentRequests(ctx, promiseName, requestName, namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -555,14 +553,14 @@ func (r *DryRunReconciler) writeSummary(
 	ctx context.Context,
 	logger logr.Logger,
 	dryRun *v1alpha1.DryRun,
-	promiseName, ephemeralName, namespace string,
+	promiseName, requestName, namespace string,
 	children []v1alpha1.DryRun,
 ) error {
 	dryWorkList := &v1alpha1.WorkList{}
 	if err := r.Client.List(ctx, dryWorkList, &client.ListOptions{
 		LabelSelector: labels.SelectorFromSet(labels.Set{
 			v1alpha1.PromiseNameLabel:  promiseName,
-			v1alpha1.ResourceNameLabel: ephemeralName,
+			v1alpha1.ResourceNameLabel: requestName,
 			v1alpha1.DryRunLabel:       "true",
 		}),
 		Namespace: namespace,
@@ -675,7 +673,7 @@ func (r *DryRunReconciler) writeSummary(
 	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, summaryWork, func() error {
 		summaryWork.Labels = map[string]string{
 			v1alpha1.PromiseNameLabel:   promiseName,
-			v1alpha1.ResourceNameLabel:  ephemeralName,
+			v1alpha1.ResourceNameLabel:  requestName,
 			v1alpha1.WorkTypeLabel:      string(v1alpha1.WorkflowTypeResource),
 			v1alpha1.DryRunLabel:        "true",
 			v1alpha1.DryRunSummaryLabel: "true",
@@ -683,7 +681,7 @@ func (r *DryRunReconciler) writeSummary(
 		}
 		summaryWork.Spec = v1alpha1.WorkSpec{
 			PromiseName:  promiseName,
-			ResourceName: ephemeralName,
+			ResourceName: requestName,
 			WorkloadGroups: []v1alpha1.WorkloadGroup{{
 				ID:        hash.ComputeHash("dry-run-summary"),
 				Directory: v1alpha1.DefaultWorkloadGroupDirectory,
