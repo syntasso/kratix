@@ -2669,6 +2669,18 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(binding.Spec.Version).To(Equal(promiseVersion))
 				})
 
+				It("restores Status.LastAppliedVersion from the resource status promiseVersion", func() {
+					resourceutil.SetStatus(resReq, l, "resourceBindingVersion", "latest")
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
+				})
+
 				When("ResourceBindingPinned is true", func() {
 					BeforeEach(func() {
 						reconciler.ResourceBindingPinned = true
