@@ -38,6 +38,7 @@ type DryRun struct {
 // DryRunSpec defines the desired state of DryRun.
 type DryRunSpec struct {
 	// PromiseRef is the name of the Promise.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="promiseRef is immutable"
 	PromiseRef DryRunPromiseRef `json:"promiseRef"`
 	// ResourceRequestRef identifies the live ResourceRequest to diff against.
 	// When the referenced object is not found, the diff treats the request as new (all files added).
@@ -49,6 +50,10 @@ type DryRunSpec struct {
 // DryRunPromiseRef names a Promise.
 type DryRunPromiseRef struct {
 	Name string `json:"name"`
+	// Version selects the PromiseRevision used to execute the DryRun. It defaults to latest.
+	// +optional
+	// +kubebuilder:default=latest
+	Version string `json:"version,omitempty"`
 }
 
 // DryRunResourceRequestRef names the live ResourceRequest to diff against.
@@ -67,6 +72,9 @@ const (
 
 // DryRunStatus defines the observed state of DryRun.
 type DryRunStatus struct {
+	// PromiseVersion is the exact PromiseRevision selected for this DryRun.
+	PromiseVersion string `json:"promiseVersion,omitempty"`
+
 	// Conditions holds status conditions.
 	//
 	// "Completed" is True once the summary has been written. For a compound request it
