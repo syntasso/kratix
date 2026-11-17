@@ -100,6 +100,11 @@ func (r *DryRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, r.Client.Status().Update(ctx, dryRun)
 	}
 
+	if !revision.Spec.PromiseSpec.Workflows.Config.SupportsDryRun() {
+		return ctrl.Result{}, r.markDryRunFailed(ctx, dryRun,
+			fmt.Sprintf("Promise %s revision %s does not support dry runs", promise.Name, revision.Spec.Version))
+	}
+
 	requestName := objectutil.GenerateDeterministicObjectName("kratix-dry-run-" + dryRun.Name)
 	bindingChanged, err := r.ensureDryRunBinding(ctx, dryRun, promise.Name, requestName, revision.Spec.Version)
 	if err != nil {
@@ -149,7 +154,7 @@ func (r *DryRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Compound Promises: the pipeline output may contain component resource
 	// requests, labelled by the compound workflow. Raise a DryRun for each so the
 	// preview covers what the components would change, not just the request YAML.
-	expected, err := r.ensureComponentDryRuns(ctx, logger, dryRun, promise.GetName(), requestName, namespace)
+	componentResult, err := r.ensureComponentDryRuns(ctx, logger, dryRun, promise.GetName(), requestName, namespace)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("ensuring component dry runs: %w", err)
 	}
@@ -162,15 +167,22 @@ func (r *DryRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// The client is cache-backed, so a component DryRun created moments ago may not
 	// be listed yet. Without this the compound run would see zero components and
 	// write a summary with no component sections at all.
-	if len(children) < len(expected) {
+	if len(children) < len(componentResult.ensured) {
 		logger.Info("waiting for component dry runs to appear in cache",
-			"expected", len(expected), "listed", len(children))
+			"expected", len(componentResult.ensured), "listed", len(children))
 		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 	}
+	components := append(componentStatuses(children), componentResult.unsupported...)
+	sort.Slice(components, func(i, j int) bool {
+		if components[i].Promise == components[j].Promise {
+			return components[i].Request < components[j].Request
+		}
+		return components[i].Promise < components[j].Promise
+	})
 
 	// Surface the component tree in status while the preview is still running, so a
 	// consumer can see its shape and progress without parsing the summary markdown.
-	if err := r.syncComponentStatus(ctx, dryRun, children); err != nil {
+	if err := r.syncComponentStatus(ctx, dryRun, components); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -183,11 +195,11 @@ func (r *DryRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		logger.Info("component dry run timeout; writing partial summary", "pending", pending)
 	}
 
-	if err := r.writeSummary(ctx, logger, dryRun, promise.GetName(), requestName, namespace, children); err != nil {
+	if err := r.writeSummary(ctx, logger, dryRun, promise.GetName(), requestName, namespace, children, componentResult.unsupported); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, r.markDryRunCompleted(ctx, dryRun, children)
+	return ctrl.Result{}, r.markDryRunCompleted(ctx, dryRun, components)
 }
 
 func (r *DryRunReconciler) promiseRevision(
@@ -340,28 +352,33 @@ func (r *DryRunReconciler) componentRequests(
 
 // ensureComponentDryRuns creates one DryRun per component request found in the
 // compound Promise's output, owned by the compound DryRun so they cascade-delete.
-// It returns the names it ensured, so the caller can tell the difference between
-// "no components" and "components not visible in the cache yet".
+// It returns the names it ensured and any unsupported components, so the caller can
+// distinguish cache lag from components that were deliberately not created.
+type componentDryRunResult struct {
+	ensured     []string
+	unsupported []v1alpha1.DryRunComponentStatus
+}
+
 func (r *DryRunReconciler) ensureComponentDryRuns(
 	ctx context.Context,
 	logger logr.Logger,
 	dryRun *v1alpha1.DryRun,
 	promiseName, requestName, namespace string,
-) ([]string, error) {
+) (componentDryRunResult, error) {
+	result := componentDryRunResult{}
 	requests, err := r.componentRequests(ctx, promiseName, requestName, namespace)
 	if err != nil {
-		return nil, err
+		return result, err
 	}
 	if len(requests) == 0 {
-		return nil, nil
+		return result, nil
 	}
 
 	promisesByGVK, err := r.promisesByGVK(ctx)
 	if err != nil {
-		return nil, err
+		return result, err
 	}
 
-	var ensured []string
 	for _, req := range requests {
 		gvk := req.GroupVersionKind().String()
 		componentPromise, ok := promisesByGVK[gvk]
@@ -378,20 +395,51 @@ func (r *DryRunReconciler) ensureComponentDryRuns(
 		if componentNamespace == "" {
 			componentNamespace = namespace
 		}
+		childName := objectutil.GenerateDeterministicObjectName(
+			fmt.Sprintf("%s-%s-%s", dryRun.Name, componentPromise, req.GetName()))
+		componentVersion := LatestVersion
+		existingChild := &v1alpha1.DryRun{}
+		if err := r.Client.Get(ctx, client.ObjectKey{Name: childName, Namespace: dryRun.Namespace}, existingChild); err == nil {
+			if existingChild.Spec.PromiseRef.Version != "" {
+				componentVersion = existingChild.Spec.PromiseRef.Version
+			}
+		} else if !apierrors.IsNotFound(err) {
+			return result, fmt.Errorf("getting component dry run %s: %w", childName, err)
+		}
+
+		componentPromiseObj := &v1alpha1.Promise{}
+		if err := r.Client.Get(ctx, client.ObjectKey{Name: componentPromise}, componentPromiseObj); err != nil {
+			return result, fmt.Errorf("getting component Promise %s: %w", componentPromise, err)
+		}
+		componentRevision, err := r.promiseRevision(ctx, componentPromiseObj, componentVersion)
+		if err != nil {
+			return result, fmt.Errorf("resolving component Promise %s: %w", componentPromise, err)
+		}
+		if !componentRevision.Spec.PromiseSpec.Workflows.Config.SupportsDryRun() {
+			message := fmt.Sprintf("Promise %s revision %s does not support dry runs", componentPromise, componentRevision.Spec.Version)
+			logger.Info("component Promise does not support dry runs; skipping", "promise", componentPromise, "request", req.GetName())
+			result.unsupported = append(result.unsupported, v1alpha1.DryRunComponentStatus{
+				Promise:   componentPromise,
+				Request:   req.GetName(),
+				Namespace: componentNamespace,
+				Phase:     v1alpha1.DryRunComponentFailed,
+				Message:   message,
+			})
+			continue
+		}
 
 		spec, _, err := unstructured.NestedMap(req.Object, "spec")
 		if err != nil {
-			return nil, fmt.Errorf("reading spec of component request %s: %w", req.GetName(), err)
+			return result, fmt.Errorf("reading spec of component request %s: %w", req.GetName(), err)
 		}
 		rawSpec, err := json.Marshal(spec)
 		if err != nil {
-			return nil, fmt.Errorf("marshalling spec of component request %s: %w", req.GetName(), err)
+			return result, fmt.Errorf("marshalling spec of component request %s: %w", req.GetName(), err)
 		}
 
 		child := &v1alpha1.DryRun{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: objectutil.GenerateDeterministicObjectName(
-					fmt.Sprintf("%s-%s-%s", dryRun.Name, componentPromise, req.GetName())),
+				Name:      childName,
 				Namespace: dryRun.Namespace,
 			},
 		}
@@ -405,7 +453,7 @@ func (r *DryRunReconciler) ensureComponentDryRuns(
 				return err
 			}
 			child.Spec = v1alpha1.DryRunSpec{
-				PromiseRef: v1alpha1.DryRunPromiseRef{Name: componentPromise},
+				PromiseRef: v1alpha1.DryRunPromiseRef{Name: componentPromise, Version: componentRevision.Spec.Version},
 				ResourceRequestRef: v1alpha1.DryRunResourceRequestRef{
 					Name:      req.GetName(),
 					Namespace: componentNamespace,
@@ -415,11 +463,11 @@ func (r *DryRunReconciler) ensureComponentDryRuns(
 			return nil
 		})
 		if err != nil {
-			return nil, fmt.Errorf("upserting component dry run for %s: %w", req.GetName(), err)
+			return result, fmt.Errorf("upserting component dry run for %s: %w", req.GetName(), err)
 		}
-		ensured = append(ensured, child.Name)
+		result.ensured = append(result.ensured, child.Name)
 	}
-	return ensured, nil
+	return result, nil
 }
 
 // componentDryRuns lists the DryRuns raised by this compound DryRun.
@@ -555,6 +603,7 @@ func (r *DryRunReconciler) writeSummary(
 	dryRun *v1alpha1.DryRun,
 	promiseName, requestName, namespace string,
 	children []v1alpha1.DryRun,
+	unsupported []v1alpha1.DryRunComponentStatus,
 ) error {
 	dryWorkList := &v1alpha1.WorkList{}
 	if err := r.Client.List(ctx, dryWorkList, &client.ListOptions{
@@ -622,7 +671,7 @@ func (r *DryRunReconciler) writeSummary(
 		sections = append(sections, section{pipeline: pipelineName, content: dryRunRenderDiff(liveFiles, dryFiles)})
 	}
 
-	if len(sections) == 0 && len(children) == 0 {
+	if len(sections) == 0 && len(children) == 0 && len(unsupported) == 0 {
 		return nil
 	}
 
@@ -634,7 +683,7 @@ func (r *DryRunReconciler) writeSummary(
 	// Without components this is a plain resource dry run: keep the output byte
 	// identical to what it has always been. Component sections only appear, and the
 	// pipeline headings only nest a level deeper, for compound requests.
-	if len(children) == 0 {
+	if len(children) == 0 && len(unsupported) == 0 {
 		for i, s := range sections {
 			if i > 0 {
 				sb.WriteString("\n---\n\n")
@@ -656,6 +705,11 @@ func (r *DryRunReconciler) writeSummary(
 			fmt.Fprintf(&sb, "## Component request: `%s` / `%s`\n\n",
 				children[i].Spec.PromiseRef.Name, children[i].Spec.ResourceRequestRef.Name)
 			sb.WriteString(body)
+		}
+		for _, component := range unsupported {
+			sb.WriteString("\n---\n\n")
+			fmt.Fprintf(&sb, "## Component request: `%s` / `%s`\n\n%s\n",
+				component.Promise, component.Request, component.Message)
 		}
 	}
 
@@ -712,7 +766,7 @@ func (r *DryRunReconciler) markDryRunFailed(ctx context.Context, dryRun *v1alpha
 }
 
 func (r *DryRunReconciler) markDryRunCompleted(
-	ctx context.Context, dryRun *v1alpha1.DryRun, children []v1alpha1.DryRun,
+	ctx context.Context, dryRun *v1alpha1.DryRun, components []v1alpha1.DryRunComponentStatus,
 ) error {
 	apiMeta.SetStatusCondition(&dryRun.Status.Conditions, metav1.Condition{
 		Type:               dryRunCompletedCondition,
@@ -726,8 +780,7 @@ func (r *DryRunReconciler) markDryRunCompleted(
 	// still worth reading. ComponentsSucceeded is what tells a consumer whether the
 	// preview is COMPLETE -- gating on Completed alone would approve a preview that
 	// silently omits a component.
-	if len(children) > 0 {
-		components := componentStatuses(children)
+	if len(components) > 0 {
 		dryRun.Status.Components = components
 		apiMeta.SetStatusCondition(&dryRun.Status.Conditions, componentsSucceededCondition(components))
 	}
@@ -739,12 +792,11 @@ func (r *DryRunReconciler) markDryRunCompleted(
 // only when something actually changed so a pending compound run does not update its
 // status every requeue.
 func (r *DryRunReconciler) syncComponentStatus(
-	ctx context.Context, dryRun *v1alpha1.DryRun, children []v1alpha1.DryRun,
+	ctx context.Context, dryRun *v1alpha1.DryRun, components []v1alpha1.DryRunComponentStatus,
 ) error {
-	if len(children) == 0 {
+	if len(components) == 0 {
 		return nil
 	}
-	components := componentStatuses(children)
 	if reflect.DeepEqual(dryRun.Status.Components, components) {
 		return nil
 	}

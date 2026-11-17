@@ -88,15 +88,16 @@ spec:
             properties:
               components:
                 description: |-
-                  Components reports all components DryRun created by this DryRun.
+                  Components reports all component previews discovered by this DryRun.
                   Empty for a non-compound request.
                 items:
-                  description: DryRunComponentStatus reports a single component dry
-                    run raised by a compound one.
+                  description: DryRunComponentStatus reports a component preview discovered
+                    by a compound DryRun.
                   properties:
                     dryRun:
-                      description: DryRun is the name of the DryRun raised for this
-                        component.
+                      description: |-
+                        DryRun is the name of the DryRun raised for this component. It is empty when
+                        the component Promise does not support dry runs.
                       type: string
                     message:
                       description: Message carries the detail when Phase is Failed.
@@ -114,7 +115,6 @@ spec:
                       description: Request is the name of the component resource request.
                       type: string
                   required:
-                  - dryRun
                   - phase
                   - promise
                   - request

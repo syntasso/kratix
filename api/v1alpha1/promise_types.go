@@ -101,6 +101,21 @@ type WorkflowConfig struct {
 	PipelineNamespace string `json:"pipelineNamespace,omitempty"`
 	// Interval at which all workflows (promise and resource) defined in this Promise are reconciled; if not set, defaults to the platform-wide reconciliation interval
 	ReconciliationInterval *metav1.Duration `json:"reconciliationInterval,omitempty"`
+	// DryRun configures whether this Promise's resource workflows can be run as a preview.
+	DryRun *DryRunWorkflowConfig `json:"dryRun,omitempty"`
+}
+
+// DryRunWorkflowConfig declares support for previewing a Promise resource pipeline.
+type DryRunWorkflowConfig struct {
+	// Supported declares that every resource workflow used by a dry run avoids external
+	// side effects while still producing its normal desired output.
+	// +kubebuilder:default=false
+	Supported bool `json:"supported,omitempty"`
+}
+
+// SupportsDryRun reports whether dry-run support is explicitly enabled.
+func (c *WorkflowConfig) SupportsDryRun() bool {
+	return c.DryRun != nil && c.DryRun.Supported
 }
 
 // WorkflowTriggers defines the pipelines that run during configure and delete lifecycle events

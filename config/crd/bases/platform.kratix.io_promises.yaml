@@ -112,6 +112,17 @@ spec:
                     description: Configuration options that apply to all workflows
                       defined in this Promise
                     properties:
+                      dryRun:
+                        description: DryRun configures whether this Promise's resource
+                          workflows can be run as a preview.
+                        properties:
+                          supported:
+                            default: false
+                            description: |-
+                              Supported declares that every resource workflow used by a dry run avoids external
+                              side effects while still producing its normal desired output.
+                            type: boolean
+                        type: object
                       pipelineNamespace:
                         description: Namespace for all workflow jobs (promise and
                           resource) to run in; needs to be an existing namespace or

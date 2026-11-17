@@ -29,6 +29,9 @@ spec:
           served: true
           storage: true
   workflows:
+    config:
+      dryRun:
+        supported: true
     resource:
       configure:
         - apiVersion: platform.kratix.io/v1alpha1

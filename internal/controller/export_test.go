@@ -71,6 +71,16 @@ func WorkPlacementsForStateStore(r *WorkPlacementReconciler, stateStoreKind stri
 	return r.workPlacementsForStateStore(stateStoreKind)
 }
 
+func EnsureComponentDryRuns(
+	ctx context.Context,
+	r *DryRunReconciler,
+	dryRun *v1alpha1.DryRun,
+	promiseName, requestName, namespace string,
+) ([]string, []v1alpha1.DryRunComponentStatus, error) {
+	result, err := r.ensureComponentDryRuns(ctx, logr.Discard(), dryRun, promiseName, requestName, namespace)
+	return result.ensured, result.unsupported, err
+}
+
 func StateStoreObservedGenerationChangedPredicate() predicate.Funcs {
 	return stateStoreObservedGenerationChanged()
 }

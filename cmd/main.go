@@ -472,6 +472,10 @@ func main() {
 		setupLog.Error(err, "unable to create webhook", "webhook", "PromiseRevision")
 		os.Exit(1)
 	}
+	if err := kratixWebhook.SetupDryRunWebhookWithManager(mgr, dryRunFeatureEnabled); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "DryRun")
+		os.Exit(1)
+	}
 
 	if dryRunFeatureEnabled {
 		if err := (&controller.DryRunReconciler{
