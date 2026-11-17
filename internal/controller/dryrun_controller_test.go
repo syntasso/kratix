@@ -119,7 +119,7 @@ var _ = Describe("DryRun", func() {
 			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
 		})
 
-		It("creates no side effects if the selected revision becomes unsupported after admission", func() {
+		It("does not create dry run resources when the Promise revision does not support dry runs", func() {
 			dryRun.Spec.PromiseRef.Version = "v1.0.0"
 			Expect(fakeK8sClient.Create(ctx, dryRun)).To(Succeed())
 
@@ -148,6 +148,15 @@ var _ = Describe("DryRun", func() {
 			bindings := &v1alpha1.ResourceBindingList{}
 			Expect(fakeK8sClient.List(ctx, bindings, client.InNamespace(dryRun.Namespace))).To(Succeed())
 			Expect(bindings.Items).To(BeEmpty())
+
+			gvk, _, err := promise.GetAPI()
+			Expect(err).NotTo(HaveOccurred())
+			resourceRequest := &unstructured.Unstructured{}
+			resourceRequest.SetGroupVersionKind(*gvk)
+			requestName := objectutil.GenerateDeterministicObjectName("kratix-dry-run-" + dryRun.Name)
+			err = fakeK8sClient.Get(ctx, client.ObjectKey{Name: requestName, Namespace: dryRun.Namespace}, resourceRequest)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
 			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(dryRun), dryRun)).To(Succeed())
 			Expect(dryRun.Status.PromiseVersion).To(Equal("v1.0.0"))
 			Expect(dryRun.Status.Conditions).To(ContainElement(SatisfyAll(
