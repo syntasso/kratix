@@ -750,6 +750,19 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 		"resourceNamespace", resourceBinding.Spec.ResourceRef.Namespace,
 	)
 
+	if op == controllerutil.OperationResultCreated {
+		// A recreated binding starts with an empty status. Restore lastAppliedVersion from the
+		// version the resource was last reconciled with, so a failing upgrade cannot leave the
+		// binding without a record of the applied revision.
+		appliedVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
+		if appliedVersion != "" && appliedVersion != v1alpha1.PlaceholderPromiseVersion && resourceBinding.Status.LastAppliedVersion == "" {
+			resourceBinding.Status.LastAppliedVersion = appliedVersion
+			if err := r.Client.Status().Update(ctx, resourceBinding); err != nil {
+				return fmt.Errorf("failed to restore resource binding status.lastAppliedVersion: %w", err)
+			}
+		}
+	}
+
 	if op == "created" {
 		r.EventRecorder.Eventf(rr, nil, v1.EventTypeNormal, "BindingCreated", "BindingCreated", "%s", fmt.Sprintf("Binding %s created for promise %s version %s",
 			resourceBinding.GetName(),
