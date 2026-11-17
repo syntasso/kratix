@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,56 +45,43 @@ func (v *DryRunCustomValidator) validate(ctx context.Context, dryRun *platformv1
 	if !v.Enabled {
 		return fmt.Errorf("dry run feature is not supported")
 	}
-	if v.Reader == nil {
-		return fmt.Errorf("dry run validation is unavailable")
-	}
 
 	promise := &platformv1alpha1.Promise{}
 	if err := v.Reader.Get(ctx, types.NamespacedName{Name: dryRun.Spec.PromiseRef.Name}, promise); err != nil {
 		return fmt.Errorf("getting Promise %s: %w", dryRun.Spec.PromiseRef.Name, err)
 	}
 
-	revision, err := selectedDryRunRevision(ctx, v.Reader, promise, dryRun.Spec.PromiseRef.Version)
-	if err != nil {
-		return err
+	// the latest PromiseRevision is the current Promise
+	version := dryRun.Spec.PromiseRef.Version
+	spec := promise.Spec
+	if version == "" || version == "latest" {
+		version = promise.Labels[platformv1alpha1.PromiseVersionLabel]
+		if version == "" {
+			version = platformv1alpha1.PlaceholderPromiseVersion
+		}
+	} else {
+		revision, err := getRevision(ctx, v.Reader, promise.Name, version)
+		if err != nil {
+			return err
+		}
+		spec = revision.Spec.PromiseSpec
 	}
-	if !revision.Spec.PromiseSpec.Workflows.Config.SupportsDryRun() {
-		return fmt.Errorf("promise %s revision %s does not support dry runs", promise.Name, revision.Spec.Version)
+
+	if !spec.Workflows.Config.SupportsDryRun() {
+		return fmt.Errorf("promise %s version %s does not support dry runs", promise.Name, version)
 	}
 	return nil
 }
 
-func selectedDryRunRevision(
-	ctx context.Context, reader client.Reader, promise *platformv1alpha1.Promise, version string,
-) (*platformv1alpha1.PromiseRevision, error) {
+func getRevision(ctx context.Context, reader client.Reader, promiseName, version string) (*platformv1alpha1.PromiseRevision, error) {
 	revisions := &platformv1alpha1.PromiseRevisionList{}
-	if err := reader.List(ctx, revisions, &client.ListOptions{
-		LabelSelector: labels.SelectorFromSet(promise.GenerateSharedLabels()),
-	}); err != nil {
-		return nil, fmt.Errorf("listing PromiseRevisions for Promise %s: %w", promise.Name, err)
+	if err := reader.List(ctx, revisions, client.MatchingLabels(platformv1alpha1.GenerateSharedLabelsForPromise(promiseName))); err != nil {
+		return nil, fmt.Errorf("listing PromiseRevisions for Promise %s: %w", promiseName, err)
 	}
-
-	if version == "" || version == "latest" {
-		for i := range revisions.Items {
-			if revisions.Items[i].Status.Latest {
-				return &revisions.Items[i], nil
-			}
-		}
-		return nil, fmt.Errorf("cannot find latest PromiseRevision for Promise %s", promise.Name)
-	}
-
-	var selected *platformv1alpha1.PromiseRevision
 	for i := range revisions.Items {
-		if revisions.Items[i].Spec.Version != version {
-			continue
+		if revisions.Items[i].Spec.Version == version {
+			return &revisions.Items[i], nil
 		}
-		if selected != nil {
-			return nil, fmt.Errorf("multiple PromiseRevisions for Promise %s with version %s", promise.Name, version)
-		}
-		selected = &revisions.Items[i]
 	}
-	if selected == nil {
-		return nil, fmt.Errorf("cannot find PromiseRevision for Promise %s with version %s", promise.Name, version)
-	}
-	return selected, nil
+	return nil, fmt.Errorf("cannot find PromiseRevision for Promise %s with version %s", promiseName, version)
 }
