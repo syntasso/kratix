@@ -13,11 +13,13 @@ import (
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -315,9 +317,24 @@ func (s *Scheduler) updateWorkPlacement(ctx context.Context, workloadGroup v1alp
 		s.labelWorkplacementAsMisplaced(workPlacement)
 	}
 
-	workPlacement.Spec.WorkGeneration = workGeneration
-	workPlacement.Spec.Workloads = workloadGroup.Workloads
-	if err := s.Client.Update(ctx, workPlacement); err != nil {
+	// The WorkPlacement controller writes this same object. Retry so a 409 does not
+	// drop the workload update and fail the reconcile.
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		workPlacement.Spec.WorkGeneration = workGeneration
+		workPlacement.Spec.Workloads = workloadGroup.Workloads
+		updateErr := s.Client.Update(ctx, workPlacement)
+		if !apierrors.IsConflict(updateErr) {
+			return updateErr
+		}
+		if getErr := s.Client.Get(ctx, client.ObjectKeyFromObject(workPlacement), workPlacement); getErr != nil {
+			return getErr
+		}
+		if misplaced {
+			s.labelWorkplacementAsMisplaced(workPlacement)
+		}
+		return updateErr
+	})
+	if err != nil {
 		logging.Error(s.Log, err, "error updating WorkPlacement", "workplacement", workPlacement.Name)
 		return false, err
 	}
@@ -441,10 +458,26 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(ctx context.Context
 	return containsMischeduledWorkplacement, nil
 }
 
+// updateWorkPlacementStatus re-reads the WorkPlacement and retries on conflict, since
+// the WorkPlacement controller writes the same object's status.
 func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, misplaced bool) error {
+	var updatedwp *v1alpha1.WorkPlacement
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var attemptErr error
+		updatedwp, attemptErr = s.updateWorkPlacementStatusOnce(ctx, workPlacement, misplaced)
+		return attemptErr
+	})
+	// Publish once, outside the retry loop, so a conflict retry does not repeat the event.
+	if misplaced && updatedwp != nil {
+		s.EventRecorder.Eventf(updatedwp, nil, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason, scheduleSucceededConditionMismatchReason, "labels for destination: %s no longer match the expected labels, marking this workplacement as misplaced", updatedwp.Spec.TargetDestinationName)
+	}
+	return err
+}
+
+func (s *Scheduler) updateWorkPlacementStatusOnce(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, misplaced bool) (*v1alpha1.WorkPlacement, error) {
 	updatedwp := &v1alpha1.WorkPlacement{}
 	if err := s.Client.Get(ctx, client.ObjectKeyFromObject(workPlacement), updatedwp); err != nil {
-		return err
+		return nil, err
 	}
 
 	var desiredScheduleCond metav1.Condition
@@ -465,11 +498,10 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 			ObservedGeneration: updatedwp.GetGeneration(),
 		})
 		scheduleUpdated := apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond)
-		s.EventRecorder.Eventf(updatedwp, nil, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason, scheduleSucceededConditionMismatchReason, "labels for destination: %s no longer match the expected labels, marking this workplacement as misplaced", updatedwp.Spec.TargetDestinationName)
 		if scheduleUpdated || readyUpdated {
-			return s.Client.Status().Update(ctx, updatedwp)
+			return updatedwp, s.Client.Status().Update(ctx, updatedwp)
 		}
-		return nil
+		return updatedwp, nil
 	}
 
 	desiredScheduleCond = metav1.Condition{
@@ -497,9 +529,9 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 	}
 
 	if scheduleUpdated || readyUpdated {
-		return s.Client.Status().Update(ctx, updatedwp)
+		return updatedwp, s.Client.Status().Update(ctx, updatedwp)
 	}
-	return nil
+	return updatedwp, nil
 }
 
 // Where Work is a Resource Request return one random Destination name, where Work is a
