@@ -44,7 +44,7 @@ func (v *DryRunCustomValidator) ValidateDelete(context.Context, *platformv1alpha
 
 func (v *DryRunCustomValidator) validate(ctx context.Context, dryRun *platformv1alpha1.DryRun) error {
 	if !v.Enabled {
-		return fmt.Errorf("dry run feature is disabled")
+		return fmt.Errorf("dry run feature is not supported")
 	}
 	if v.Reader == nil {
 		return fmt.Errorf("dry run validation is unavailable")

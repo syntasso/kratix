@@ -58,9 +58,9 @@ var _ = Describe("DryRun Webhook", func() {
 		}
 	}
 
-	It("rejects every DryRun when the feature flag is disabled", func() {
+	It("rejects every DryRun when the feature flag is off", func() {
 		_, err := validator(false, revision("v1.0.0", true, true)).ValidateCreate(context.Background(), dryRun)
-		Expect(err).To(MatchError(ContainSubstring("feature is disabled")))
+		Expect(err).To(MatchError(ContainSubstring("dry run feature is not supported")))
 	})
 
 	It("rejects when the selected latest revision does not support dry runs", func() {
