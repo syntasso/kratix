@@ -122,7 +122,13 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 		logging.Debug(d.logger, "updating destination finalizers")
 		if err := d.client.Update(d.ctx, d.destination); err != nil {
 			logging.Error(d.logger, err, "error adding finalizers to destination")
-			return ctrl.Result{}, d.setNotReadyStatus("DestinationFinalizerUpdateFailed", err.Error())
+			if statusErr := d.setNotReadyStatus("DestinationFinalizerUpdateFailed", err.Error()); statusErr != nil {
+				return ctrl.Result{}, errors.Join(err, statusErr)
+			}
+			// return the original error so controller-runtime requeues with backoff;
+			// the status update alone is a no-op on repeated failures and would not
+			// trigger another reconcile
+			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
 	}

@@ -35,6 +35,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 var _ = Describe("DestinationReconciler", func() {
@@ -100,6 +101,38 @@ var _ = Describe("DestinationReconciler", func() {
 			result, err := t.reconcileUntilCompletion(reconciler, testDestination)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
+		})
+	})
+
+	When("adding the cleanup finalizer keeps failing", func() {
+		BeforeEach(func() {
+			testDestination.Spec.Cleanup = v1alpha1.DestinationCleanupAll
+			Expect(fakeK8sClient.Create(ctx, testDestination)).To(Succeed())
+
+			base, ok := fakeK8sClient.(client.WithWatch)
+			Expect(ok).To(BeTrue())
+			reconciler.Client = interceptor.NewClient(base, interceptor.Funcs{
+				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					if _, isDestination := obj.(*v1alpha1.Destination); isDestination {
+						return errors.New("transient update failure")
+					}
+					return c.Update(ctx, obj, opts...)
+				},
+			})
+		})
+
+		It("returns the error on every attempt so the request is requeued", func() {
+			req := ctrl.Request{NamespacedName: testDestinationName}
+			for attempt := 1; attempt <= 2; attempt++ {
+				_, err := reconciler.Reconcile(ctx, req)
+				Expect(err).To(MatchError(ContainSubstring("transient update failure")), "attempt %d", attempt)
+			}
+			Expect(fakeK8sClient.Get(ctx, testDestinationName, updatedDestination)).To(Succeed())
+			Expect(updatedDestination.Status.Conditions).To(ContainElement(
+				SatisfyAll(
+					HaveField("Type", "Ready"),
+					HaveField("Reason", "DestinationFinalizerUpdateFailed"),
+				)))
 		})
 	})
 
