@@ -551,6 +551,42 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
+		When("the Job that suspended the delete pipeline failed before recording the suspension", func() {
+			var deleteWorkflowCalled bool
+
+			BeforeEach(func() {
+				revision := &v1alpha1.PromiseRevision{}
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName() + "-v1.0.0"}, revision)).To(Succeed())
+				deletePipeline := revision.Spec.PromiseSpec.Workflows.Resource.Configure[0].DeepCopy()
+				deletePipeline.SetName("delete-pipeline")
+				revision.Spec.PromiseSpec.Workflows.Resource.Delete = []unstructured.Unstructured{*deletePipeline}
+				Expect(fakeK8sClient.Update(ctx, revision)).To(Succeed())
+
+				suspendingJobFailed(resReq, "delete", "delete-pipeline", resReq.GetNamespace(), map[string]string{
+					v1alpha1.WorkflowTypeLabel: "resource",
+					v1alpha1.PromiseNameLabel:  promise.GetName(),
+					v1alpha1.ResourceNameLabel: resReq.GetName(),
+				}, batchv1.JobFailed)
+
+				deleteWorkflowCalled = false
+				controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+					deleteWorkflowCalled = true
+					return true, nil
+				})
+			})
+
+			It("removes the label so the delete workflow records the failure", func() {
+				_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				Expect(resReq.GetLabels()).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+
+				_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(deleteWorkflowCalled).To(BeTrue())
+			})
+		})
+
 		When("the configure pipeline was suspended when the delete was requested", func() {
 			var deleteWorkflowCalled bool
 
@@ -2226,6 +2262,48 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(unstructured.SetNestedSlice(resReq.Object, workflows, "status", "kratix", "workflows", "configure", "pipelines")).To(Succeed())
 			Expect(resourceutil.SetKratixWorkflowsInt64Status(resReq, "suspendedGeneration", 1)).To(Succeed())
 			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+		})
+
+		When("the Job that suspended it failed before recording the suspension", func() {
+			var configureWorkflowCalled bool
+			resourceJobLabels := func() map[string]string {
+				return map[string]string{
+					v1alpha1.WorkflowTypeLabel: "resource",
+					v1alpha1.PromiseNameLabel:  promise.GetName(),
+					v1alpha1.ResourceNameLabel: resReq.GetName(),
+				}
+			}
+
+			BeforeEach(func() {
+				configureWorkflowCalled = false
+				controller.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
+					configureWorkflowCalled = true
+					return true, nil
+				})
+			})
+
+			It("removes the label so the configure workflow records the failure", func() {
+				suspendingJobFailed(resReq, "configure", "first-pipeline", resReq.GetNamespace(), resourceJobLabels(), batchv1.JobFailed)
+
+				_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				Expect(resReq.GetLabels()).NotTo(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+
+				_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(configureWorkflowCalled).To(BeTrue())
+			})
+
+			It("keeps the label while that Job is still running", func() {
+				suspendingJobFailed(resReq, "configure", "first-pipeline", resReq.GetNamespace(), resourceJobLabels(), "")
+
+				_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				Expect(resReq.GetLabels()).To(HaveKeyWithValue(v1alpha1.WorkflowSuspendedLabel, "true"))
+				Expect(configureWorkflowCalled).To(BeFalse())
+			})
 		})
 
 		It("marks the resource request as suspended", func() {
