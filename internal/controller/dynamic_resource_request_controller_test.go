@@ -3171,6 +3171,36 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						"stale FailedVersion from a prior pipeline failure should be cleared")
 				})
 
+				It("marks the resource as Reconciled and WorksSucceeded", func() {
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					Expect(resourceutil.GetCondition(resReq, resourceutil.ConfigureWorkflowCompletedCondition)).NotTo(BeNil())
+					Expect(resourceutil.GetCondition(resReq, resourceutil.ConfigureWorkflowCompletedCondition).Status).To(Equal(v1.ConditionTrue))
+					Expect(resourceutil.GetCondition(resReq, resourceutil.WorksSucceededCondition)).NotTo(BeNil())
+					Expect(resourceutil.GetCondition(resReq, resourceutil.WorksSucceededCondition).Status).To(Equal(v1.ConditionTrue))
+					Expect(resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)).NotTo(BeNil())
+					Expect(resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition).Status).To(Equal(v1.ConditionTrue))
+				})
+
+				It("recovers from Promise unavailability and clears the stale Pending message", func() {
+					resourceutil.MarkPromiseConditionAsNotAvailable(resReq, l)
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+					Expect(resourceutil.GetStatus(resReq, "message")).To(Equal("Pending"))
+
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					for _, c := range []string{"PromiseAvailable", "Reconciled", "WorksSucceeded"} {
+						cond := resourceutil.GetCondition(resReq, clusterv1.ConditionType(c))
+						Expect(cond).NotTo(BeNil(), c)
+						Expect(cond.Status).To(Equal(v1.ConditionTrue), c)
+					}
+					Expect(resourceutil.GetStatus(resReq, "message")).NotTo(Equal("Pending"))
+				})
+
 				When("manual reconciliation label is added", func() {
 					It("removes the label", func() {
 						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())

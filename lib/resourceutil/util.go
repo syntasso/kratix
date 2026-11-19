@@ -78,6 +78,18 @@ func MarkConfigureWorkflowAsWaitingForPipelineOutput(obj *unstructured.Unstructu
 	return SetConditionIfChanged(obj, &condition)
 }
 
+// MarkConfigureWorkflowAsCompleted marks the configure workflow as successfully completed. It
+// reports whether the condition changed. It is used for promises with no configure pipeline.
+func MarkConfigureWorkflowAsCompleted(obj *unstructured.Unstructured) bool {
+	return SetConditionIfChanged(obj, &clusterv1.Condition{
+		Type:               ConfigureWorkflowCompletedCondition,
+		Status:             v1.ConditionTrue,
+		Message:            "Pipelines completed",
+		Reason:             PipelinesExecutedSuccessfully,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
 func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured, failedPipeline string) {
 	SetCondition(obj, &clusterv1.Condition{
 		Type:               ConfigureWorkflowCompletedCondition,
