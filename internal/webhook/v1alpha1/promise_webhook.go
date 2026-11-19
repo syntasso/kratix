@@ -235,6 +235,10 @@ func validateCRD(p *v1alpha1.Promise) error {
 				return err
 			}
 
+			if owner := existingCrd.Labels[v1alpha1.PromiseNameLabel]; owner != "" && owner != p.GetName() {
+				return fmt.Errorf("CRD %s is already provided by Promise %q", newCrd.Name, owner)
+			}
+
 			existingCrd.Spec = newCrd.Spec
 			_, err = k8sClientSet.ApiextensionsV1().CustomResourceDefinitions().Update(context.TODO(), existingCrd, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
 			if err != nil {
