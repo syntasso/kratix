@@ -1,0 +1,47 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: publisher
+spec:
+  destinationSelectors:
+    - matchLabels:
+        environment: platform
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: publishers.compound.kratix.io
+    spec:
+      group: compound.kratix.io
+      names:
+        kind: Publisher
+        plural: publishers
+        singular: publisher
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          served: true
+          storage: true
+          schema:
+            openAPIV3Schema:
+              type: object
+              properties:
+                spec:
+                  type: object
+                  properties:
+                    app:
+                      type: string
+                    url:
+                      type: string
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: call-publisher
+          spec:
+            containers:
+              - name: call-publisher
+                image: busybox:1.36
+                command: ["sh", "-c", "sleep 1; exit 0"]
