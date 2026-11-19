@@ -380,12 +380,28 @@ func (r *DynamicResourceRequestController) reconcileAfterConfigure(
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
-		versionUpdated := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevisionUsed)
+		// With no configure pipeline there is nothing to run, so the workflow is
+		// trivially complete. Record that so the Reconciled and WorksSucceeded
+		// conditions can be generated like they are for any other resource.
+		workflowMarked := resourceutil.MarkConfigureWorkflowAsCompleted(rr)
+		// Clear the "Pending" message set while the Promise was unavailable, like
+		// the configure pipeline does on completion.
+		if resourceutil.GetStatus(rr, "message") == "Pending" {
+			resourceutil.SetStatus(rr, logger, "message", "Resource requested")
+			workflowMarked = true
+		}
+		statusUpdated, err := r.ensureResourceStatus(ctx, logger, rr, promise, bindingVersion, promiseRevisionUsed)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 		if err := r.syncNoPipelineBindingUpgradeStatus(ctx, logger, promise.GetName(), rr); err != nil {
 			logging.Error(logger, err, "failed to update resource binding version status")
 			return ctrl.Result{}, err
 		}
-		if versionUpdated {
+		if statusUpdated {
+			return ctrl.Result{}, nil
+		}
+		if workflowMarked {
 			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 		}
 		return r.nextReconciliation(logger, promiseRevisionUsed), nil
