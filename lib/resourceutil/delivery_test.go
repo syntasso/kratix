@@ -173,3 +173,46 @@ var _ = Describe("delivery text on the resource request's conditions", func() {
 		})
 	})
 })
+
+var _ = Describe("ScheduledDestinations", func() {
+	It("returns the sorted, unique Destination names across Works", func() {
+		works := []v1alpha1.Work{
+			{Status: v1alpha1.WorkStatus{WorkPlacementStatuses: []v1alpha1.WorkPlacementWriteStatus{
+				{Name: "a", Destination: "prod"}, {Name: "b", Destination: "dev"},
+			}}},
+			{Status: v1alpha1.WorkStatus{WorkPlacementStatuses: []v1alpha1.WorkPlacementWriteStatus{
+				{Name: "c", Destination: "prod"}, {Name: "d"},
+			}}},
+		}
+		Expect(resourceutil.ScheduledDestinations(works)).To(Equal([]string{"dev", "prod"}))
+	})
+
+	It("returns nothing when no WorkPlacement is recorded", func() {
+		Expect(resourceutil.ScheduledDestinations([]v1alpha1.Work{{}})).To(BeEmpty())
+	})
+})
+
+var _ = Describe("SetScheduledDestinations", func() {
+	var obj *unstructured.Unstructured
+
+	BeforeEach(func() {
+		obj = &unstructured.Unstructured{Object: map[string]any{}}
+	})
+
+	It("sets the destinations and reports a change only when they differ", func() {
+		Expect(resourceutil.SetScheduledDestinations(obj, []string{"dev"})).To(BeTrue())
+		Expect(resourceutil.SetScheduledDestinations(obj, []string{"dev"})).To(BeFalse())
+		Expect(resourceutil.SetScheduledDestinations(obj, []string{"dev", "prod"})).To(BeTrue())
+
+		got, _, _ := unstructured.NestedStringSlice(obj.Object, "status", "kratix", "destinations")
+		Expect(got).To(Equal([]string{"dev", "prod"}))
+	})
+
+	It("removes the field when there are no destinations", func() {
+		Expect(resourceutil.SetScheduledDestinations(obj, nil)).To(BeFalse())
+		resourceutil.SetScheduledDestinations(obj, []string{"dev"})
+		Expect(resourceutil.SetScheduledDestinations(obj, nil)).To(BeTrue())
+		_, found, _ := unstructured.NestedStringSlice(obj.Object, "status", "kratix", "destinations")
+		Expect(found).To(BeFalse())
+	})
+})

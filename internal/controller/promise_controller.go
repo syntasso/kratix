@@ -2168,6 +2168,12 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 				"kratix": {
 					Type: "object",
 					Properties: map[string]apiextensionsv1.JSONSchemaProps{
+						"destinations": {
+							Type: "array",
+							Items: &apiextensionsv1.JSONSchemaPropsOrArray{
+								Schema: &apiextensionsv1.JSONSchemaProps{Type: "string"},
+							},
+						},
 						"workflows": {
 							Type: "object",
 							AdditionalProperties: &apiextensionsv1.JSONSchemaPropsOrBool{Allows: true, Schema: &apiextensionsv1.JSONSchemaProps{Type: "object", Properties: map[string]apiextensionsv1.JSONSchemaProps{

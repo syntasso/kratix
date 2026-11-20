@@ -122,6 +122,11 @@ var _ = Describe("PromiseController", func() {
 						Expect(kratixStatus.Type).To(Equal("object"))
 
 						kratixStatusProperties := kratixStatus.Properties
+						destinations, ok := kratixStatusProperties["destinations"]
+						Expect(ok).To(BeTrue(), ".status.kratix.destinations did not exist. Spec %v", kratixStatus)
+						Expect(destinations.Type).To(Equal("array"))
+						Expect(destinations.Items.Schema.Type).To(Equal("string"))
+
 						kratixWorkflows, ok := kratixStatusProperties["workflows"]
 						Expect(ok).To(BeTrue(), ".status.kratix.workflows did not exist. Spec %v", status)
 						Expect(kratixWorkflows.Type).To(Equal("object"))

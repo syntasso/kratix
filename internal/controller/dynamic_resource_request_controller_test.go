@@ -1121,6 +1121,46 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				return condition
 			}
 
+			Context("scheduled destinations", func() {
+				It("lists the Destinations the resource is scheduled to in status.kratix.destinations", func() {
+					createWorkWithReadyMessage("Pending")
+					work.Status.WorkPlacementStatuses = []v1alpha1.WorkPlacementWriteStatus{
+						{Name: "test-worker-b", Destination: "worker-b", Status: "True"},
+						{Name: "test-worker-a", Destination: "worker-a", Status: "True"},
+					}
+					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					destinations, found, err := unstructured.NestedStringSlice(resReq.Object, "status", "kratix", "destinations")
+					Expect(err).NotTo(HaveOccurred())
+					Expect(found).To(BeTrue())
+					Expect(destinations).To(Equal([]string{"worker-a", "worker-b"}))
+				})
+
+				It("removes the field when the resource is no longer scheduled anywhere", func() {
+					createWorkWithReadyMessage("Pending")
+					work.Status.WorkPlacementStatuses = []v1alpha1.WorkPlacementWriteStatus{
+						{Name: "test-worker-a", Destination: "worker-a", Status: "True"},
+					}
+					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					work.Status.WorkPlacementStatuses = nil
+					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+					_, err = t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					_, found, err := unstructured.NestedStringSlice(resReq.Object, "status", "kratix", "destinations")
+					Expect(err).NotTo(HaveOccurred())
+					Expect(found).To(BeFalse())
+				})
+			})
+
 			Context("WorksSucceeded", func() {
 				When("a WorkPlacement is waiting for its delivery", func() {
 					It("names the Destination and the delivery text", func() {

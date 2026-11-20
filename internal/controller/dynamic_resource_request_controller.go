@@ -904,12 +904,13 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, works, deliveries)
 	reconciledUpdate := r.updateReconciledCondition(rr, deliveries, writeFailed)
 	promiseVersionUpdate := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevision)
+	destinationsUpdate := resourceutil.SetScheduledDestinations(rr, resourceutil.ScheduledDestinations(works.items))
 	healthUpdate, err := r.updateExpectedHealth(ctx, logger, promise, rr)
 	if err != nil {
 		return false, err
 	}
 
-	return worksSucceededUpdate || reconciledUpdate || promiseVersionUpdate || healthUpdate, nil
+	return worksSucceededUpdate || reconciledUpdate || promiseVersionUpdate || destinationsUpdate || healthUpdate, nil
 }
 
 func (r *DynamicResourceRequestController) updateExpectedHealth(

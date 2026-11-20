@@ -123,3 +123,37 @@ func worksMessage(summary string, works []string, entries []DeliveryEntry) strin
 	}
 	return CutToRunes(message.String(), worksSucceededMessageMaxRunes)
 }
+
+// ScheduledDestinations returns the sorted, de-duplicated names of the Destinations
+// the Works' WorkPlacements are scheduled to
+func ScheduledDestinations(works []v1alpha1.Work) []string {
+	var destinations []string
+	for _, work := range works {
+		for _, placement := range work.Status.WorkPlacementStatuses {
+			if placement.Destination != "" {
+				destinations = append(destinations, placement.Destination)
+			}
+		}
+	}
+	slices.Sort(destinations)
+	return slices.Compact(destinations)
+}
+
+// SetScheduledDestinations records the Destinations the resource was scheduled to
+// in status.kratix.destinations, and removes the field when there are none.
+// It returns whether the object changed.
+func SetScheduledDestinations(obj *unstructured.Unstructured, destinations []string) bool {
+	current, found, _ := unstructured.NestedStringSlice(obj.Object, "status", "kratix", "destinations")
+	if len(destinations) == 0 {
+		if !found {
+			return false
+		}
+		unstructured.RemoveNestedField(obj.Object, "status", "kratix", "destinations")
+		return true
+	}
+	if found && slices.Equal(current, destinations) {
+		return false
+	}
+	_ = unstructured.SetNestedStringSlice(obj.Object, destinations, "status", "kratix", "destinations")
+	return true
+}
