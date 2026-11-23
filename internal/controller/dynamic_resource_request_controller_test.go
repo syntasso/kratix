@@ -1890,6 +1890,35 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				})
 			})
 
+			Describe("the Work watch", func() {
+				resourceWork := func(promiseName string, labels map[string]string) *v1alpha1.Work {
+					workLabels := map[string]string{
+						v1alpha1.PromiseNameLabel:  promiseName,
+						v1alpha1.ResourceNameLabel: "my-rr",
+					}
+					for key, value := range labels {
+						workLabels[key] = value
+					}
+					return &v1alpha1.Work{ObjectMeta: metav1.ObjectMeta{Name: "work-x", Namespace: "team-a", Labels: workLabels}}
+				}
+
+				It("maps a Work of the promise's resource to that resource in the Work's namespace", func() {
+					requests := controller.WorkToResourceRequest(promise.GetName())(ctx, resourceWork(promise.GetName(), nil))
+					Expect(requests).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "team-a", Name: "my-rr"}}))
+				})
+
+				It("ignores Works of other promises, promise-level Works and dry-run summary Works", func() {
+					mapFn := controller.WorkToResourceRequest(promise.GetName())
+					Expect(mapFn(ctx, resourceWork("another-promise", nil))).To(BeEmpty())
+
+					promiseLevel := resourceWork(promise.GetName(), nil)
+					delete(promiseLevel.Labels, v1alpha1.ResourceNameLabel)
+					Expect(mapFn(ctx, promiseLevel)).To(BeEmpty())
+
+					Expect(mapFn(ctx, resourceWork(promise.GetName(), map[string]string{v1alpha1.DryRunSummaryLabel: "true"}))).To(BeEmpty())
+				})
+			})
+
 			Describe("the WorkPlacement watch", func() {
 				placement := func(promiseName, resourceName string) *v1alpha1.WorkPlacement {
 					return &v1alpha1.WorkPlacement{
