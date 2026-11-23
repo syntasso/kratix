@@ -165,6 +165,24 @@ var _ = Describe("PromiseWebhook", func() {
 				Expect(err).NotTo(HaveOccurred())
 			})
 
+			It("admits an update to a Promise that already had an API but does not own the CRD", func() {
+				seed(map[string]string{v1alpha1.PromiseNameLabel: "promise-a"})
+				promise := newPromise()
+				promise.Name = "promise-b"
+				_, err := validator.ValidateUpdate(ctx, promise, promise)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("rejects an update that adds an API already provided by another Promise", func() {
+				seed(map[string]string{v1alpha1.PromiseNameLabel: "promise-a"})
+				promise := newPromise()
+				promise.Name = "promise-b"
+				old := promise.DeepCopy()
+				old.Spec.API = nil
+				_, err := validator.ValidateUpdate(ctx, old, promise)
+				Expect(err).To(MatchError(ContainSubstring("promise-a")))
+			})
+
 			It("admits a Promise when the existing CRD has no owner label", func() {
 				seed(nil)
 				promise := newPromise()
