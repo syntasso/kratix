@@ -1228,7 +1228,6 @@ type worksStatus struct {
 	failed, misplaced, pending []string
 }
 
-// getWorksStatus lists the Works in namespace: the Promise's pipeline namespace when it sets one.
 func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, logger logr.Logger, namespace string, workLabels map[string]string) (worksStatus, error) {
 	workSelectorLabel := labels.FormatLabels(workLabels)
 	selector, err := labels.Parse(workSelectorLabel)
