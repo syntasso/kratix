@@ -938,6 +938,70 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 	})
 
+	Describe("stale dry-run Works", func() {
+		dryRunWork := func(name, namespace string, extraLabels map[string]string) *v1alpha1.Work {
+			GinkgoHelper()
+			workLabels := map[string]string{
+				v1alpha1.PromiseNameLabel:  promise.GetName(),
+				v1alpha1.ResourceNameLabel: resReq.GetName(),
+				v1alpha1.WorkTypeLabel:     v1alpha1.WorkTypeResource,
+				v1alpha1.DryRunLabel:       "true",
+			}
+			for key, value := range extraLabels {
+				workLabels[key] = value
+			}
+			work := &v1alpha1.Work{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: workLabels}}
+			Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+			return work
+		}
+
+		reconcileResource := func() {
+			GinkgoHelper()
+			_, err := t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		BeforeEach(func() {
+			reconciler.DryRunEnabled = true
+		})
+
+		It("removes the dry-run Works of a request that is no longer a dry run", func() {
+			work := dryRunWork("dry-run-work", resReq.GetNamespace(), nil)
+
+			reconcileResource()
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(work), work)).To(MatchError(ContainSubstring("not found")))
+		})
+
+		When("the promise runs its workflows in a pipeline namespace", func() {
+			const pipelineNamespace = "team-a"
+
+			BeforeEach(func() {
+				promise.Spec.Workflows.Config.PipelineNamespace = pipelineNamespace
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+				createPromiseRevision(fakeK8sClient, promise, "v1.1.0")
+			})
+
+			It("removes the request's dry-run Works from the pipeline namespace", func() {
+				work := dryRunWork("dry-run-work", pipelineNamespace,
+					map[string]string{v1alpha1.ResourceNamespaceLabel: resReq.GetNamespace()})
+
+				reconcileResource()
+
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(work), work)).To(MatchError(ContainSubstring("not found")))
+			})
+
+			It("keeps the dry-run Works of a same-named request in another namespace", func() {
+				work := dryRunWork("other-namespace-dry-run-work", pipelineNamespace,
+					map[string]string{v1alpha1.ResourceNamespaceLabel: "team-b"})
+
+				reconcileResource()
+
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(work), work)).To(Succeed())
+			})
+		})
+	})
+
 	Describe("Resource Request Status", func() {
 		BeforeEach(func() {
 			result, err := t.reconcileUntilCompletion(reconciler, resReq)
