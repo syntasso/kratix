@@ -1720,6 +1720,81 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					})
 				})
 			})
+
+			When("the promise runs its workflows in a pipeline namespace", func() {
+				const pipelineNamespace = "team-a"
+
+				BeforeEach(func() {
+					promise.Spec.Workflows.Config.PipelineNamespace = pipelineNamespace
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+					createPromiseRevision(fakeK8sClient, promise, "v1.1.0")
+
+					work.Namespace = pipelineNamespace
+					work.Labels[v1alpha1.ResourceNamespaceLabel] = resReq.GetNamespace()
+				})
+
+				createPendingWork := func(name, namespace string, labels map[string]string) {
+					GinkgoHelper()
+					pending := &v1alpha1.Work{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels}}
+					Expect(fakeK8sClient.Create(ctx, pending)).To(Succeed())
+					pending.Status.Conditions = []metav1.Condition{{
+						Type: "Ready", Status: metav1.ConditionFalse, Reason: "Test", Message: "Pending", LastTransitionTime: metav1.Now(),
+					}}
+					Expect(fakeK8sClient.Status().Update(ctx, pending)).To(Succeed())
+				}
+
+				It("says the request is pending while its Work is pending", func() {
+					createWorkWithReadyMessage("Pending")
+
+					worksSucceeded := reconcileAndGetCondition(resourceutil.WorksSucceededCondition)
+					Expect(string(worksSucceeded.Status)).To(Equal("Unknown"))
+					Expect(worksSucceeded.Reason).To(Equal("WorksPending"))
+					reconciled := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+					Expect(reconciled).NotTo(BeNil())
+					Expect(string(reconciled.Status)).NotTo(Equal("True"))
+				})
+
+				It("says the request is waiting for approval while a pull request is open", func() {
+					createWorkWithReadyMessage("Pending")
+					createPlacement("test-prod", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason,
+						"Waiting for approval: https://github.com/org/repo/pull/7")
+
+					reconcileAndGetCondition(resourceutil.WorksSucceededCondition)
+					reconciled := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+					Expect(reconciled).NotTo(BeNil())
+					Expect(string(reconciled.Reason)).To(Equal("WorksAwaitingDelivery"))
+					Expect(reconciled.Message).To(ContainSubstring("https://github.com/org/repo/pull/7"))
+				})
+
+				It("says the Works succeeded once its Work is ready", func() {
+					createWorkWithReadyMessage("Ready")
+
+					Expect(string(reconcileAndGetCondition(resourceutil.WorksSucceededCondition).Status)).To(Equal("True"))
+				})
+
+				It("ignores a pending Work of a same-named request in another namespace", func() {
+					createWorkWithReadyMessage("Ready")
+					createPendingWork("other-namespace-work", pipelineNamespace, map[string]string{
+						v1alpha1.PromiseNameLabel:       promise.GetName(),
+						v1alpha1.ResourceNameLabel:      resReq.GetName(),
+						v1alpha1.WorkTypeLabel:          v1alpha1.WorkTypeResource,
+						v1alpha1.ResourceNamespaceLabel: "team-b",
+					})
+
+					Expect(string(reconcileAndGetCondition(resourceutil.WorksSucceededCondition).Status)).To(Equal("True"))
+				})
+
+				It("ignores a Work left in the request's own namespace", func() {
+					createWorkWithReadyMessage("Ready")
+					createPendingWork("orphaned-work", resReq.GetNamespace(), map[string]string{
+						v1alpha1.PromiseNameLabel:  promise.GetName(),
+						v1alpha1.ResourceNameLabel: resReq.GetName(),
+						v1alpha1.WorkTypeLabel:     v1alpha1.WorkTypeResource,
+					})
+
+					Expect(string(reconcileAndGetCondition(resourceutil.WorksSucceededCondition).Status)).To(Equal("True"))
+				})
+			})
 		})
 
 		Describe("HealthChecksSucceeded", func() {

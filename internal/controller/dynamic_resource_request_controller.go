@@ -487,9 +487,9 @@ func (r *DynamicResourceRequestController) ensureResourceStatus(
 	bindingVersion string,
 	promiseRevisionUsed *v1alpha1.PromiseRevision,
 ) (bool, error) {
-	_, workLabels := resourceWorksNamespaceAndLabels(promise, rr)
+	worksNamespace, workLabels := resourceWorksNamespaceAndLabels(promise, rr)
 
-	statusUpdate, err := r.generateResourceStatus(ctx, logger, promise, rr, workLabels, bindingVersion, promiseRevisionUsed)
+	statusUpdate, err := r.generateResourceStatus(ctx, logger, promise, rr, worksNamespace, workLabels, bindingVersion, promiseRevisionUsed)
 	if err != nil {
 		return false, err
 	}
@@ -890,9 +890,10 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 }
 
 func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise,
-	rr *unstructured.Unstructured, workLabels map[string]string, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision,
+	rr *unstructured.Unstructured, worksNamespace string, workLabels map[string]string, bindingVersion string,
+	promiseRevision *v1alpha1.PromiseRevision,
 ) (bool, error) {
-	works, err := r.getWorksStatus(ctx, logger, rr, workLabels)
+	works, err := r.getWorksStatus(ctx, logger, worksNamespace, workLabels)
 	if err != nil {
 		return false, err
 	}
@@ -1228,7 +1229,8 @@ type worksStatus struct {
 	failed, misplaced, pending []string
 }
 
-func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured, workLabels map[string]string) (worksStatus, error) {
+// getWorksStatus lists the Works in namespace: the Promise's pipeline namespace when it sets one.
+func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, logger logr.Logger, namespace string, workLabels map[string]string) (worksStatus, error) {
 	workSelectorLabel := labels.FormatLabels(workLabels)
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
@@ -1238,11 +1240,11 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, l
 
 	var works v1alpha1.WorkList
 	err = r.Client.List(ctx, &works, &client.ListOptions{
-		Namespace:     rr.GetNamespace(),
+		Namespace:     namespace,
 		LabelSelector: selector,
 	})
 	if err != nil {
-		logging.Error(logger, err, "failed listing works", "namespace", rr.GetNamespace(), "labelSelector", workSelectorLabel)
+		logging.Error(logger, err, "failed listing works", "namespace", namespace, "labelSelector", workSelectorLabel)
 		return worksStatus{}, err
 	}
 
