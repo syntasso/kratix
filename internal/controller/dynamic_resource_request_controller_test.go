@@ -1910,6 +1910,11 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(requestsFor(resourceWork(promise.GetName(), nil))).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "team-a", Name: "my-rr"}}))
 				})
 
+				It("maps a Work in a pipeline namespace to the resource namespace it records", func() {
+					work := resourceWork(promise.GetName(), map[string]string{v1alpha1.ResourceNamespaceLabel: "default"})
+					Expect(requestsFor(work)).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "my-rr"}}))
+				})
+
 				It("ignores Works of other promises, promise-level Works and dry-run summary Works", func() {
 					Expect(requestsFor(resourceWork("another-promise", nil))).To(BeEmpty())
 

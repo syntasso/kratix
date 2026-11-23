@@ -1379,7 +1379,8 @@ func (r *PromiseReconciler) restartDynamicControllerWatch(dynamicController *Dyn
 	return nil
 }
 
-// WorkToResourceRequest maps a Work of the promise's resource to that resource.
+// WorkToResourceRequest maps a Work of the promise's resource to that resource, in the namespace
+// the resource lives in rather than the pipeline namespace the Work may be in.
 func WorkToResourceRequest(promiseName string) handler.MapFunc {
 	return func(_ context.Context, obj client.Object) []reconcile.Request {
 		work := obj.(*v1alpha1.Work)
@@ -1393,7 +1394,7 @@ func WorkToResourceRequest(promiseName string) handler.MapFunc {
 
 		return []reconcile.Request{{
 			NamespacedName: types.NamespacedName{
-				Namespace: work.Namespace,
+				Namespace: workResourceNamespace(work),
 				Name:      rrName,
 			},
 		}}
