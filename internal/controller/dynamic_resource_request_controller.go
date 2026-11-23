@@ -487,9 +487,9 @@ func (r *DynamicResourceRequestController) ensureResourceStatus(
 	bindingVersion string,
 	promiseRevisionUsed *v1alpha1.PromiseRevision,
 ) (bool, error) {
-	_, workLabels := resourceWorksNamespaceAndLabels(promise, rr)
+	worksNamespace, workLabels := resourceWorksNamespaceAndLabels(promise, rr)
 
-	statusUpdate, err := r.generateResourceStatus(ctx, logger, promise, rr, workLabels, bindingVersion, promiseRevisionUsed)
+	statusUpdate, err := r.generateResourceStatus(ctx, logger, promise, rr, worksNamespace, workLabels, bindingVersion, promiseRevisionUsed)
 	if err != nil {
 		return false, err
 	}
@@ -890,9 +890,10 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 }
 
 func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise,
-	rr *unstructured.Unstructured, workLabels map[string]string, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision,
+	rr *unstructured.Unstructured, worksNamespace string, workLabels map[string]string, bindingVersion string,
+	promiseRevision *v1alpha1.PromiseRevision,
 ) (bool, error) {
-	works, err := r.getWorksStatus(ctx, logger, rr, workLabels)
+	works, err := r.getWorksStatus(ctx, logger, worksNamespace, workLabels)
 	if err != nil {
 		return false, err
 	}
@@ -979,17 +980,15 @@ func (r *DynamicResourceRequestController) cleanupStaleDryRunWorks(
 		return false, nil
 	}
 
-	namespace := rr.GetNamespace()
+	// Look where the status looks: the pipeline namespace holds the Works of every request
+	namespace, workLabels := resourceWorksNamespaceAndLabels(promise, rr)
 	if namespace == "" {
 		namespace = v1alpha1.SystemNamespace
 	}
+	workLabels[v1alpha1.DryRunLabel] = "true"
 
 	workList := &v1alpha1.WorkList{}
-	selector := labels.Set{
-		v1alpha1.PromiseNameLabel:  promise.GetName(),
-		v1alpha1.ResourceNameLabel: rr.GetName(),
-		v1alpha1.DryRunLabel:       "true",
-	}.AsSelector()
+	selector := labels.Set(workLabels).AsSelector()
 	if err := r.Client.List(ctx, workList, &client.ListOptions{
 		LabelSelector: selector,
 		Namespace:     namespace,
@@ -1228,7 +1227,7 @@ type worksStatus struct {
 	failed, misplaced, pending []string
 }
 
-func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured, workLabels map[string]string) (worksStatus, error) {
+func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, logger logr.Logger, namespace string, workLabels map[string]string) (worksStatus, error) {
 	workSelectorLabel := labels.FormatLabels(workLabels)
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
@@ -1238,11 +1237,11 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, l
 
 	var works v1alpha1.WorkList
 	err = r.Client.List(ctx, &works, &client.ListOptions{
-		Namespace:     rr.GetNamespace(),
+		Namespace:     namespace,
 		LabelSelector: selector,
 	})
 	if err != nil {
-		logging.Error(logger, err, "failed listing works", "namespace", rr.GetNamespace(), "labelSelector", workSelectorLabel)
+		logging.Error(logger, err, "failed listing works", "namespace", namespace, "labelSelector", workSelectorLabel)
 		return worksStatus{}, err
 	}
 
