@@ -981,7 +981,6 @@ func (r *DynamicResourceRequestController) cleanupStaleDryRunWorks(
 	}
 
 	// Look where the status looks: the pipeline namespace holds the Works of every request
-	// with this name, so the resource namespace label keeps another request's Works out.
 	namespace, workLabels := resourceWorksNamespaceAndLabels(promise, rr)
 	if namespace == "" {
 		namespace = v1alpha1.SystemNamespace
