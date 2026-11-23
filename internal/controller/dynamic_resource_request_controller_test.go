@@ -1902,20 +1902,22 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					return &v1alpha1.Work{ObjectMeta: metav1.ObjectMeta{Name: "work-x", Namespace: "team-a", Labels: workLabels}}
 				}
 
+				requestsFor := func(work *v1alpha1.Work) []reconcile.Request {
+					return controller.WorkToResourceRequest(promise.GetName())(ctx, work)
+				}
+
 				It("maps a Work of the promise's resource to that resource in the Work's namespace", func() {
-					requests := controller.WorkToResourceRequest(promise.GetName())(ctx, resourceWork(promise.GetName(), nil))
-					Expect(requests).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "team-a", Name: "my-rr"}}))
+					Expect(requestsFor(resourceWork(promise.GetName(), nil))).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "team-a", Name: "my-rr"}}))
 				})
 
 				It("ignores Works of other promises, promise-level Works and dry-run summary Works", func() {
-					mapFn := controller.WorkToResourceRequest(promise.GetName())
-					Expect(mapFn(ctx, resourceWork("another-promise", nil))).To(BeEmpty())
+					Expect(requestsFor(resourceWork("another-promise", nil))).To(BeEmpty())
 
 					promiseLevel := resourceWork(promise.GetName(), nil)
 					delete(promiseLevel.Labels, v1alpha1.ResourceNameLabel)
-					Expect(mapFn(ctx, promiseLevel)).To(BeEmpty())
+					Expect(requestsFor(promiseLevel)).To(BeEmpty())
 
-					Expect(mapFn(ctx, resourceWork(promise.GetName(), map[string]string{v1alpha1.DryRunSummaryLabel: "true"}))).To(BeEmpty())
+					Expect(requestsFor(resourceWork(promise.GetName(), map[string]string{v1alpha1.DryRunSummaryLabel: "true"}))).To(BeEmpty())
 				})
 			})
 
