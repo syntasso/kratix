@@ -938,6 +938,70 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 	})
 
+	Describe("stale dry-run Works", func() {
+		dryRunWork := func(name, namespace string, extraLabels map[string]string) *v1alpha1.Work {
+			GinkgoHelper()
+			workLabels := map[string]string{
+				v1alpha1.PromiseNameLabel:  promise.GetName(),
+				v1alpha1.ResourceNameLabel: resReq.GetName(),
+				v1alpha1.WorkTypeLabel:     v1alpha1.WorkTypeResource,
+				v1alpha1.DryRunLabel:       "true",
+			}
+			for key, value := range extraLabels {
+				workLabels[key] = value
+			}
+			work := &v1alpha1.Work{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: workLabels}}
+			Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+			return work
+		}
+
+		reconcileResource := func() {
+			GinkgoHelper()
+			_, err := t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		BeforeEach(func() {
+			reconciler.DryRunEnabled = true
+		})
+
+		It("removes the dry-run Works of a request that is no longer a dry run", func() {
+			work := dryRunWork("dry-run-work", resReq.GetNamespace(), nil)
+
+			reconcileResource()
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(work), work)).To(MatchError(ContainSubstring("not found")))
+		})
+
+		When("the promise runs its workflows in a pipeline namespace", func() {
+			const pipelineNamespace = "team-a"
+
+			BeforeEach(func() {
+				promise.Spec.Workflows.Config.PipelineNamespace = pipelineNamespace
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+				createPromiseRevision(fakeK8sClient, promise, "v1.1.0")
+			})
+
+			It("removes the request's dry-run Works from the pipeline namespace", func() {
+				work := dryRunWork("dry-run-work", pipelineNamespace,
+					map[string]string{v1alpha1.ResourceNamespaceLabel: resReq.GetNamespace()})
+
+				reconcileResource()
+
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(work), work)).To(MatchError(ContainSubstring("not found")))
+			})
+
+			It("keeps the dry-run Works of a same-named request in another namespace", func() {
+				work := dryRunWork("other-namespace-dry-run-work", pipelineNamespace,
+					map[string]string{v1alpha1.ResourceNamespaceLabel: "team-b"})
+
+				reconcileResource()
+
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(work), work)).To(Succeed())
+			})
+		})
+	})
+
 	Describe("Resource Request Status", func() {
 		BeforeEach(func() {
 			result, err := t.reconcileUntilCompletion(reconciler, resReq)
@@ -1720,6 +1784,81 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					})
 				})
 			})
+
+			When("the promise runs its workflows in a pipeline namespace", func() {
+				const pipelineNamespace = "team-a"
+
+				BeforeEach(func() {
+					promise.Spec.Workflows.Config.PipelineNamespace = pipelineNamespace
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+					createPromiseRevision(fakeK8sClient, promise, "v1.1.0")
+
+					work.Namespace = pipelineNamespace
+					work.Labels[v1alpha1.ResourceNamespaceLabel] = resReq.GetNamespace()
+				})
+
+				createPendingWork := func(name, namespace string, labels map[string]string) {
+					GinkgoHelper()
+					pending := &v1alpha1.Work{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels}}
+					Expect(fakeK8sClient.Create(ctx, pending)).To(Succeed())
+					pending.Status.Conditions = []metav1.Condition{{
+						Type: "Ready", Status: metav1.ConditionFalse, Reason: "Test", Message: "Pending", LastTransitionTime: metav1.Now(),
+					}}
+					Expect(fakeK8sClient.Status().Update(ctx, pending)).To(Succeed())
+				}
+
+				It("says the request is pending while its Work is pending", func() {
+					createWorkWithReadyMessage("Pending")
+
+					worksSucceeded := reconcileAndGetCondition(resourceutil.WorksSucceededCondition)
+					Expect(string(worksSucceeded.Status)).To(Equal("Unknown"))
+					Expect(worksSucceeded.Reason).To(Equal("WorksPending"))
+					reconciled := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+					Expect(reconciled).NotTo(BeNil())
+					Expect(string(reconciled.Status)).NotTo(Equal("True"))
+				})
+
+				It("says the request is waiting for approval while a pull request is open", func() {
+					createWorkWithReadyMessage("Pending")
+					createPlacement("test-prod", "prod", v1alpha1.WorkloadsAwaitingDeliveryReason,
+						"Waiting for approval: https://github.com/org/repo/pull/7")
+
+					reconcileAndGetCondition(resourceutil.WorksSucceededCondition)
+					reconciled := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+					Expect(reconciled).NotTo(BeNil())
+					Expect(string(reconciled.Reason)).To(Equal("WorksAwaitingDelivery"))
+					Expect(reconciled.Message).To(ContainSubstring("https://github.com/org/repo/pull/7"))
+				})
+
+				It("says the Works succeeded once its Work is ready", func() {
+					createWorkWithReadyMessage("Ready")
+
+					Expect(string(reconcileAndGetCondition(resourceutil.WorksSucceededCondition).Status)).To(Equal("True"))
+				})
+
+				It("ignores a pending Work of a same-named request in another namespace", func() {
+					createWorkWithReadyMessage("Ready")
+					createPendingWork("other-namespace-work", pipelineNamespace, map[string]string{
+						v1alpha1.PromiseNameLabel:       promise.GetName(),
+						v1alpha1.ResourceNameLabel:      resReq.GetName(),
+						v1alpha1.WorkTypeLabel:          v1alpha1.WorkTypeResource,
+						v1alpha1.ResourceNamespaceLabel: "team-b",
+					})
+
+					Expect(string(reconcileAndGetCondition(resourceutil.WorksSucceededCondition).Status)).To(Equal("True"))
+				})
+
+				It("ignores a Work left in the request's own namespace", func() {
+					createWorkWithReadyMessage("Ready")
+					createPendingWork("orphaned-work", resReq.GetNamespace(), map[string]string{
+						v1alpha1.PromiseNameLabel:  promise.GetName(),
+						v1alpha1.ResourceNameLabel: resReq.GetName(),
+						v1alpha1.WorkTypeLabel:     v1alpha1.WorkTypeResource,
+					})
+
+					Expect(string(reconcileAndGetCondition(resourceutil.WorksSucceededCondition).Status)).To(Equal("True"))
+				})
+			})
 		})
 
 		Describe("HealthChecksSucceeded", func() {
@@ -1812,6 +1951,42 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					worksSucceeded := resourceutil.GetCondition(resReq, resourceutil.WorksSucceededCondition)
 					Expect(worksSucceeded).NotTo(BeNil())
 					Expect(string(worksSucceeded.Status)).To(Equal("True"))
+				})
+			})
+
+			Describe("the Work watch", func() {
+				resourceWork := func(promiseName string, labels map[string]string) *v1alpha1.Work {
+					workLabels := map[string]string{
+						v1alpha1.PromiseNameLabel:  promiseName,
+						v1alpha1.ResourceNameLabel: "my-rr",
+					}
+					for key, value := range labels {
+						workLabels[key] = value
+					}
+					return &v1alpha1.Work{ObjectMeta: metav1.ObjectMeta{Name: "work-x", Namespace: "team-a", Labels: workLabels}}
+				}
+
+				requestsFor := func(work *v1alpha1.Work) []reconcile.Request {
+					return controller.WorkToResourceRequest(promise.GetName())(ctx, work)
+				}
+
+				It("maps a Work of the promise's resource to that resource in the Work's namespace", func() {
+					Expect(requestsFor(resourceWork(promise.GetName(), nil))).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "team-a", Name: "my-rr"}}))
+				})
+
+				It("maps a Work in a pipeline namespace to the resource namespace it records", func() {
+					work := resourceWork(promise.GetName(), map[string]string{v1alpha1.ResourceNamespaceLabel: "default"})
+					Expect(requestsFor(work)).To(ConsistOf(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "my-rr"}}))
+				})
+
+				It("ignores Works of other promises, promise-level Works and dry-run summary Works", func() {
+					Expect(requestsFor(resourceWork("another-promise", nil))).To(BeEmpty())
+
+					promiseLevel := resourceWork(promise.GetName(), nil)
+					delete(promiseLevel.Labels, v1alpha1.ResourceNameLabel)
+					Expect(requestsFor(promiseLevel)).To(BeEmpty())
+
+					Expect(requestsFor(resourceWork(promise.GetName(), map[string]string{v1alpha1.DryRunSummaryLabel: "true"}))).To(BeEmpty())
 				})
 			})
 
@@ -2667,6 +2842,18 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(binding.Spec.ResourceRef.Name).To(Equal(resReqNameNamespace.Name))
 					Expect(binding.Spec.ResourceRef.Namespace).To(Equal(resReqNameNamespace.Namespace))
 					Expect(binding.Spec.Version).To(Equal(promiseVersion))
+				})
+
+				It("restores Status.LastAppliedVersion from the resource status promiseVersion", func() {
+					resourceutil.SetStatus(resReq, l, "resourceBindingVersion", "latest")
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
 				})
 
 				When("ResourceBindingPinned is true", func() {
