@@ -125,9 +125,8 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 			if statusErr := d.setNotReadyStatus("DestinationFinalizerUpdateFailed", err.Error()); statusErr != nil {
 				return ctrl.Result{}, errors.Join(err, statusErr)
 			}
-			// return the original error so controller-runtime requeues with backoff;
-			// the status update alone is a no-op on repeated failures and would not
-			// trigger another reconcile
+			// setNotReadyStatus is a no-op when the condition is unchanged
+			// return the original finalizer related error so controller-runtime requeues with backoff
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
