@@ -2028,6 +2028,92 @@ var _ = Describe("PromiseController", func() {
 						"Normal ReconcilingResources Reconciling all resource requests")))
 				})
 			})
+
+			It("re runs resources pinned to any version", func() {
+				pinned := createRedisRequest("pinned-to-another-version")
+				createResourceBinding(fakeK8sClient, promise, pinned, "v1.0.0")
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(redisRequestLabels(pinned)).To(HaveKeyWithValue(resourceutil.WorkflowRunFromStartLabel, "true"))
+			})
+		})
+
+		When("the promise spec changes", func() {
+			var unbound, unboundOnOtherVersion, boundToLatest, pinnedToCurrent, pinnedToOther *unstructured.Unstructured
+
+			BeforeEach(func() {
+				promise = createPromise(promiseWithWorkflowPath)
+				setReconcileConfigureWorkflowToReturnFinished()
+				_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				unbound = createRedisRequest("unbound")
+				unboundOnOtherVersion = createRedisRequest("unbound-on-other-version")
+				Expect(unstructured.SetNestedField(unboundOnOtherVersion.Object, "v1.0.0", "status", "promiseVersion")).To(Succeed())
+				Expect(fakeK8sClient.Status().Update(ctx, unboundOnOtherVersion)).To(Succeed())
+				boundToLatest = createRedisRequest("bound-to-latest")
+				createResourceBinding(fakeK8sClient, promise, boundToLatest, "latest")
+				pinnedToCurrent = createRedisRequest("pinned-to-current")
+				createResourceBinding(fakeK8sClient, promise, pinnedToCurrent, "v1.1.0")
+				pinnedToOther = createRedisRequest("pinned-to-other")
+				createResourceBinding(fakeK8sClient, promise, pinnedToOther, "v1.0.0")
+			})
+
+			updatePromiseSpec := func(version string) {
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				promise.Labels[v1alpha1.PromiseVersionLabel] = version
+				promise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{
+					{MatchLabels: map[string]string{"environment": "dev"}},
+				}
+				// The fake client does not bump generation; the controller ignores generation 1.
+				promise.SetGeneration(promise.Status.ObservedGeneration + 2)
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			When("the version stays the same", func() {
+				BeforeEach(func() {
+					updatePromiseSpec("v1.1.0")
+				})
+
+				It("re runs resources that resolve to the updated revision", func() {
+					Expect(redisRequestLabels(unbound)).To(HaveKeyWithValue(resourceutil.WorkflowRunFromStartLabel, "true"))
+					Expect(redisRequestLabels(boundToLatest)).To(HaveKeyWithValue(resourceutil.WorkflowRunFromStartLabel, "true"))
+					Expect(redisRequestLabels(pinnedToCurrent)).To(HaveKeyWithValue(resourceutil.WorkflowRunFromStartLabel, "true"))
+				})
+
+				It("does not re run resources pinned to another version", func() {
+					Expect(redisRequestLabels(pinnedToOther)).NotTo(HaveKey(resourceutil.WorkflowRunFromStartLabel))
+					Expect(redisRequestLabels(unboundOnOtherVersion)).NotTo(HaveKey(resourceutil.WorkflowRunFromStartLabel))
+				})
+			})
+
+			When("the version changes", func() {
+				BeforeEach(func() {
+					updatePromiseSpec("v1.2.0")
+				})
+
+				It("re runs only resources that follow the latest version", func() {
+					Expect(redisRequestLabels(unbound)).To(HaveKeyWithValue(resourceutil.WorkflowRunFromStartLabel, "true"))
+					Expect(redisRequestLabels(boundToLatest)).To(HaveKeyWithValue(resourceutil.WorkflowRunFromStartLabel, "true"))
+					Expect(redisRequestLabels(pinnedToCurrent)).NotTo(HaveKey(resourceutil.WorkflowRunFromStartLabel))
+					Expect(redisRequestLabels(pinnedToOther)).NotTo(HaveKey(resourceutil.WorkflowRunFromStartLabel))
+				})
+			})
 		})
 
 		When("the promise is being paused", func() {
@@ -3094,6 +3180,26 @@ func getWork(namespace, promiseName, resourceName, pipelineName string) v1alpha1
 	ExpectWithOffset(1, works.Items).To(HaveLen(1))
 
 	return works.Items[0]
+}
+
+func createRedisRequest(name string) *unstructured.Unstructured {
+	GinkgoHelper()
+	resReqBytes, err := os.ReadFile(resourceRequestPath)
+	Expect(err).ToNot(HaveOccurred())
+
+	rr := &unstructured.Unstructured{}
+	Expect(yaml.Unmarshal(resReqBytes, rr)).To(Succeed())
+	rr.SetName(name)
+	Expect(fakeK8sClient.Create(ctx, rr)).To(Succeed())
+	return rr
+}
+
+func redisRequestLabels(rr *unstructured.Unstructured) map[string]string {
+	GinkgoHelper()
+	updated := &unstructured.Unstructured{}
+	updated.SetGroupVersionKind(rr.GroupVersionKind())
+	Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(rr), updated)).To(Succeed())
+	return updated.GetLabels()
 }
 
 func createPromise(promisePath string) *v1alpha1.Promise {

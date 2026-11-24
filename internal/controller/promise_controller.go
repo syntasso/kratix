@@ -383,10 +383,7 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 		}
 	}
 
-	if promiseVersion == "" {
-		promiseVersion = v1alpha1.PlaceholderPromiseVersion
-	}
-
+	promiseVersion = revisionVersion(promise)
 	revision := v1alpha1.NewPromiseRevision(promise, promiseVersion)
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, revision, func() error {
 		revision.Spec.PromiseRef = v1alpha1.PromiseRef{Name: promise.Name}
@@ -693,7 +690,7 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise,
 	rrGVK *schema.GroupVersionKind, originalPromiseAvailability string) (ctrl.Result, error) {
 	logging.Debug(logger, "reconciling resource requests", "promiseName", promise.Name)
-	if err := r.reconcileAllRRs(ctx, rrGVK); err != nil {
+	if err := r.reconcileAllRRs(ctx, promise, rrGVK); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -1208,7 +1205,11 @@ func setNewPipelineStatus(promise *v1alpha1.Promise) {
 	promise.Status.Kratix.Workflows["configure"] = v1alpha1.WorkflowStatus{Pipelines: workflowPipelinesStatus}
 }
 
-func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.GroupVersionKind) error {
+// reconcileAllRRs reruns the workflows of the resource requests affected by a change to the
+// Promise. A spec change only reaches requests that resolve to the revision it wrote; requests
+// pinned to another version keep running that version's spec, so rerunning them is wasted
+// work. The reconcile-resources label is an explicit request to rerun everything.
+func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, promise *v1alpha1.Promise, rrGVK *schema.GroupVersionKind) error {
 	rrs := &unstructured.UnstructuredList{}
 	rrListGVK := *rrGVK
 	rrListGVK.Kind = rrListGVK.Kind + "List"
@@ -1217,7 +1218,20 @@ func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.G
 	if err != nil {
 		return err
 	}
+
+	rerunAll := promise.Labels[resourceutil.ReconcileResourcesLabel] == "true"
+	var bindings map[string][]v1alpha1.ResourceBinding
+	if !rerunAll {
+		if bindings, err = r.resourceBindingsByResource(ctx, promise); err != nil {
+			return err
+		}
+	}
+	version := revisionVersion(promise)
+
 	for _, rr := range rrs.Items {
+		if !rerunAll && !resolvesToVersion(&rr, bindings, version) {
+			continue
+		}
 		newLabels := rr.GetLabels()
 		if newLabels == nil {
 			newLabels = make(map[string]string)
@@ -1229,6 +1243,44 @@ func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.G
 		}
 	}
 	return nil
+}
+
+func (r *PromiseReconciler) resourceBindingsByResource(ctx context.Context, promise *v1alpha1.Promise) (map[string][]v1alpha1.ResourceBinding, error) {
+	list := &v1alpha1.ResourceBindingList{}
+	if err := r.Client.List(ctx, list, &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(v1alpha1.GenerateSharedLabelsForPromise(promise.GetName())),
+	}); err != nil {
+		return nil, err
+	}
+	bindings := map[string][]v1alpha1.ResourceBinding{}
+	for _, b := range list.Items {
+		key := b.GetNamespace() + "/" + b.GetLabels()[v1alpha1.ResourceNameLabel]
+		bindings[key] = append(bindings[key], b)
+	}
+	return bindings, nil
+}
+
+// resolvesToVersion follows fetchRevision's choice of revision for a request. A request with
+// several Bindings cannot resolve a revision at all, so it is rerun to surface that error.
+func resolvesToVersion(rr *unstructured.Unstructured, bindings map[string][]v1alpha1.ResourceBinding, version string) bool {
+	matching := bindings[rr.GetNamespace()+"/"+resourceNameLabelValue(rr.GetName())]
+	if len(matching) > 1 {
+		return true
+	}
+
+	desired := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
+	if len(matching) == 1 {
+		desired = matching[0].Spec.Version
+	}
+	return desired == "" || desired == LatestVersion || desired == version
+}
+
+// revisionVersion is the version of the PromiseRevision that holds the Promise's current spec.
+func revisionVersion(promise *v1alpha1.Promise) string {
+	if version := promise.Labels[v1alpha1.PromiseVersionLabel]; version != "" {
+		return version
+	}
+	return v1alpha1.PlaceholderPromiseVersion
 }
 
 func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK *schema.GroupVersionKind, canCreateResources *bool, logger logr.Logger) error {
