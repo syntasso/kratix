@@ -78,7 +78,7 @@ func (v PromiseCustomValidator) ValidateCreate(ctx context.Context, promise *v1a
 		return nil, err
 	}
 
-	return validatePromise(promise)
+	return validatePromise(promise, true)
 }
 
 // ValidateUpdate validates the reconciliation-interval annotation only when its value changes,
@@ -97,7 +97,12 @@ func (v PromiseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newO
 		}
 	}
 
-	warnings, err = validatePromise(promise)
+	// The CRD ownership check runs on update only when the old Promise declared no API, the one
+	// way an update can claim a new CRD. Otherwise a duplicate Promise created before the check
+	// existed would have its own updates (including finalizer removal on delete) rejected.
+	_, _, oldAPIErr := oldPromise.GetAPI()
+	claimsNewCRD := errors.Is(oldAPIErr, v1alpha1.ErrNoAPI)
+	warnings, err = validatePromise(promise, claimsNewCRD)
 	if err != nil {
 		return nil, err
 	}
@@ -117,8 +122,8 @@ func (v PromiseCustomValidator) ValidateDelete(ctx context.Context, obj *v1alpha
 // reconciliation-interval annotation is not among them: it is validated unconditionally by
 // ValidateCreate and conditionally by ValidateUpdate, since only the latter needs to grandfather
 // an existing out-of-policy value.
-func validatePromise(p *v1alpha1.Promise) ([]string, error) {
-	if err := validateCRD(p); err != nil {
+func validatePromise(p *v1alpha1.Promise, checkCRDOwner bool) ([]string, error) {
+	if err := validateCRD(p, checkCRDOwner); err != nil {
 		return nil, err
 	}
 
@@ -219,7 +224,7 @@ func exampleResourceRequest(p *v1alpha1.Promise) *unstructured.Unstructured {
 	return &unstructuredResourceRequest
 }
 
-func validateCRD(p *v1alpha1.Promise) error {
+func validateCRD(p *v1alpha1.Promise, checkOwner bool) error {
 	_, newCrd, err := p.GetAPI()
 	if err != nil {
 		if errors.Is(err, v1alpha1.ErrNoAPI) {
@@ -233,6 +238,10 @@ func validateCRD(p *v1alpha1.Promise) error {
 			existingCrd, err := k8sClientSet.ApiextensionsV1().CustomResourceDefinitions().Get(context.TODO(), newCrd.Name, metav1.GetOptions{})
 			if err != nil {
 				return err
+			}
+
+			if owner := existingCrd.Labels[v1alpha1.PromiseNameLabel]; checkOwner && owner != "" && owner != p.GetName() {
+				return fmt.Errorf("CRD %s is already provided by Promise %q", newCrd.Name, owner)
 			}
 
 			existingCrd.Spec = newCrd.Spec
