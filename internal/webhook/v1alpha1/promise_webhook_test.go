@@ -36,6 +36,7 @@ var _ = Describe("PromiseWebhook", func() {
 	var oldPromise *v1alpha1.Promise
 	var fakeClient client.Client
 	var validator *kratixWebhook.PromiseCustomValidator
+	var fakeClientSet *fake.Clientset
 
 	ctx := context.TODO()
 	newPromise := func() *v1alpha1.Promise {
@@ -54,7 +55,7 @@ var _ = Describe("PromiseWebhook", func() {
 	}
 
 	BeforeEach(func() {
-		fakeClientSet := fake.NewSimpleClientset()
+		fakeClientSet = fake.NewSimpleClientset()
 		err := v1alpha1.AddToScheme(scheme.Scheme)
 		Expect(err).NotTo(HaveOccurred())
 		fakeClient = clientfake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
@@ -129,6 +130,64 @@ var _ = Describe("PromiseWebhook", func() {
 				}
 				warnings, err := validator.ValidateCreate(ctx, promise)
 				Expect(warnings).To(BeEmpty())
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+		When("the CRD already exists and is owned by another Promise", func() {
+			var existing *v1.CustomResourceDefinition
+
+			BeforeEach(func() {
+				existing = baseCRD.DeepCopy()
+			})
+
+			seed := func(labels map[string]string) {
+				existing.Labels = labels
+				_, err := fakeClientSet.ApiextensionsV1().CustomResourceDefinitions().Create(ctx, existing, metav1.CreateOptions{})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			It("rejects a different Promise providing the same CRD", func() {
+				seed(map[string]string{v1alpha1.PromiseNameLabel: "promise-a"})
+				promise := newPromise()
+				promise.Name = "promise-b"
+				_, err := validator.ValidateCreate(ctx, promise)
+				Expect(err).To(MatchError(ContainSubstring("promise-a")))
+			})
+
+			It("admits the owning Promise", func() {
+				seed(map[string]string{v1alpha1.PromiseNameLabel: "promise-a"})
+				promise := newPromise()
+				promise.Name = "promise-a"
+				_, err := validator.ValidateCreate(ctx, promise)
+				Expect(err).NotTo(HaveOccurred())
+				_, err = validator.ValidateUpdate(ctx, promise, promise)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("admits an update to a Promise that already had an API but does not own the CRD", func() {
+				seed(map[string]string{v1alpha1.PromiseNameLabel: "promise-a"})
+				promise := newPromise()
+				promise.Name = "promise-b"
+				_, err := validator.ValidateUpdate(ctx, promise, promise)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("rejects an update that adds an API already provided by another Promise", func() {
+				seed(map[string]string{v1alpha1.PromiseNameLabel: "promise-a"})
+				promise := newPromise()
+				promise.Name = "promise-b"
+				old := promise.DeepCopy()
+				old.Spec.API = nil
+				_, err := validator.ValidateUpdate(ctx, old, promise)
+				Expect(err).To(MatchError(ContainSubstring("promise-a")))
+			})
+
+			It("admits a Promise when the existing CRD has no owner label", func() {
+				seed(nil)
+				promise := newPromise()
+				promise.Name = "promise-b"
+				_, err := validator.ValidateCreate(ctx, promise)
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})

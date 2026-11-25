@@ -1301,23 +1301,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		).
 		Watches(
 			&v1alpha1.Work{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-				work := obj.(*v1alpha1.Work)
-				rrName, labelExists := work.Labels[v1alpha1.ResourceNameLabel]
-				if !labelExists || work.Labels[v1alpha1.PromiseNameLabel] != promise.GetName() {
-					return nil
-				}
-				if work.Labels[v1alpha1.DryRunSummaryLabel] == "true" {
-					return nil
-				}
-
-				return []reconcile.Request{{
-					NamespacedName: types.NamespacedName{
-						Namespace: work.Namespace,
-						Name:      rrName,
-					},
-				}}
-			}),
+			handler.EnqueueRequestsFromMapFunc(WorkToResourceRequest(promise.GetName())),
 		).
 		Watches(
 			&v1alpha1.WorkPlacement{},
@@ -1393,6 +1377,28 @@ func (r *PromiseReconciler) restartDynamicControllerWatch(dynamicController *Dyn
 
 	dynamicController.WatchStopped = false
 	return nil
+}
+
+// WorkToResourceRequest maps a Work of the promise's resource to that resource, in the namespace
+// the resource lives in rather than the pipeline namespace the Work may be in.
+func WorkToResourceRequest(promiseName string) handler.MapFunc {
+	return func(_ context.Context, obj client.Object) []reconcile.Request {
+		work := obj.(*v1alpha1.Work)
+		rrName, labelExists := work.Labels[v1alpha1.ResourceNameLabel]
+		if !labelExists || work.Labels[v1alpha1.PromiseNameLabel] != promiseName {
+			return nil
+		}
+		if work.Labels[v1alpha1.DryRunSummaryLabel] == "true" {
+			return nil
+		}
+
+		return []reconcile.Request{{
+			NamespacedName: types.NamespacedName{
+				Namespace: workResourceNamespace(work),
+				Name:      rrName,
+			},
+		}}
+	}
 }
 
 // WorkPlacementToResourceRequest enqueues the resource request a WorkPlacement of the promise
