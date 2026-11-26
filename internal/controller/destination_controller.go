@@ -136,25 +136,21 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 		return ctrl.Result{}, d.setNotReadyStatus(v1alpha1.DestinationNotReadyReason, "Destination is not ready")
 	}
 
-	repo, err := d.repositoryCache.GetRepositoryByTypeAndName(
-		d.destination.Spec.StateStoreRef.Kind,
-		d.destination.Spec.StateStoreRef.Name,
-	)
+	ref := d.destination.Spec.StateStoreRef
+	exists, err := stateStoreExists(d.ctx, d.client, ref)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !exists {
+		// The repository cache can still hold a deleted store for a short while,
+		// so a cache hit alone does not mean the store is usable.
+		return d.stateStoreUnavailable("StateStoreNotFound", errors.New("not found"))
+	}
+
+	repo, err := d.repositoryCache.GetRepositoryByTypeAndName(ref.Kind, ref.Name)
 	if err != nil {
 		if errors.Is(err, ErrCacheMiss) {
-			// check if state store even exists
-			message := fmt.Sprintf("%s/%s", d.destination.Spec.StateStoreRef.Kind, d.destination.Spec.StateStoreRef.Name)
-			status := "StateStoreNotReady"
-			if !d.stateStoreExists() {
-				err = errors.New("not found")
-				status = "StateStoreNotFound"
-			}
-
-			d.logAndRecordEvent(err, message)
-			if err := d.setNotReadyStatus(status, fmt.Sprintf("%s: %s", message, err.Error())); err != nil {
-				return ctrl.Result{}, err
-			}
-			return defaultRequeue, nil
+			return d.stateStoreUnavailable("StateStoreNotReady", err)
 		}
 		return ctrl.Result{}, err
 	}
@@ -407,24 +403,34 @@ func (d *destinationReconcileContext) logAndRecordEvent(err error, message strin
 	}
 }
 
-func (d *destinationReconcileContext) stateStoreExists() bool {
-	switch d.destination.Spec.StateStoreRef.Kind {
-	case "GitStateStore":
-		return !k8serrors.IsNotFound(
-			d.client.Get(
-				d.ctx,
-				client.ObjectKey{Name: d.destination.Spec.StateStoreRef.Name},
-				&v1alpha1.GitStateStore{},
-			),
-		)
-	case "BucketStateStore":
-		return !k8serrors.IsNotFound(
-			d.client.Get(
-				d.ctx,
-				client.ObjectKey{Name: d.destination.Spec.StateStoreRef.Name},
-				&v1alpha1.BucketStateStore{},
-			),
-		)
+func (d *destinationReconcileContext) stateStoreUnavailable(reason string, err error) (ctrl.Result, error) {
+	ref := d.destination.Spec.StateStoreRef
+	message := fmt.Sprintf("%s/%s", ref.Kind, ref.Name)
+	d.logAndRecordEvent(err, message)
+	if statusErr := d.setNotReadyStatus(reason, fmt.Sprintf("%s: %s", message, err.Error())); statusErr != nil {
+		return ctrl.Result{}, statusErr
 	}
-	return false
+	return defaultRequeue, nil
+}
+
+// stateStoreExists treats a store that is being deleted as gone, so nothing
+// new is written to it.
+func stateStoreExists(ctx context.Context, c client.Client, ref *v1alpha1.StateStoreReference) (bool, error) {
+	var store client.Object
+	switch ref.Kind {
+	case "GitStateStore":
+		store = &v1alpha1.GitStateStore{}
+	case "BucketStateStore":
+		store = &v1alpha1.BucketStateStore{}
+	default:
+		return false, nil
+	}
+
+	if err := c.Get(ctx, client.ObjectKey{Name: ref.Name}, store); err != nil {
+		if k8serrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return store.GetDeletionTimestamp().IsZero(), nil
 }

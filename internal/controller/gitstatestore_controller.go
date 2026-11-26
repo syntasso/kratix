@@ -24,6 +24,7 @@ import (
 	"github.com/syntasso/kratix/internal/logging"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -76,7 +77,11 @@ func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logge
 	gitStateStore := &v1alpha1.GitStateStore{}
 	if err := r.Get(ctx, client.ObjectKey{Name: req.Name}, gitStateStore); err != nil {
 		if errors.IsNotFound(err) {
-			return nil, nil
+			// Without this, Destinations and WorkPlacements keep using the
+			// cached writer of a store that no longer exists.
+			deleted := &v1alpha1.GitStateStore{ObjectMeta: metav1.ObjectMeta{Name: req.Name}}
+			deleted.GetObjectKind().SetGroupVersionKind(v1alpha1.GroupVersion.WithKind("GitStateStore"))
+			return nil, r.RepositoryCache.Cleanup(deleted)
 		}
 		return nil, NewInitialiseWriterError(err)
 	}

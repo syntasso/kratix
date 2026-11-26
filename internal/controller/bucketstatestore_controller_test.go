@@ -118,6 +118,56 @@ var _ = Describe("BucketStateStore Controller", func() {
 		updatedBucketStateStore = &v1alpha1.BucketStateStore{}
 	})
 
+	When("the BucketStateStore is deleted", func() {
+		var endpoints []string
+
+		BeforeEach(func() {
+			endpoints = nil
+			controller.SetNewS3Writer(
+				func(l logr.Logger, s v1alpha1.BucketStateStoreSpec, d string, c map[string][]byte) (writers.StateStoreWriter, error) {
+					endpoints = append(endpoints, s.Endpoint)
+					return fakeWriter, nil
+				},
+			)
+
+			Expect(fakeK8sClient.Create(ctx, bucketStateStore)).To(Succeed())
+			Expect(fakeK8sClient.Create(ctx, secret)).To(Succeed())
+			_, err := t.reconcileUntilCompletion(reconciler, bucketStateStore)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = repositoryCache.GetRepositoryByTypeAndName("BucketStateStore", bucketStateStore.GetName())
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Delete(ctx, bucketStateStore)).To(Succeed())
+			_, err = t.reconcileUntilCompletion(reconciler, bucketStateStore)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("removes the store from the cache", func() {
+			_, err := repositoryCache.GetRepositoryByTypeAndName("BucketStateStore", bucketStateStore.GetName())
+			Expect(err).To(MatchError(controller.ErrCacheMiss))
+		})
+
+		When("a BucketStateStore with the same name is created again", func() {
+			BeforeEach(func() {
+				recreated := &v1alpha1.BucketStateStore{
+					ObjectMeta: metav1.ObjectMeta{Name: bucketStateStore.GetName()},
+					Spec:       *bucketStateStore.Spec.DeepCopy(),
+				}
+				recreated.Spec.Endpoint = "localhost:4000"
+				Expect(fakeK8sClient.Create(ctx, recreated)).To(Succeed())
+
+				_, err := t.reconcileUntilCompletion(reconciler, recreated)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("uses the new settings", func() {
+				Expect(endpoints).To(Equal([]string{"localhost:3000", "localhost:4000"}))
+				_, err := repositoryCache.GetRepositoryByTypeAndName("BucketStateStore", bucketStateStore.GetName())
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+	})
+
 	When("the BucketStateStore does not exist", func() {
 		It("reconciles without error and does not requeue", func() {
 			result, err := t.reconcileUntilCompletion(reconciler, bucketStateStore)

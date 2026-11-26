@@ -279,6 +279,53 @@ var _ = Describe("WorkPlacementReconciler", func() {
 				Expect(counts).NotTo(HaveKey(telemetry.WorkPlacementWriteResultSuccess))
 			})
 
+			When("the state store is deleted while the repository cache still holds it", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Delete(ctx, &bucketStateStore)).To(Succeed())
+				})
+
+				It("does not write and reports the destination as not ready", func() {
+					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement, &opts{requeueExpected: true})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result.RequeueAfter).To(Equal(15 * time.Second))
+
+					Expect(recorder.delivered).To(BeEmpty())
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(0))
+
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					Expect(workPlacement.Status.Conditions).To(ContainElements(
+						SatisfyAll(
+							HaveField("Type", "WriteSucceeded"),
+							HaveField("Status", metav1.ConditionFalse),
+							HaveField("Reason", "DestinationNotReady"),
+							HaveField("Message", `Destination "test-destination" is not ready: BucketStateStore/test-state-store: not found`),
+						),
+						SatisfyAll(
+							HaveField("Type", "Ready"),
+							HaveField("Status", metav1.ConditionFalse),
+							HaveField("Reason", "DestinationNotReady"),
+						),
+					))
+				})
+
+				It("does not remove files when the work placement is deleted", func() {
+					workPlacement.SetFinalizers([]string{
+						"finalizers.workplacement.kratix.io/repo-cleanup",
+						"finalizers.workplacement.kratix.io/kratix-dot-files-cleanup",
+					})
+					Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
+					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+
+					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&workPlacement)})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result.RequeueAfter).To(Equal(15 * time.Second))
+
+					Expect(recorder.delivered).To(BeEmpty())
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+					Expect(workPlacement.GetFinalizers()).To(HaveLen(2))
+				})
+			})
+
 			When("the work placement is deleted before its first successful write", func() {
 				It("cleans up without requiring the .kratix state file", func() {
 					_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
@@ -1188,6 +1235,7 @@ files:
 			bucket.objects[dir+"nested/file2.yaml"] = []byte("b: 2")
 			bucket.objects["test-path/other/keep.yaml"] = []byte("c: 3")
 
+			createBucketStateStore("test-state-store")
 			destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
 			destination.Spec.StateStoreRef.Kind = "BucketStateStore"
 			destination.Spec.StateStoreRef.Name = "test-state-store"
@@ -1241,6 +1289,7 @@ files:
 
 		BeforeEach(func() {
 			reconciler.StateStoreReconciliationInterval = 7 * time.Minute
+			createBucketStateStore("test-state-store")
 			destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
 			destination.Spec.StateStoreRef.Kind = "BucketStateStore"
 			destination.Spec.StateStoreRef.Name = "test-state-store"
@@ -1372,6 +1421,7 @@ files:
 			}
 			repositoryCache.GetRepositoryByTypeAndNameReturns(&controller.Repository{Writer: deferredWriter}, nil)
 
+			createBucketStateStore("test-state-store")
 			destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
 			destination.Spec.StateStoreRef.Kind = "BucketStateStore"
 			destination.Spec.StateStoreRef.Name = "test-state-store"
@@ -2901,6 +2951,13 @@ func (f *fakeDeferredWriter) WriteCanary(context.Context, string, []v1alpha1.Wor
 
 func (f *fakeDeferredWriter) RemoveCanary(context.Context, string, []string) error {
 	return nil
+}
+
+func createBucketStateStore(name string) {
+	Expect(fakeK8sClient.Create(ctx, &v1alpha1.BucketStateStore{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec:       v1alpha1.BucketStateStoreSpec{BucketName: "test-bucket"},
+	})).To(Succeed())
 }
 
 func setupGitDestination(gitStateStore *v1alpha1.GitStateStore, destination *v1alpha1.Destination) {
