@@ -116,6 +116,103 @@ var _ = Describe("GitStateStore Controller", func() {
 		updatedGitStateStore = &v1alpha1.GitStateStore{}
 	})
 
+	When("the GitStateStore is deleted", func() {
+		var (
+			repositoryCache controller.RepositoryCache
+			repoDir         string
+			writerURLs      []string
+		)
+
+		BeforeEach(func() {
+			repositoryCache = controller.NewRepositoryCache()
+			reconciler.RepositoryCache = repositoryCache
+
+			repoDir = GinkgoT().TempDir()
+			fakeWriter.InitReturns(repoDir, nil)
+
+			writerURLs = nil
+			controller.SetNewGitWriter(
+				func(l logr.Logger, s v1alpha1.GitStateStoreSpec, d string, c map[string][]byte) (writers.StateStoreWriter, error) {
+					writerURLs = append(writerURLs, s.URL)
+					return fakeWriter, nil
+				},
+			)
+
+			Expect(fakeK8sClient.Create(ctx, gitStateStore)).To(Succeed())
+			Expect(fakeK8sClient.Create(ctx, secret)).To(Succeed())
+			_, err := t.reconcileUntilCompletion(reconciler, gitStateStore)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = repositoryCache.GetRepositoryByTypeAndName("GitStateStore", gitStateStore.GetName())
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Delete(ctx, gitStateStore)).To(Succeed())
+			_, err = t.reconcileUntilCompletion(reconciler, gitStateStore)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("removes the store from the cache and deletes the local clone", func() {
+			_, err := repositoryCache.GetRepositoryByTypeAndName("GitStateStore", gitStateStore.GetName())
+			Expect(err).To(MatchError(controller.ErrCacheMiss))
+			Expect(repoDir).NotTo(BeAnExistingFile())
+		})
+
+		When("a GitStateStore with the same name is created again", func() {
+			BeforeEach(func() {
+				recreated := &v1alpha1.GitStateStore{
+					ObjectMeta: metav1.ObjectMeta{Name: gitStateStore.GetName()},
+					Spec:       *gitStateStore.Spec.DeepCopy(),
+				}
+				recreated.Spec.URL = "localhost:4000"
+				Expect(fakeK8sClient.Create(ctx, recreated)).To(Succeed())
+
+				_, err := t.reconcileUntilCompletion(reconciler, recreated)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("uses the new settings", func() {
+				Expect(writerURLs).To(Equal([]string{"localhost:3000", "localhost:4000"}))
+				_, err := repositoryCache.GetRepositoryByTypeAndName("GitStateStore", gitStateStore.GetName())
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+	})
+
+	When("the GitStateStore is deleted and created again before the deletion is reconciled", func() {
+		var writerURLs []string
+
+		BeforeEach(func() {
+			writerURLs = nil
+			controller.SetNewGitWriter(
+				func(l logr.Logger, s v1alpha1.GitStateStoreSpec, d string, c map[string][]byte) (writers.StateStoreWriter, error) {
+					writerURLs = append(writerURLs, s.URL)
+					return fakeWriter, nil
+				},
+			)
+
+			// The fake client does not set generation, so set it as the API server would.
+			gitStateStore.Generation = 1
+			Expect(fakeK8sClient.Create(ctx, gitStateStore)).To(Succeed())
+			Expect(fakeK8sClient.Create(ctx, secret)).To(Succeed())
+			_, err := t.reconcileUntilCompletion(reconciler, gitStateStore)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Delete(ctx, gitStateStore)).To(Succeed())
+			recreated := &v1alpha1.GitStateStore{
+				ObjectMeta: metav1.ObjectMeta{Name: gitStateStore.GetName(), Generation: 1},
+				Spec:       *gitStateStore.Spec.DeepCopy(),
+			}
+			recreated.Spec.URL = "localhost:4000"
+			Expect(fakeK8sClient.Create(ctx, recreated)).To(Succeed())
+
+			_, err = t.reconcileUntilCompletion(reconciler, recreated)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("uses the new settings", func() {
+			Expect(writerURLs).To(Equal([]string{"localhost:3000", "localhost:4000"}))
+		})
+	})
+
 	When("the GitStateStore does not exist", func() {
 		It("reconciles without error and does not requeue", func() {
 			result, err := t.reconcileUntilCompletion(reconciler, gitStateStore)

@@ -377,6 +377,34 @@ var _ = Describe("DestinationReconciler", func() {
 					})
 				})
 
+				When("the state store is deleted while its repository cache still exists", func() {
+					var writesBeforeDelete int
+
+					BeforeEach(func() {
+						result, reconcileErr = t.reconcileUntilCompletion(reconciler, testDestination)
+						Expect(reconcileErr).NotTo(HaveOccurred())
+						writesBeforeDelete = fakeWriter.UpdateFilesCallCount()
+
+						Expect(fakeK8sClient.Delete(ctx, stateStore)).To(Succeed())
+					})
+
+					It("marks the destination as not ready and requeues", func() {
+						Expect(reconcileErr).To(MatchError(ContainSubstring("reconcile loop detected")))
+						Expect(result).To(Equal(ctrl.Result{RequeueAfter: time.Second * 15}))
+						Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
+							HaveField("Type", "Ready"),
+							HaveField("Message", fmt.Sprintf("%s/%s: not found", stateStoreKind, stateStore.GetName())),
+							HaveField("Reason", "StateStoreNotFound"),
+							HaveField("Status", metav1.ConditionFalse),
+						)))
+					})
+
+					It("does not write to the state store", func() {
+						Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(writesBeforeDelete))
+						Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(0))
+					})
+				})
+
 				Describe("cleanup mode", func() {
 					var workPlacement v1alpha1.WorkPlacement
 					BeforeEach(func() {
@@ -427,6 +455,32 @@ var _ = Describe("DestinationReconciler", func() {
 								workPlacementName, workloadsToDelete := fakeWriter.DeleteFilesArgsForCall(0)
 								Expect(workPlacementName).To(Equal("kratix-canary"))
 								Expect(workloadsToDelete).To(ConsistOf("test-path/kratix-canary-namespace.yaml", "test-path/kratix-canary-configmap.yaml"))
+							})
+						})
+
+						When("the destination is deleted after its state store is gone", func() {
+							BeforeEach(func() {
+								Expect(fakeK8sClient.Delete(ctx, stateStore)).To(Succeed())
+								Expect(fakeK8sClient.Delete(ctx, testDestination)).To(Succeed())
+							})
+
+							It("keeps the destination with its finalizer and reports the state store as not found", func() {
+								Expect(reconcileErr).To(MatchError(ContainSubstring("reconcile loop detected")))
+								Expect(result).To(Equal(ctrl.Result{RequeueAfter: time.Second * 15}))
+
+								Expect(fakeK8sClient.Get(ctx, testDestinationName, updatedDestination)).To(Succeed())
+								Expect(updatedDestination.DeletionTimestamp.IsZero()).To(BeFalse())
+								Expect(updatedDestination.GetFinalizers()).To(ContainElement("kratix.io/destination-cleanup"))
+								Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
+									HaveField("Type", "Ready"),
+									HaveField("Reason", "StateStoreNotFound"),
+									HaveField("Status", metav1.ConditionFalse),
+								)))
+							})
+
+							It("does not touch the state store or the workplacements", func() {
+								Expect(fakeWriter.DeleteFilesCallCount()).To(Equal(0))
+								Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &v1alpha1.WorkPlacement{})).To(Succeed())
 							})
 						})
 					})

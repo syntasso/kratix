@@ -231,6 +231,14 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 		return w.markDestinationNotReady(destinationReady.Message)
 	}
 
+	exists, err := stateStoreExists(w.ctx, w.client, w.destination.Spec.StateStoreRef)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !exists {
+		return w.stateStoreNotFound()
+	}
+
 	repo, err := w.repositoryCache.GetRepositoryByTypeAndName(
 		w.destination.Spec.StateStoreRef.Kind,
 		w.destination.Spec.StateStoreRef.Name,
@@ -280,6 +288,15 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 		return ctrl.Result{}, err
 	}
 	return w.recordDeliveryResult(repo.DeliveryMode, written)
+}
+
+func (w *workPlacementReconcileContext) stateStoreNotFound() (ctrl.Result, error) {
+	ref := w.destination.Spec.StateStoreRef
+	if !w.workPlacement.DeletionTimestamp.IsZero() {
+		logging.Warn(w.logger, "state store not found; cannot remove files", "stateStore", fmt.Sprintf("%s/%s", ref.Kind, ref.Name))
+		return defaultRequeue, nil
+	}
+	return w.markDestinationNotReady(fmt.Sprintf("%s/%s: not found", ref.Kind, ref.Name))
 }
 
 func (w *workPlacementReconcileContext) repositoryUnavailable(err error) (ctrl.Result, error) {

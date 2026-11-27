@@ -24,6 +24,7 @@ import (
 	"github.com/syntasso/kratix/internal/logging"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -72,7 +73,9 @@ func (r *BucketStateStoreReconciler) newReconcileContext(ctx context.Context, lo
 	bucketStateStore := &v1alpha1.BucketStateStore{}
 	if err := r.Get(ctx, client.ObjectKey{Name: req.Name}, bucketStateStore); err != nil {
 		if errors.IsNotFound(err) {
-			return nil, nil
+			deleted := &v1alpha1.BucketStateStore{ObjectMeta: metav1.ObjectMeta{Name: req.Name}}
+			deleted.GetObjectKind().SetGroupVersionKind(v1alpha1.GroupVersion.WithKind("BucketStateStore"))
+			return nil, r.RepositoryCache.Cleanup(deleted)
 		}
 		return nil, NewInitialiseWriterError(err)
 	}
