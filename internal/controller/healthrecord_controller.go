@@ -184,8 +184,9 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 	}
 
 	// Fire before the binding copy: once the resource is written, a retry no longer sees the change.
-	if initialHealthStatusState != healthRecord.Data.State {
-		r.fireEvent(healthRecord, resReq)
+	// Compare and report the resource's overall state, not the state of the one record that changed.
+	if newState := r.getInitialHealthStatusState(resReq); initialHealthStatusState != newState {
+		r.fireEvent(newState, resReq)
 	}
 
 	return syncResourceBindingHealth(ctx, r.Client, logger, promise.GetName(), resReq)
@@ -265,13 +266,13 @@ func (r *HealthRecordReconciler) getResourceRequest(
 }
 
 func (r *HealthRecordReconciler) fireEvent(
-	healthRecord *platformv1alpha1.HealthRecord,
+	state string,
 	resReq *unstructured.Unstructured,
 ) {
-	if healthRecord.Data.State != "healthy" && healthRecord.Data.State != "ready" {
-		r.EventRecorder.Eventf(resReq, nil, "Warning", "HealthRecord", "HealthRecord", "Health state is %s", healthRecord.Data.State)
+	if state != "healthy" && state != "ready" {
+		r.EventRecorder.Eventf(resReq, nil, "Warning", "HealthRecord", "HealthRecord", "Health state is %s", state)
 	} else {
-		r.EventRecorder.Eventf(resReq, nil, "Normal", "HealthRecord", "HealthRecord", "Health state is %s", healthRecord.Data.State)
+		r.EventRecorder.Eventf(resReq, nil, "Normal", "HealthRecord", "HealthRecord", "Health state is %s", state)
 	}
 }
 

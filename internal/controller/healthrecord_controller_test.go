@@ -280,6 +280,67 @@ var _ = Describe("HealthRecordController", func() {
 		)
 	})
 
+	When("one of several healthRecords changes without changing the overall state", func() {
+		var other *v1alpha1.HealthRecord
+
+		drainEvents := func() []string {
+			var events []string
+			for {
+				select {
+				case e := <-eventRecorder.Events:
+					events = append(events, e)
+				default:
+					return events
+				}
+			}
+		}
+
+		setState := func(record *v1alpha1.HealthRecord, state string) {
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(record), record)).To(Succeed())
+			record.Data.State = state
+			Expect(fakeK8sClient.Update(ctx, record)).To(Succeed())
+		}
+
+		BeforeEach(func() {
+			other = &v1alpha1.HealthRecord{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: v1alpha1.GroupVersion.String(),
+					Kind:       "HealthRecord",
+				},
+				ObjectMeta: metav1.ObjectMeta{Name: "b-name", Namespace: "default"},
+				Data: v1alpha1.HealthRecordData{
+					PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
+					ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
+					State:       "unknown",
+					LastRun:     now,
+					Details:     details,
+				},
+			}
+			Expect(fakeK8sClient.Create(ctx, other)).To(Succeed())
+
+			setState(healthRecord, "unhealthy")
+			reconcile()
+			drainEvents()
+		})
+
+		It("does not fire an event, nor report the state of the changed record", func() {
+			setState(other, "healthy")
+			healthRecord = other
+			status := getResourceStatus(reconcile())
+
+			Expect(getHealthStatusState(status)).To(Equal("unhealthy"))
+			Expect(drainEvents()).To(BeEmpty())
+		})
+
+		It("reports the new overall state when it does change", func() {
+			setState(healthRecord, "healthy")
+			status := getResourceStatus(reconcile())
+
+			Expect(getHealthStatusState(status)).To(Equal("unknown"))
+			Expect(drainEvents()).To(ConsistOf(ContainSubstring("Warning HealthRecord Health state is unknown")))
+		})
+	})
+
 	When("the healthRecords for a resource are listed in an arbitrary order", func() {
 		createRecordForResource := func(namespace, name string) {
 			record := &v1alpha1.HealthRecord{
