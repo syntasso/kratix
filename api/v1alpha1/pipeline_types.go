@@ -133,7 +133,10 @@ type RBAC struct {
 
 // Permission defines an additional RBAC PolicyRule scoped to an optional namespace
 type Permission struct {
-	// Namespace in which this permission applies. Use "*" for all namespaces
+	// Namespace in which this permission applies. Use "*" for all namespaces.
+	// When empty, the permission is granted through a Role in the pipeline namespace.
+	// When set to "*", it is granted through a ClusterRole and ClusterRoleBinding, which
+	// is required for cluster-scoped resources (e.g. Destinations)
 	ResourceNamespace string `json:"resourceNamespace,omitempty"`
 	rbacv1.PolicyRule `json:",inline"`
 }
