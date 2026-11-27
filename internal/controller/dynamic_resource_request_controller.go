@@ -270,6 +270,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
+	if cleared, err := workflow.ClearFailedSuspension(jobOpts); cleared || err != nil {
+		return ctrl.Result{}, err
+	}
+
 	if passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(ctx, logger, rr,
 		pipelineResources); passiveRequeue || requeueResult != nil || err != nil {
 		if requeueResult != nil {
@@ -1337,6 +1341,10 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
 		jobOpts.SetAPIReader(r.APIReader)
 		if migrated, err := workflow.MigrateStatus(jobOpts); migrated || err != nil {
+			return ctrl.Result{}, err
+		}
+
+		if cleared, err := workflow.ClearFailedSuspension(jobOpts); cleared || err != nil {
 			return ctrl.Result{}, err
 		}
 
