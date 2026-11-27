@@ -73,8 +73,6 @@ func (r *BucketStateStoreReconciler) newReconcileContext(ctx context.Context, lo
 	bucketStateStore := &v1alpha1.BucketStateStore{}
 	if err := r.Get(ctx, client.ObjectKey{Name: req.Name}, bucketStateStore); err != nil {
 		if errors.IsNotFound(err) {
-			// Without this, Destinations and WorkPlacements keep using the
-			// cached writer of a store that no longer exists.
 			deleted := &v1alpha1.BucketStateStore{ObjectMeta: metav1.ObjectMeta{Name: req.Name}}
 			deleted.GetObjectKind().SetGroupVersionKind(v1alpha1.GroupVersion.WithKind("BucketStateStore"))
 			return nil, r.RepositoryCache.Cleanup(deleted)

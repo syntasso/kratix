@@ -142,8 +142,6 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 		return ctrl.Result{}, err
 	}
 	if !exists {
-		// The repository cache can still hold a deleted store for a short while,
-		// so a cache hit alone does not mean the store is usable.
 		return d.stateStoreUnavailable("StateStoreNotFound", errors.New("not found"))
 	}
 

@@ -377,7 +377,7 @@ var _ = Describe("DestinationReconciler", func() {
 					})
 				})
 
-				When("the state store is deleted while the repository cache still holds it", func() {
+				When("the state store is deleted while its repository cache still exists", func() {
 					var writesBeforeDelete int
 
 					BeforeEach(func() {
@@ -388,12 +388,9 @@ var _ = Describe("DestinationReconciler", func() {
 						Expect(fakeK8sClient.Delete(ctx, stateStore)).To(Succeed())
 					})
 
-					It("tries again later", func() {
+					It("marks the destination as not ready and requeues", func() {
 						Expect(reconcileErr).To(MatchError(ContainSubstring("reconcile loop detected")))
 						Expect(result).To(Equal(ctrl.Result{RequeueAfter: time.Second * 15}))
-					})
-
-					It("marks the destination as not ready because the state store is not found", func() {
 						Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
 							HaveField("Type", "Ready"),
 							HaveField("Message", fmt.Sprintf("%s/%s: not found", stateStoreKind, stateStore.GetName())),

@@ -290,9 +290,6 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 	return w.recordDeliveryResult(repo.DeliveryMode, written)
 }
 
-// stateStoreNotFound reports the store as the Destination will once it is
-// reconciled; the repository cache may still hold the deleted store, so
-// nothing is written or removed.
 func (w *workPlacementReconcileContext) stateStoreNotFound() (ctrl.Result, error) {
 	ref := w.destination.Spec.StateStoreRef
 	if !w.workPlacement.DeletionTimestamp.IsZero() {

@@ -77,8 +77,6 @@ func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logge
 	gitStateStore := &v1alpha1.GitStateStore{}
 	if err := r.Get(ctx, client.ObjectKey{Name: req.Name}, gitStateStore); err != nil {
 		if errors.IsNotFound(err) {
-			// Without this, Destinations and WorkPlacements keep using the
-			// cached writer of a store that no longer exists.
 			deleted := &v1alpha1.GitStateStore{ObjectMeta: metav1.ObjectMeta{Name: req.Name}}
 			deleted.GetObjectKind().SetGroupVersionKind(v1alpha1.GroupVersion.WithKind("GitStateStore"))
 			return nil, r.RepositoryCache.Cleanup(deleted)

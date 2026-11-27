@@ -279,7 +279,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 				Expect(counts).NotTo(HaveKey(telemetry.WorkPlacementWriteResultSuccess))
 			})
 
-			When("the state store is deleted while the repository cache still holds it", func() {
+			When("the state store is deleted while its repository cache still exists", func() {
 				BeforeEach(func() {
 					Expect(fakeK8sClient.Delete(ctx, &bucketStateStore)).To(Succeed())
 				})
